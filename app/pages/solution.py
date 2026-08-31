@@ -1,6 +1,6 @@
 """Lösung page: configure the objective, run the solver, show the positions as cards.
 
-Card headings stay German ("Herren" / "Damen"), and positions are labelled A-H, never 1-8 --
+Card headings come from i18n, and positions are labelled A-H, never 1-8 --
 the model treats them as interchangeable and a number invites a ranking that does not exist
 (SPEC.md 8, 10).
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import streamlit as st
 
 import common
-from dancepartner.i18n import de
+from dancepartner.i18n import t
 from dancepartner.model import Objective, PreferenceScope, Role, SolverConfig, WeightScheme
 from dancepartner.solver import InfeasibleInstanceError
 
@@ -24,80 +24,80 @@ left, middle, right = st.columns(3)
 
 with left:
     objective = st.selectbox(
-        de("ui.solve.objective"),
+        t("ui.solve.objective"),
         options=list(Objective),
         index=list(Objective).index(current.objective),
         format_func=common.objective_label,
-        help=de("help.objective"),
+        help=t("help.objective"),
     )
     weights = st.selectbox(
-        de("ui.solve.weights"),
+        t("ui.solve.weights"),
         options=list(WeightScheme),
         index=list(WeightScheme).index(current.weights),
         format_func=common.weights_label,
-        help=de("help.weights"),
+        help=t("help.weights"),
     )
 
 with middle:
     scope = st.selectbox(
-        de("ui.solve.scope"),
+        t("ui.solve.scope"),
         options=list(PreferenceScope),
         index=list(PreferenceScope).index(current.scope),
         format_func=common.scope_label,
-        help=de("help.scope"),
+        help=t("help.scope"),
     )
     # 0 is the UI spelling of "no hard vetoes at all", matching the CLI's --veto-tier 0.
     veto_tier = st.number_input(
-        de("ui.solve.veto_tier"),
+        t("ui.solve.veto_tier"),
         min_value=0,
         max_value=max(team.max_rank, 1),
         value=current.veto_tier or 0,
-        help=de("help.veto_tier"),
+        help=t("help.veto_tier"),
     )
     if veto_tier == 0:
-        st.caption(de("ui.solve.veto_none"))
+        st.caption(t("ui.solve.veto_none"))
 
 with right:
     top = st.number_input(
-        de("ui.solve.top"),
+        t("ui.solve.top"),
         min_value=1,
         max_value=200,
         value=current.max_solutions,
-        help=de("help.top"),
+        help=t("help.top"),
     )
     time_limit = st.number_input(
-        de("ui.solve.time_limit"),
+        t("ui.solve.time_limit"),
         min_value=1.0,
         max_value=600.0,
         value=float(current.max_time_in_seconds),
         step=1.0,
-        help=de("help.time_limit"),
+        help=t("help.time_limit"),
     )
 
-with st.expander(de("ui.solve.advanced")):
+with st.expander(t("ui.solve.advanced")):
     near_optimal = st.slider(
-        de("ui.solve.near_optimal"),
+        t("ui.solve.near_optimal"),
         min_value=0.5,
         max_value=1.0,
         value=float(current.near_optimal_ratio),
         step=0.01,
-        help=de("help.near_optimal"),
+        help=t("help.near_optimal"),
     )
     tier_slack = st.number_input(
-        de("ui.solve.tier_slack"),
+        t("ui.solve.tier_slack"),
         min_value=0,
         max_value=10,
         value=current.tier_slack,
-        help=de("help.tier_slack"),
+        help=t("help.tier_slack"),
         disabled=objective is not Objective.LEXICOGRAPHIC_TIERS,
     )
     normalize = st.checkbox(
-        de("ui.solve.normalize"), value=current.normalize_double, help=de("help.normalize")
+        t("ui.solve.normalize"), value=current.normalize_double, help=t("help.normalize")
     )
     prefer_coupled = st.checkbox(
-        de("ui.solve.prefer_coupled"),
+        t("ui.solve.prefer_coupled"),
         value=current.prefer_coupled,
-        help=de("help.prefer_coupled"),
+        help=t("help.prefer_coupled"),
     )
 
 config = SolverConfig(
@@ -116,13 +116,13 @@ common.set_config(config)
 
 # -- run -------------------------------------------------------------------------------------
 
-if st.button(de("ui.solve.run"), type="primary"):
+if st.button(t("ui.solve.run"), type="primary"):
     # The configured time limit is what keeps the UI from hanging (SPEC.md 10).
-    with st.spinner(de("solve.running")):
+    with st.spinner(t("solve.running")):
         try:
             common.set_result(common.cached_solve(team, config))
         except InfeasibleInstanceError as exc:
-            st.error(de("solve.infeasible_precheck"))
+            st.error(t("solve.infeasible_precheck"))
             common.show_issues(list(exc.issues))
             st.stop()
 
@@ -130,7 +130,7 @@ result = common.get_result()
 if result is None:
     st.stop()
 if not result.solutions:
-    st.error(de("solve.no_solution", status=result.status))
+    st.error(t("solve.no_solution", status=result.status))
     st.stop()
 
 best = result.best
@@ -139,26 +139,26 @@ best = result.best
 
 st.divider()
 st.caption(
-    de(
+    t(
         "solve.status",
         status=result.status,
         wall_time=result.wall_time,
         branches=result.num_branches,
     )
 )
-st.markdown(de("solve.scores", total=best.total_score, minimum=best.min_score))
-st.caption(de("solve.scale_note"))
+st.markdown(t("solve.scores", total=best.total_score, minimum=best.min_score))
+st.caption(t("solve.scale_note"))
 
 if result.truncated:
-    st.info(de("solve.solution_count_truncated", count=len(result.solutions)))
+    st.info(t("solve.solution_count_truncated", count=len(result.solutions)))
 else:
-    st.info(de("solve.solution_count", count=len(result.solutions)))
+    st.info(t("solve.solution_count", count=len(result.solutions)))
 if config.near_optimal_ratio < 1.0:
-    st.caption(de("solve.near_optimal", percent=config.near_optimal_ratio * 100))
+    st.caption(t("solve.near_optimal", percent=config.near_optimal_ratio * 100))
 
 # -- the cards ---------------------------------------------------------------------------------
 
-st.subheader(de("ui.solve.cards_header"))
+st.subheader(t("ui.solve.cards_header"))
 scores = [sat.score for sat in best.per_dancer.values()]
 worst, top_score = min(scores), max(scores)
 
@@ -167,10 +167,10 @@ for row_start in range(0, len(best.positions), 4):
         st.columns(4), best.positions[row_start : row_start + 4], strict=False
     ):
         with column, st.container(border=True):
-            heading = de("solve.position", label=position.label, doubled="").strip()
+            heading = t("solve.position", label=position.label, doubled="").strip()
             st.markdown(f"**{heading}**")
             if position.is_doubled:
-                st.markdown(f":violet-badge[{de('ui.solve.doubled_badge')}]")
+                st.markdown(f":violet-badge[{t('ui.solve.doubled_badge')}]")
 
             for role, ids in (
                 (Role.LEADER, position.leaders),
@@ -187,14 +187,14 @@ for row_start in range(0, len(best.positions), 4):
 
 # -- stages ------------------------------------------------------------------------------------
 
-with st.expander(de("ui.solve.stages_header")):
+with st.expander(t("ui.solve.stages_header")):
     st.dataframe(
         [
             {
-                de("ui.solve.col_stage"): stage.name,
-                de("ui.solve.col_sense"): common.sense_label(stage.sense.value),
-                de("ui.solve.col_value"): stage.value,
-                de("ui.solve.col_locked"): (
+                t("ui.solve.col_stage"): stage.name,
+                t("ui.solve.col_sense"): common.sense_label(stage.sense.value),
+                t("ui.solve.col_value"): stage.value,
+                t("ui.solve.col_locked"): (
                     stage.locked_at if stage.locked_at is not None else stage.value
                 ),
             }

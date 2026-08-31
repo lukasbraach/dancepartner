@@ -9,8 +9,11 @@ are about to touch; this file only lists the rules that bite fastest.
 
 * Code identifiers, comments, docstrings, commit messages, tests, log output, and the on-disk
   YAML/JSON vocabulary: **English**. No exceptions (SPEC §2).
-* All user-facing strings in the CLI and the Streamlit UI: **German**, routed through `i18n.py`
-  (English keys, German values). Never inline a German literal in a widget call or a `print`.
+* All user-facing strings in the CLI and the Streamlit UI: **bilingual — English (default) and
+  German** — routed through `i18n.py` (English keys, one value table per language, identical key
+  sets and placeholders). Selected by `DANCEPARTNER_LANG=en|de` (read once at import; Typer help
+  freezes then) or the UI sidebar toggle. Never inline a user-facing literal, in either language,
+  in a widget call or a `print`.
 
 ## Hard rules
 

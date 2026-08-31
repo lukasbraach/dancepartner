@@ -11,7 +11,7 @@ from __future__ import annotations
 import streamlit as st
 
 import common
-from dancepartner.i18n import de
+from dancepartner.i18n import t
 from dancepartner.reporting import (
     moved_dancers,
     positions_by_dancer,
@@ -27,7 +27,7 @@ config = common.get_config()
 
 solutions = result.solutions
 labels = [
-    de("solve.solution_heading", index=i + 1, count=len(solutions), marker="").strip()
+    t("solve.solution_heading", index=i + 1, count=len(solutions), marker="").strip()
     for i in range(len(solutions))
 ]
 
@@ -35,21 +35,21 @@ labels = [
 
 if len(solutions) > 1:
     index = st.selectbox(
-        de("ui.analysis.pick"),
+        t("ui.analysis.pick"),
         options=range(len(solutions)),
-        format_func=lambda i: labels[i] + (de("solve.solution_best") if i == 0 else ""),
+        format_func=lambda i: labels[i] + (t("solve.solution_best") if i == 0 else ""),
     )
 else:
     index = 0
 selected = solutions[index]
 
-st.markdown(de("solve.solution_scores", total=selected.total_score, minimum=selected.min_score))
-st.caption(de("solve.scale_note"))
+st.markdown(t("solve.solution_scores", total=selected.total_score, minimum=selected.min_score))
+st.caption(t("solve.scale_note"))
 
 # -- the satisfaction table ----------------------------------------------------------------
 
-st.subheader(de("ui.analysis.header"))
-st.caption(de("ui.analysis.hint"))
+st.subheader(t("ui.analysis.header"))
+st.caption(t("ui.analysis.hint"))
 
 rows = satisfaction_rows(selected, team)
 scores = [sat.score for _, _, sat in rows]
@@ -60,19 +60,19 @@ st.dataframe(
     [
         {
             "": common.score_badge(sat.score, worst, best_score),
-            de("table.col_name"): name,
-            de("ui.analysis.col_position"): places[dancer_id],
-            de("table.col_score"): sat.score,
-            de("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
-            de("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
+            t("table.col_name"): name,
+            t("ui.analysis.col_position"): places[dancer_id],
+            t("table.col_score"): sat.score,
+            t("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
+            t("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
         }
         for dancer_id, name, sat in rows
     ],
     hide_index=True,
     use_container_width=True,
     column_config={
-        de("table.col_score"): st.column_config.ProgressColumn(
-            de("table.col_score"),
+        t("table.col_score"): st.column_config.ProgressColumn(
+            t("table.col_score"),
             min_value=min(worst, 0),
             max_value=max(best_score, 1),
             format="%d",
@@ -82,30 +82,30 @@ st.dataframe(
 
 # -- the shortlist browser -----------------------------------------------------------------
 
-st.subheader(de("ui.analysis.shortlist_header"))
+st.subheader(t("ui.analysis.shortlist_header"))
 if result.truncated:
-    st.caption(de("solve.solution_count_truncated", count=len(solutions)))
+    st.caption(t("solve.solution_count_truncated", count=len(solutions)))
 else:
-    st.caption(de("solve.solution_count", count=len(solutions)))
+    st.caption(t("solve.solution_count", count=len(solutions)))
 
 if len(solutions) == 1:
-    st.info(de("ui.analysis.only_one"))
+    st.info(t("ui.analysis.only_one"))
 else:
     compared = st.selectbox(
-        de("ui.analysis.diff_header", index=index + 1),
+        t("ui.analysis.diff_header", index=index + 1),
         options=[i for i in range(len(solutions)) if i != index],
         format_func=lambda i: labels[i],
     )
     moved = moved_dancers(selected, solutions[compared], team)
     if not moved:
-        st.info(de("ui.analysis.diff_none"))
+        st.info(t("ui.analysis.diff_none"))
     else:
         st.dataframe(
             [
                 {
-                    de("table.col_name"): name,
-                    de("ui.analysis.col_from"): from_label,
-                    de("ui.analysis.col_to"): to_label,
+                    t("table.col_name"): name,
+                    t("ui.analysis.col_from"): from_label,
+                    t("ui.analysis.col_to"): to_label,
                 }
                 for name, from_label, to_label in moved
             ],
@@ -115,9 +115,9 @@ else:
 
 # -- one dancer in detail ------------------------------------------------------------------
 
-st.subheader(de("ui.analysis.detail_header"))
+st.subheader(t("ui.analysis.detail_header"))
 picked = st.selectbox(
-    de("ui.survey.pick"),
+    t("ui.survey.pick"),
     options=[dancer_id for dancer_id, _, _ in rows],
     format_func=lambda i: team.dancers_by_id[i].name,
 )
@@ -127,24 +127,24 @@ position = next(p for p in selected.positions if picked in (*p.leaders, *p.follo
 partners = [i for i in (*position.leaders, *position.followers) if i != picked]
 
 st.markdown(
-    de(
+    t(
         "explain.heading",
         name=dancer.name,
         role=common.role_label(dancer.role),
         label=position.label,
     )
 )
-st.markdown(de("explain.score", score=satisfaction.score).strip())
-st.markdown(de("explain.partners", names=common.names(team, partners)).strip())
+st.markdown(t("explain.score", score=satisfaction.score).strip())
+st.markdown(t("explain.partners", names=common.names(team, partners)).strip())
 
 if dancer.is_pole_position:
-    st.caption(de("explain.pole_position").strip())
+    st.caption(t("explain.pole_position").strip())
 if dancer.needs_coaching:
     same_role = [i for i in position.role_ids(dancer.role) if i != picked]
-    st.caption(de("explain.needs_coaching", names=common.names(team, same_role)).strip())
+    st.caption(t("explain.needs_coaching", names=common.names(team, same_role)).strip())
 
 if picked not in team.surveys_by_id:
-    st.caption(de("explain.no_survey").strip())
+    st.caption(t("explain.no_survey").strip())
 else:
     detail = {
         "explain.fulfilled": satisfaction.fulfilled_desired,
@@ -154,10 +154,10 @@ else:
     }
     for heading, tiers in detail.items():
         if tiers:
-            st.markdown(f"**{de(heading).strip()}** {common.tier_summary(team, tiers)}")
+            st.markdown(f"**{t(heading).strip()}** {common.tier_summary(team, tiers)}")
     if satisfaction.neutral_partners:
         st.caption(
-            de("explain.neutral", names=common.names(team, satisfaction.neutral_partners)).strip()
+            t("explain.neutral", names=common.names(team, satisfaction.neutral_partners)).strip()
         )
 
 # -- how stable is this dancer's position across the shortlist? ----------------------------
@@ -171,12 +171,12 @@ if len(solutions) > 1:
                 counts[other] = counts.get(other, 0) + 1
 
     if all(hits == len(solutions) for hits in counts.values()) and len(counts) == len(partners):
-        st.success(de("explain.across_stable", count=len(solutions)).strip())
+        st.success(t("explain.across_stable", count=len(solutions)).strip())
     else:
-        st.markdown(de("explain.across_header", count=len(solutions)).strip())
+        st.markdown(t("explain.across_header", count=len(solutions)).strip())
         for other, hits in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
             st.caption(
-                de(
+                t(
                     "explain.across_entry",
                     name=team.dancers_by_id[other].name,
                     hits=hits,

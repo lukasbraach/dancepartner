@@ -132,7 +132,7 @@ def dump_team(team: Team) -> str:
         Dumper=_TeamDumper,
         # sort_keys=False is the whole point: the key order above is the documented one.
         sort_keys=False,
-        allow_unicode=True,  # German names carry umlauts; escaping them ruins the diff
+        allow_unicode=True,  # names carry umlauts; escaping them ruins the diff
         default_flow_style=False,
         width=100,
         indent=2,

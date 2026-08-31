@@ -15,7 +15,7 @@ from typing import Final
 
 import streamlit as st
 
-from dancepartner.i18n import de
+from dancepartner.i18n import Language, get_language, set_language, t
 from dancepartner.model import (
     DEFAULT_N_POSITIONS,
     Dancer,
@@ -46,6 +46,21 @@ _PATH: Final = "team_path"
 _DIRTY: Final = "dirty"
 _RESULT: Final = "result"
 _CONFIG: Final = "config"
+LANGUAGE_KEY: Final = "language"
+
+
+def sync_language() -> None:
+    """Point the core i18n layer at the language chosen in this session.
+
+    The core language is a process-wide setting while the choice lives per browser session,
+    so Home.py calls this at the top of every rerun, before anything renders a label. A fresh
+    session is seeded from the environment-variable default (English when unset).
+    """
+    raw = st.session_state.get(LANGUAGE_KEY)
+    if not isinstance(raw, str):
+        raw = get_language().value
+        st.session_state[LANGUAGE_KEY] = raw
+    set_language(Language(raw))
 
 
 def get_team() -> Team | None:
@@ -110,19 +125,19 @@ def set_result(result: SolveResult) -> None:
 
 
 def require_team() -> Team:
-    """Return the loaded team, or stop the page with a German hint if there is none."""
+    """Return the loaded team, or stop the page with a localized hint if there is none."""
     team = get_team()
     if team is None:
-        st.info(de("ui.no_team"))
+        st.info(t("ui.no_team"))
         st.stop()
     return team
 
 
 def require_result() -> SolveResult:
-    """Return the current solve, or stop the page with a German hint if there is none."""
+    """Return the current solve, or stop the page with a localized hint if there is none."""
     result = get_result()
     if result is None or not result.solutions:
-        st.info(de("ui.no_solution_yet"))
+        st.info(t("ui.no_solution_yet"))
         st.stop()
     return result
 
@@ -153,25 +168,25 @@ def cached_solve(team: Team, config: SolverConfig) -> SolveResult:
 def names(team: Team, ids: list[str] | tuple[str, ...]) -> str:
     """Join dancer ids into a display string of names, or an em dash if there are none."""
     by_id = team.dancers_by_id
-    return ", ".join(by_id[i].name for i in ids) if ids else de("table.nothing")
+    return ", ".join(by_id[i].name for i in ids) if ids else t("table.nothing")
 
 
 def role_label(role: Role) -> str:
-    """The German singular for a role (Herr / Dame)."""
-    return de(f"role.{role.value}")
+    """The localized singular for a role."""
+    return t(f"role.{role.value}")
 
 
 def role_plural(role: Role) -> str:
-    """The German plural for a role (Herren / Damen)."""
-    return de(f"role.{role.value}.plural")
+    """The localized plural for a role."""
+    return t(f"role.{role.value}.plural")
 
 
 def tier_summary(team: Team, tiers: dict[int, list[str]]) -> str:
     """Render a ``rank -> ids`` mapping as ``Tier 1: A, B; Tier 2: C``."""
     if not tiers:
-        return de("table.nothing")
+        return t("table.nothing")
     return "; ".join(
-        de("explain.entry", rank=rank, names=names(team, ids)).strip()
+        t("explain.entry", rank=rank, names=names(team, ids)).strip()
         for rank, ids in sorted(tiers.items())
     )
 
@@ -197,30 +212,30 @@ def satisfaction_badges(satisfaction: DancerSatisfaction) -> str:
     fulfilled = sum(len(ids) for ids in satisfaction.fulfilled_desired.values())
     violated = sum(len(ids) for ids in satisfaction.violated_not_desired.values())
     if fulfilled:
-        parts.append(f":green-badge[{fulfilled} {de('ui.solve.fulfilled_badge')}]")
+        parts.append(f":green-badge[{fulfilled} {t('ui.solve.fulfilled_badge')}]")
     if violated:
-        parts.append(f":red-badge[{violated} {de('ui.solve.violated_badge')}]")
+        parts.append(f":red-badge[{violated} {t('ui.solve.violated_badge')}]")
     return " ".join(parts)
 
 
 def objective_label(objective: Objective) -> str:
-    """German label for an objective."""
-    return de(f"ui.objective.{objective.value}")
+    """Localized label for an objective."""
+    return t(f"ui.objective.{objective.value}")
 
 
 def weights_label(scheme: WeightScheme) -> str:
-    """German label for a tier weight scheme."""
-    return de(f"ui.weights.{scheme.value}")
+    """Localized label for a tier weight scheme."""
+    return t(f"ui.weights.{scheme.value}")
 
 
 def scope_label(scope: PreferenceScope) -> str:
-    """German label for a preference scope."""
-    return de(f"ui.scope.{scope.value}")
+    """Localized label for a preference scope."""
+    return t(f"ui.scope.{scope.value}")
 
 
 def sense_label(sense: str) -> str:
-    """German label for an objective stage direction."""
-    return de(f"solve.sense.{sense}")
+    """Localized label for an objective stage direction."""
+    return t(f"solve.sense.{sense}")
 
 
 # -- tiers ---------------------------------------------------------------------------------
@@ -269,13 +284,13 @@ def with_survey(team: Team, dancer_id: str, survey: Survey | None) -> Team:
 
 
 def show_issues(issues: list[object]) -> None:
-    """Render feasibility issues. ``message_de`` is already German -- just print it."""
+    """Render feasibility issues. ``message`` is already localized -- just print it."""
     for issue in issues:
-        message = getattr(issue, "message_de", "")
+        message = getattr(issue, "message", "")
         involved = getattr(issue, "involved_ids", ())
         team = get_team()
         if involved and team is not None:
-            message = f"{message}\n\n_{de('ui.feasibility.involved', names=names(team, involved))}_"
+            message = f"{message}\n\n_{t('ui.feasibility.involved', names=names(team, involved))}_"
         st.error(message)
 
 
@@ -300,8 +315,8 @@ def empty_team(n_positions: int = DEFAULT_N_POSITIONS) -> Team:
 
 def page_header(title_key: str, subtitle_key: str | None = None) -> None:
     """Standard page heading, plus the unsaved-changes warning when one is pending."""
-    st.title(de(title_key))
+    st.title(t(title_key))
     if subtitle_key:
-        st.caption(de(subtitle_key))
+        st.caption(t(subtitle_key))
     if is_dirty():
-        st.warning(de("ui.unsaved"), icon="⚠️")
+        st.warning(t("ui.unsaved"), icon="⚠️")

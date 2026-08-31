@@ -73,7 +73,6 @@ addopts = "-q"
 
 [tool.coverage.run]
 source = ["src/dancepartner"]
-omit = ["src/dancepartner/i18n.py"]
 
 [tool.coverage.report]
 exclude_lines = [

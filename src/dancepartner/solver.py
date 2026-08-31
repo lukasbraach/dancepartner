@@ -77,9 +77,9 @@ class InfeasibleInstanceError(ValueError):
     """The counting pre-checks rejected the instance before the solver ran."""
 
     def __init__(self, issues: list[FeasibilityIssue]) -> None:
-        """Store the issues and build a German-carrying English exception message."""
+        """Store the issues and build an English exception message carrying them."""
         self.issues = issues
-        joined = "; ".join(f"[{issue.code}] {issue.message_de}" for issue in issues)
+        joined = "; ".join(f"[{issue.code}] {issue.message}" for issue in issues)
         super().__init__(f"instance is infeasible by counting: {joined}")
 
 

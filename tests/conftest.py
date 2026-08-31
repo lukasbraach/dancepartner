@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
-import pytest
+# The suite asserts English output, and Typer help texts resolve against DANCEPARTNER_LANG at
+# import time -- so pin the variable before anything imports dancepartner.cli.
+os.environ["DANCEPARTNER_LANG"] = "en"
 
-from dancepartner.model import Team
+import pytest  # noqa: E402
 
-from .builders import roster
+from dancepartner.i18n import Language, set_language  # noqa: E402
+from dancepartner.model import Team  # noqa: E402
+
+from .builders import roster  # noqa: E402
 
 # `streamlit run app/Home.py` puts the entry script's directory on sys.path, which is how the
 # pages import `common`. AppTest loading a page file directly does not, so the UI tests would
@@ -17,6 +24,21 @@ from .builders import roster
 _APP = Path(__file__).resolve().parents[1] / "app"
 if str(_APP) not in sys.path:
     sys.path.insert(0, str(_APP))
+
+
+@pytest.fixture(autouse=True)
+def _english_default() -> Iterator[None]:
+    """Reset the active language after every test, so a language switch cannot leak."""
+    yield
+    set_language(Language.EN)
+
+
+@pytest.fixture
+def german() -> Iterator[None]:
+    """Run the test body in German."""
+    set_language(Language.DE)
+    yield
+    set_language(Language.EN)
 
 
 @pytest.fixture

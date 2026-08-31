@@ -162,7 +162,7 @@ def test_infeasible_instance_is_rejected_before_the_solver_runs() -> None:
     with pytest.raises(InfeasibleInstanceError) as excinfo:
         solve(instance)
     assert excinfo.value.issues[0].code == "ROLE_COUNT_OUT_OF_RANGE"
-    assert "Positionen" in str(excinfo.value)
+    assert "positions" in str(excinfo.value)
 
 
 def test_skip_precheck_hands_the_instance_to_cp_sat() -> None:

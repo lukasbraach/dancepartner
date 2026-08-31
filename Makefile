@@ -1,5 +1,6 @@
-# Developer entry points. English, like everything else about the code -- the German-only rule
-# covers what the coach reads in the UI and the CLI, not the tooling (SPEC.md 2).
+# Developer entry points. English, like everything else about the code -- the i18n rule covers
+# what the coach reads in the UI and the CLI (English default, German opt-in), not the tooling
+# (SPEC.md 2).
 #
 # The UI needs the `ui` extra; `dev` installs it too, so `make install` covers both.
 
@@ -14,6 +15,7 @@ DP      := $(VENV)/bin/dancepartner
 TEAM    ?= data/team.example.yaml
 DANCER  ?= lukas-b
 PORT    ?= 8501
+DP_LANG ?= en
 
 .DEFAULT_GOAL := help
 .PHONY: help ui venv install fmt lint typecheck test cov check cli clean
@@ -22,7 +24,7 @@ help:  ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk -F':.*?## ' '{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
 	@echo
-	@echo "  Variables:  TEAM=$(TEAM)  DANCER=$(DANCER)  PORT=$(PORT)"
+	@echo "  Variables:  TEAM=$(TEAM)  DANCER=$(DANCER)  PORT=$(PORT)  DP_LANG=$(DP_LANG)"
 
 ## -- the UI ------------------------------------------------------------------------------
 
@@ -34,7 +36,7 @@ ui: $(VENV)  ## Start the Streamlit UI (make ui PORT=8600)
 	@echo "Starting on http://localhost:$(PORT) -- Ctrl-C to stop."
 	@# Run from the repository root: Home.py is the entry script, so Streamlit puts app/ on
 	@# sys.path, which is how the pages import `common`.
-	$(VENV)/bin/streamlit run app/Home.py --server.port $(PORT)
+	DANCEPARTNER_LANG=$(DP_LANG) $(VENV)/bin/streamlit run app/Home.py --server.port $(PORT)
 
 ## -- environment -------------------------------------------------------------------------
 
@@ -71,9 +73,10 @@ check: lint typecheck cov cli  ## Everything CI runs
 ## -- the CLI, as a smoke test -------------------------------------------------------------
 
 cli: ## Run check/solve/explain against $(TEAM) (set DANCER for a different team)
-	$(DP) check $(TEAM)
-	$(DP) solve $(TEAM) --json /tmp/dancepartner-out.json
-	$(DP) explain $(TEAM) /tmp/dancepartner-out.json --dancer $(DANCER)
+	DANCEPARTNER_LANG=$(DP_LANG) $(DP) check $(TEAM)
+	DANCEPARTNER_LANG=$(DP_LANG) $(DP) solve $(TEAM) --json /tmp/dancepartner-out.json
+	DANCEPARTNER_LANG=$(DP_LANG) $(DP) explain $(TEAM) /tmp/dancepartner-out.json --dancer $(DANCER)
+	DANCEPARTNER_LANG=de $(DP) check $(TEAM)
 
 clean: ## Remove caches and build artefacts
 	rm -rf .mypy_cache .pytest_cache .ruff_cache .coverage htmlcov dist build

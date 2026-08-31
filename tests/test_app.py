@@ -16,7 +16,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import Multiselect
 
-from dancepartner.i18n import STRINGS, de
+from dancepartner.i18n import TABLES, Language, t
 from dancepartner.model import Objective, Role, Team
 from dancepartner.storage import dump_team, load_team
 
@@ -44,7 +44,7 @@ def loaded(page: str, *, team: Team | None = None) -> AppTest:
 
 
 def texts(at: AppTest) -> str:
-    """Everything the page rendered as text, for German-substring assertions."""
+    """Everything the page rendered as text, for substring assertions."""
     parts = [element.value for element in at.markdown]
     parts += [element.value for element in at.caption]
     parts += [element.value for element in at.info]
@@ -79,15 +79,15 @@ PAGES = [
 def test_home_renders_without_a_team() -> None:
     at = app().run()
     assert not at.exception
-    assert de("ui.load.header") in texts(at)
+    assert t("ui.load.header") in texts(at)
 
 
 @pytest.mark.parametrize("page", PAGES)
 def test_every_page_renders_without_a_team(page: str) -> None:
-    # Without a team the pages must stop with a German hint, not raise.
+    # Without a team the pages must stop with a localized hint, not raise.
     at = app(str(REPO_ROOT / page)).run()
     assert not at.exception
-    assert de("ui.no_team") in texts(at)
+    assert t("ui.no_team") in texts(at)
 
 
 @pytest.mark.parametrize("page", ["app/pages/team.py", "app/pages/survey.py"])
@@ -99,7 +99,7 @@ def test_editing_pages_render_with_a_team(page: str) -> None:
 def test_solution_and_analysis_ask_for_a_solve_first() -> None:
     at = loaded(str(REPO_ROOT / "app" / "pages" / "analysis.py")).run()
     assert not at.exception
-    assert de("ui.no_solution_yet") in texts(at)
+    assert t("ui.no_solution_yet") in texts(at)
 
 
 # -- Home: loading ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ def test_solution_and_analysis_ask_for_a_solve_first() -> None:
 
 def test_home_loads_the_example_team() -> None:
     at = app().run()
-    at.button[1].click().run()  # "Beispielteam laden"
+    at.button[1].click().run()  # "Load example team"
     assert not at.exception
 
     team = at.session_state["team"]
@@ -115,43 +115,43 @@ def test_home_loads_the_example_team() -> None:
     assert len(team.dancers) == 20
     # Freshly loaded matches the file, so there is nothing to warn about.
     assert at.session_state["dirty"] is False
-    assert de("ui.unsaved") not in texts(at)
+    assert t("ui.unsaved") not in texts(at)
 
 
-def test_home_reports_a_missing_file_in_german() -> None:
+def test_home_reports_a_missing_file() -> None:
     at = app().run()
     at.text_input[0].set_value("/nope/missing.yaml").run()
     at.button[0].click().run()
     assert not at.exception
-    assert "nicht gefunden" in texts(at)
+    assert "not found" in texts(at)
 
 
-def test_home_reports_a_broken_team_file_in_german(tmp_path: Path) -> None:
+def test_home_reports_a_broken_team_file(tmp_path: Path) -> None:
     broken = tmp_path / "broken.yaml"
     broken.write_text("n_positions: 8\ndancers: [{id: a}]\n", encoding="utf-8")
     at = app().run()
     at.text_input[0].set_value(str(broken)).run()
     at.button[0].click().run()
     assert not at.exception
-    assert "ungültig" in texts(at) or "Aufbau" in texts(at)
+    assert "invalid" in texts(at) or "structure" in texts(at)
 
 
 def test_home_shows_the_feasibility_verdict_for_a_solvable_team() -> None:
     at = loaded(HOME).run()
     assert not at.exception
     rendered = texts(at)
-    assert de("check.ok") in rendered
+    assert t("check.ok") in rendered
     # The caveat must travel with the verdict: passing the counting checks is not a proof.
-    assert de("check.caveat") in rendered
+    assert t("check.caveat") in rendered
 
 
-def test_home_reports_counting_obstructions_in_german() -> None:
+def test_home_reports_counting_obstructions() -> None:
     # 3 leaders on 8 positions: every position needs at least one, so this cannot work.
     impossible = Team(dancers=roster(3, 12), n_positions=8)
     at = loaded(HOME, team=impossible).run()
     assert not at.exception
-    assert "Position" in texts(at)
-    assert de("check.ok") not in texts(at)
+    assert "positions" in texts(at)
+    assert t("check.ok") not in texts(at)
 
 
 def test_home_saves_only_when_asked(tmp_path: Path) -> None:
@@ -170,9 +170,9 @@ def test_home_saves_only_when_asked(tmp_path: Path) -> None:
 # -- Team page --------------------------------------------------------------------------------
 
 
-def test_team_page_rejects_two_mutually_exclusive_flags_in_german() -> None:
-    # Startanspruch and Coachingbedarf on one dancer: the model forbids the combination, and
-    # the page must say so in German rather than surfacing pydantic's English.
+def test_team_page_rejects_two_mutually_exclusive_flags() -> None:
+    # Pole position and coaching need on one dancer: the model forbids the combination, and
+    # the page must say so through i18n rather than surfacing pydantic's raw message.
     at = loaded(str(REPO_ROOT / "app" / "pages" / "team.py")).run()
     assert not at.exception
 
@@ -180,20 +180,20 @@ def test_team_page_rejects_two_mutually_exclusive_flags_in_german() -> None:
     at.session_state["team_editor"] = {
         "edited_rows": {
             0: {
-                de("ui.team.col_pole_position"): True,
-                de("ui.team.col_coaching"): True,
+                t("ui.team.col_pole_position"): True,
+                t("ui.team.col_coaching"): True,
             }
         },
         "added_rows": [],
         "deleted_rows": [],
     }
-    apply_button = next(b for b in at.button if b.label == de("ui.team.apply"))
+    apply_button = next(b for b in at.button if b.label == t("ui.team.apply"))
     apply_button.click().run()
 
     assert not at.exception
     rendered = texts(at)
-    assert "schließen sich" in rendered, rendered
-    assert "validation error" not in rendered.lower(), "pydantic's English must not leak"
+    assert "mutually exclusive" in rendered, rendered
+    assert "validation error" not in rendered.lower(), "pydantic's raw message must not leak"
     # Nothing was written: the working team still has the flags it had.
     assert at.session_state["team"].dancers[0].is_pole_position is False
 
@@ -202,7 +202,7 @@ def test_team_page_hint_names_the_ordering_rule() -> None:
     at = loaded(str(REPO_ROOT / "app" / "pages" / "team.py")).run()
     # Roster order is load-bearing -- symmetry breaking numbers positions by leader index --
     # so the page has to say so.
-    assert de("ui.team.hint") in texts(at)
+    assert t("ui.team.hint") in texts(at)
 
 
 # -- Umfrage page -----------------------------------------------------------------------------
@@ -221,9 +221,9 @@ def test_survey_page_flags_a_dancer_named_in_both_directions() -> None:
     _tier_widgets(at, "marie-g")[1].set_value([target]).run()
 
     assert not at.exception
-    assert "gleichzeitig" in texts(at)
+    assert "both desired and not-desired" in texts(at)
     # The page refuses to write a survey it knows the model would reject.
-    apply_button = next(b for b in at.button if b.label == de("ui.survey.apply"))
+    apply_button = next(b for b in at.button if b.label == t("ui.survey.apply"))
     assert apply_button.disabled
 
 
@@ -294,7 +294,7 @@ def test_analysis_lists_the_unhappiest_dancer_first() -> None:
 
     result = at.session_state["result"]
     table = at.dataframe[0].value
-    scores = list(table[de("table.col_score")])
+    scores = list(table[t("table.col_score")])
     assert scores == sorted(scores), "the table must ascend -- unhappiest first"
     assert scores[0] == result.best.min_score
     assert len(scores) == len(at.session_state["team"].dancers)
@@ -306,11 +306,11 @@ def test_analysis_diffs_two_shortlist_entries_by_position_label() -> None:
     if len(result.solutions) < 2:
         pytest.skip("the example team produced a single optimum under this configuration")
 
-    assert de("ui.analysis.shortlist_header") in texts(at)
+    assert t("ui.analysis.shortlist_header") in texts(at)
     # The diff table names both labels; A-H, never a number.
     diff = at.dataframe[-1].value
-    moved_from = list(diff[de("ui.analysis.col_from")])
-    moved_to = list(diff[de("ui.analysis.col_to")])
+    moved_from = list(diff[t("ui.analysis.col_from")])
+    moved_to = list(diff[t("ui.analysis.col_to")])
     assert moved_from, "two distinct optima must differ somewhere"
     labels = set(at.session_state["team"].labels)
     for before, after in zip(moved_from, moved_to, strict=True):
@@ -335,17 +335,34 @@ def test_the_ui_inlines_no_german_literal() -> None:
 
 def test_every_ui_key_is_actually_used() -> None:
     source = "\n".join(p.read_text(encoding="utf-8") for p in (REPO_ROOT / "app").rglob("*.py"))
-    # The pages quote keys both ways: de("x") normally, de('x') inside an f-string.
+    # The pages quote keys both ways: t("x") normally, t('x') inside an f-string.
     dynamic = ("ui.objective.", "ui.weights.", "ui.scope.")
     unused = [
         key
-        for key in STRINGS
+        for key in TABLES[Language.EN]
         if key.startswith(("ui.", "nav."))
         and not key.startswith(dynamic)
         and f'"{key}"' not in source
         and f"'{key}'" not in source
     ]
     assert unused == [], f"defined but never rendered: {unused}"
+
+
+def test_a_fresh_session_speaks_english() -> None:
+    at = app().run()
+    assert not at.exception
+    assert at.session_state["language"] == "en"
+    assert TABLES[Language.EN]["ui.subtitle"] in texts(at)
+
+
+def test_the_sidebar_toggle_switches_the_ui_to_german() -> None:
+    at = app()
+    at.session_state["language"] = "de"
+    at.run()
+    assert not at.exception
+    rendered = texts(at)
+    assert TABLES[Language.DE]["ui.subtitle"] in rendered
+    assert TABLES[Language.EN]["ui.subtitle"] not in rendered
 
 
 def test_the_core_never_imports_streamlit() -> None:

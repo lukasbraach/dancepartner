@@ -40,12 +40,19 @@ def test_role_count_range(
     assert codes(team(n_leaders, n_followers, n_positions)) == expected
 
 
-def test_role_count_message_is_german() -> None:
+def test_role_count_message_is_rendered() -> None:
     broken = Team(dancers=roster(2, 3), n_positions=3)
     issue = check_feasibility(broken)[0]
     assert issue.code == "ROLE_COUNT_OUT_OF_RANGE"
-    assert "Positionen" in issue.message_de
+    assert "positions" in issue.message
     assert issue.involved_ids == ("led0", "led1")
+
+
+def test_messages_render_in_the_active_language(german: None) -> None:
+    broken = Team(dancers=roster(2, 3), n_positions=3)
+    issue = check_feasibility(broken)[0]
+    assert "Positionen" in issue.message
+    assert "Herren" in issue.message
 
 
 # -- Startanspruch -----------------------------------------------------------------------
@@ -72,7 +79,7 @@ def test_pole_position_is_checked_per_role() -> None:
     flags = {f"fol{i}": {"is_pole_position": True} for i in range(7)}
     issues = check_feasibility(team(10, 10, 8, **flags))
     assert [i.code for i in issues] == ["TOO_MANY_POLE_POSITION"]
-    assert "Damen" in issues[0].message_de
+    assert "Followers" in issues[0].message
 
 
 # -- Coachingbedarf ----------------------------------------------------------------------
@@ -129,7 +136,7 @@ def test_veto_all_cross_role_is_infeasible() -> None:
     issues = check_feasibility(instance)
     assert "VETO_ALL_CROSS_ROLE" in [i.code for i in issues]
     assert issues[0].involved_ids == ("led0",)
-    assert "jede Position" in issues[0].message_de
+    assert "every position" in issues[0].message
 
 
 def test_veto_all_cross_role_is_not_reported_when_vetoes_are_off() -> None:

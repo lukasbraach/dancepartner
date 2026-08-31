@@ -1,41 +1,344 @@
-"""German user-facing strings for the CLI and the Streamlit UI.
+"""User-facing strings for the CLI and the Streamlit UI, in English and German.
 
-SPEC.md 2: all user-facing output is German and is routed through this module. Never inline a
-German literal in a widget call or a ``print``; add a key here instead. Everything *about* the
-code -- identifiers, comments, docstrings, log records, exception messages -- stays English.
+SPEC.md 2: all user-facing output is bilingual and routed through this module. Never inline a
+user-facing literal in a widget call or a ``print``; add a key to *both* tables instead.
+Everything *about* the code -- identifiers, comments, docstrings, log records, exception
+messages -- stays English.
 
-Keys are namespaced by surface (``feasibility.``, ``cli.``) and the values are
-``str.format`` templates. Call :func:`de`.
+Keys are namespaced by surface (``feasibility.``, ``help.``) and the values are ``str.format``
+templates. The two tables share one key set and, per key, one placeholder set; the test suite
+enforces both. Call :func:`t`.
+
+The active language starts from the ``DANCEPARTNER_LANG`` environment variable (``en``/``de``,
+anything else falls back to English) read once at import. The Streamlit app switches it per
+rerun via :func:`set_language`. Typer help texts resolve at import time, so only the
+environment variable -- never a later :func:`set_language` -- affects ``--help`` output.
 """
 
 from __future__ import annotations
 
-__all__ = ["STRINGS", "de"]
+import os
+from enum import StrEnum
 
-STRINGS: dict[str, str] = {
-    # -- feasibility diagnostics (feasibility.FeasibilityIssue.message_de) ----------------
+__all__ = ["ENV_VAR", "TABLES", "Language", "get_language", "set_language", "t"]
+
+ENV_VAR = "DANCEPARTNER_LANG"
+
+
+class Language(StrEnum):
+    """A language the CLI and the UI can speak."""
+
+    EN = "en"
+    DE = "de"
+
+
+_STRINGS_EN: dict[str, str] = {
+    # -- feasibility diagnostics (feasibility.FeasibilityIssue.message) -------------------
     "feasibility.ROLE_COUNT_OUT_OF_RANGE": (
-        "{role_de}: {n} Tänzer:innen auf {p} Positionen. Jede Position braucht eine oder "
+        "{role_label}: {n} dancers for {p} positions. Every position needs one or two — "
+        "so {p} to {max_n} are possible."
+    ),
+    "feasibility.TOO_MANY_POLE_POSITION": (
+        "{role_label}: {count} with a pole-position claim, but only {available} position(s) "
+        "with single occupancy ({n} {role_label} for {p} positions)."
+    ),
+    "feasibility.TOO_MANY_COACHING": (
+        "{role_label}: {count} with a coaching need require at least {needed} doubled "
+        "position(s), but there are only {available} ({n} {role_label} for {p} positions)."
+    ),
+    "feasibility.VETO_ALL_CROSS_ROLE": (
+        "{name} lists all {opposite_label} as not-desired partners (veto) — but every "
+        "position is staffed with both roles."
+    ),
+    "feasibility.VETO_COACHING_ISOLATED": (
+        "{name} has a coaching need, but there is a veto against every other one of the "
+        "{role_label} — no doubled position is possible."
+    ),
+    "feasibility.VETO_FORCES_SINGLES": (
+        "{role_label}: {count} dancers cannot form a doubled position because of "
+        "pole-position claims or vetoes, but there are only {available} position(s) with "
+        "single occupancy."
+    ),
+    # -- roles ---------------------------------------------------------------------------
+    "role.leader.plural": "Leaders",
+    "role.follower.plural": "Followers",
+    "role.leader": "Leader",
+    "role.follower": "Follower",
+    # -- shared --------------------------------------------------------------------------
+    "team.summary": (
+        "{n_dancers} dancers ({n_leaders} leaders, {n_followers} followers) "
+        "on {n_positions} positions {labels}."
+    ),
+    "team.surveys": "{n_surveys} of {n_dancers} have answered the team survey.",
+    "error.file_not_found": "File not found: {path}",
+    "error.invalid_team": "The team file is invalid:\n{detail}",
+    "error.invalid_yaml": "The file is not valid YAML: {detail}",
+    "error.invalid_shape": "The file does not have the expected structure: {detail}",
+    "error.invalid_json": "The result file is not valid JSON: {detail}",
+    # -- check ---------------------------------------------------------------------------
+    "check.ok": "No countable obstacles found.",
+    "check.caveat": (
+        "This does not guarantee a solution — it only means that no simple counting "
+        "argument rules one out. The solver has the final say."
+    ),
+    "check.issues": "{count} problem(s) found:",
+    "check.issue": "  [{code}] {message}",
+    "check.involved": "      involved: {ids}",
+    # -- solve ---------------------------------------------------------------------------
+    "solve.running": "Searching for an optimal partner assignment …",
+    "solve.infeasible_precheck": "The team file is not solvable:",
+    "solve.no_solution": "No solution found (status {status}).",
+    "solve.status": "Status: {status} — {wall_time:.2f} s, {branches} branches.",
+    "solve.stages": "Objective in stages:",
+    "solve.stage": "  {name}: {value} ({sense})",
+    "solve.stage_locked": "  {name}: {value} ({sense}), locked in: at least {locked}",
+    "solve.sense.maximize": "maximized",
+    "solve.sense.minimize": "minimized",
+    "solve.scores": "Total score: {total}   lowest individual score: {minimum}",
+    "solve.scale_note": "Scores are on the solver's ×2 scale (doubled-position normalization).",
+    "solve.positions": "Positions:",
+    "solve.position": "  Position {label}{doubled}",
+    "solve.doubled": "  (doubled)",
+    "solve.leaders": "     Leaders:   {names}",
+    "solve.followers": "     Followers: {names}",
+    "solve.solution_count": "{count} equally good solution(s) found.",
+    "solve.solution_count_truncated": (
+        "At least {count} equally good solutions — the list is cut off at {count}. "
+        "Request more with --top."
+    ),
+    "solve.near_optimal": (
+        "Near-optimal solutions down to {percent:.0f} % of the optimum are allowed."
+    ),
+    "solve.solution_heading": "── Solution {index} of {count}{marker}",
+    "solve.solution_best": " (best)",
+    "solve.solution_scores": "   Total score {total}, lowest individual score {minimum}",
+    "solve.diff_header": "   Difference to solution 1:",
+    "solve.diff_entry": "     {name}: {from_label} → {to_label}",
+    "solve.written": "Result written to {path}.",
+    # -- satisfaction table --------------------------------------------------------------
+    "table.header": "Satisfaction (least satisfied first):",
+    "table.columns": "{name:<20} {score:>7}  {wishes}",
+    "table.col_name": "Dancer",
+    "table.col_score": "Score",
+    "table.col_wishes": "Fulfilled / violated",
+    "table.fulfilled": "Tier {rank}: {names}",
+    "table.violated": "violated Tier {rank}: {names}",
+    "table.nothing": "—",
+    # -- explain -------------------------------------------------------------------------
+    "explain.unknown_dancer": "Unknown dancer ID: {dancer_id}",
+    "explain.unknown_solution": (
+        "The result file contains only {count} solution(s); solution {index} does not exist."
+    ),
+    "explain.solution_note": "(from solution {index} of {count})",
+    "explain.across_header": "  Across all {count} solutions:",
+    "explain.across_entry": "    {name}: in {hits} of {count} solutions",
+    "explain.across_stable": (
+        "  This placement is the same in all {count} solutions — there is nothing to choose here."
+    ),
+    "explain.heading": "{name} ({role}) — Position {label}",
+    "explain.score": "  Score: {score}",
+    "explain.partners": "  On the same position: {names}",
+    "explain.fulfilled": "  Fulfilled wishes:",
+    "explain.violated": "  Violated not-desired wishes:",
+    "explain.neutral": "  Neutral partners: {names}",
+    "explain.entry": "    Tier {rank}: {names}",
+    "explain.no_wishes": "  No wishes fulfilled.",
+    "explain.no_survey": "  No team survey submitted — the score therefore stays 0.",
+    "explain.unfulfilled": "  Unfulfilled wishes:",
+    "explain.respected": "  Respected not-desired wishes:",
+    "explain.pole_position": "  Pole position: alone in their role on the position.",
+    "explain.needs_coaching": "  Coaching need: with {names} in the same role.",
+    # -- UI: navigation ------------------------------------------------------------------
+    "nav.home": "Home",
+    "nav.team": "Team",
+    "nav.survey": "Survey",
+    "nav.solution": "Solution",
+    "nav.analysis": "Analysis",
+    "nav.section": "Partner assignment",
+    # -- UI: shared ----------------------------------------------------------------------
+    "ui.title": "dancepartner",
+    "ui.subtitle": "Partnering a Latin formation team as an exact optimization problem.",
+    "ui.language": "Language",
+    "ui.no_team": "No team loaded yet — please load or create a team on “Home” first.",
+    "ui.no_solution_yet": "No solution computed yet — please solve on “Solution” first.",
+    "ui.unsaved": "Unsaved changes. They will be lost unless you save.",
+    "ui.saved_at": "Saved to {path}.",
+    # -- UI: Home (load / create / feasibility) ------------------------------------------
+    "ui.load.header": "Load team",
+    "ui.load.from_path": "Load from file",
+    "ui.load.path": "Path to the team file (YAML)",
+    "ui.load.button": "Load",
+    "ui.load.upload": "Upload file",
+    "ui.load.uploader": "Drop a team file (YAML) here",
+    "ui.load.example": "Example team",
+    "ui.load.example_button": "Load example team",
+    "ui.load.example_hint": "20 fictional dancers on 8 positions — for trying things out.",
+    "ui.load.create": "New team",
+    "ui.load.create_button": "Create empty team",
+    "ui.load.n_positions": "Positions",
+    "ui.load.loaded": "Team loaded: {path}",
+    "ui.save.header": "Save",
+    "ui.save.path": "Save to",
+    "ui.save.button": "Save team",
+    "ui.save.comment_warning": (
+        "Saving loses any comments in the YAML file — PyYAML cannot preserve them. Real "
+        "data belongs in data/team.yaml, not in the example file."
+    ),
+    "ui.feasibility.header": "Pre-check",
+    "ui.feasibility.involved": "involved: {names}",
+    # -- UI: Team ------------------------------------------------------------------------
+    "ui.team.header": "Dancers",
+    "ui.team.hint": (
+        "The order matters: the solver's symmetry breaking numbers the positions by the "
+        "index of the leaders in this list."
+    ),
+    "ui.team.col_id": "ID",
+    "ui.team.col_name": "Name",
+    "ui.team.col_role": "Role",
+    "ui.team.col_pole_position": "Pole position",
+    "ui.team.col_coaching": "Coaching need",
+    "ui.team.help_pole_position": (
+        "Must be alone in their role on the position (no doubled position)."
+    ),
+    "ui.team.help_coaching": "Must NOT be alone in their role on the position.",
+    "ui.team.apply": "Apply changes",
+    "ui.team.applied": "{n} dancers applied.",
+    "ui.team.flags_exclusive": ("{name}: pole position and coaching need are mutually exclusive."),
+    "ui.team.duplicate_id": "The ID “{dancer_id}” appears more than once.",
+    "ui.team.empty_field": "Row {row}: ID and name must not be empty.",
+    "ui.team.orphan_survey": (
+        "{n} team survey(s) were removed because the dancer no longer exists."
+    ),
+    # -- UI: Survey ----------------------------------------------------------------------
+    "ui.survey.header": "Team survey",
+    "ui.survey.pick": "Dancer",
+    "ui.survey.desired": "Desired partners",
+    "ui.survey.not_desired": "Not-desired partners",
+    "ui.survey.tier": "Tier {rank}",
+    "ui.survey.tier_help": "Tier 1 is the strongest wish.",
+    "ui.survey.add_tier": "Add tier",
+    "ui.survey.remove_tier": "Remove tier",
+    "ui.survey.apply": "Apply team survey",
+    "ui.survey.applied": "Team survey for {name} applied.",
+    "ui.survey.cleared": "Team survey for {name} removed.",
+    "ui.survey.empty_tier": (
+        "Tier {rank} is empty. Empty tiers are dropped on apply; the remaining tiers move up."
+    ),
+    "ui.survey.duplicate_in_direction": (
+        "{names}: listed in more than one tier of the same direction. Only one tier per "
+        "dancer is allowed per direction."
+    ),
+    "ui.survey.in_both_directions": (
+        "{names}: listed under both desired and not-desired partners."
+    ),
+    "ui.survey.count": "{n} of {total} have answered.",
+    "ui.survey.answered": "answered",
+    "ui.survey.unanswered": "pending",
+    # -- UI: Solution --------------------------------------------------------------------
+    "ui.solve.header": "Objective and solver",
+    "ui.solve.run": "Compute partner assignment",
+    "ui.solve.objective": "Objective",
+    "ui.solve.weights": "Tier weighting",
+    "ui.solve.scope": "Counted wishes",
+    "ui.solve.veto_tier": "Vetoes up to tier",
+    "ui.solve.veto_none": "none",
+    "ui.solve.top": "Search equally good solutions",
+    "ui.solve.time_limit": "Time limit (seconds)",
+    "ui.solve.near_optimal": "Near-optimal from fraction",
+    "ui.solve.tier_slack": "Tier slack",
+    "ui.solve.normalize": "Halve scores on doubled positions",
+    "ui.solve.prefer_coupled": "Prefer complete doubled positions",
+    "ui.solve.advanced": "More settings",
+    "ui.solve.cards_header": "Positions",
+    "ui.solve.doubled_badge": "doubled",
+    "ui.solve.fulfilled_badge": "fulfilled",
+    "ui.solve.violated_badge": "violated",
+    "ui.solve.stages_header": "Objective in stages",
+    "ui.solve.col_stage": "Stage",
+    "ui.solve.col_value": "Value",
+    "ui.solve.col_sense": "Direction",
+    "ui.solve.col_locked": "locked in",
+    # -- UI: objective / enum labels ------------------------------------------------------
+    "ui.objective.weighted_sum": "Sum of scores",
+    "ui.objective.maximin_then_sum": "The least satisfied first, then the sum",
+    "ui.objective.leximin": "Leximin (score vector in order)",
+    "ui.objective.lexicographic_tiers": "Tiers in order",
+    "ui.weights.linear": "linear",
+    "ui.weights.geometric": "geometric",
+    "ui.scope.cross_role_only": "cross-role only",
+    "ui.scope.all": "all",
+    # -- UI: Analysis --------------------------------------------------------------------
+    "ui.analysis.header": "Satisfaction",
+    "ui.analysis.hint": "Least satisfied first — that is the row you need.",
+    "ui.analysis.col_position": "Position",
+    "ui.analysis.col_fulfilled": "Fulfilled wishes",
+    "ui.analysis.col_violated": "Violated not-desired wishes",
+    "ui.analysis.shortlist_header": "Equally good solutions",
+    "ui.analysis.pick": "Solution",
+    "ui.analysis.only_one": "There is only one solution — nothing to compare here.",
+    "ui.analysis.diff_header": "Difference to solution {index}",
+    "ui.analysis.diff_none": "No difference.",
+    "ui.analysis.col_from": "from",
+    "ui.analysis.col_to": "to",
+    "ui.analysis.detail_header": "Individual dancer",
+    # -- language names (native in both tables, so the toggle is always readable) ---------
+    "language.en": "English",
+    "language.de": "Deutsch",
+    # -- CLI help ------------------------------------------------------------------------
+    "help.app": "Partnering a Latin formation team as an exact optimization problem.",
+    "help.check": "Checks a team file for countable obstacles.",
+    "help.solve": "Computes an optimal partner assignment.",
+    "help.explain": "Explains the result for a single dancer.",
+    "help.team_file": "Path to the team file (YAML).",
+    "help.result_file": "Path to the result file from “solve --json”.",
+    "help.objective": "Objective function.",
+    "help.weights": "Weighting scheme for the tiers.",
+    "help.scope": "Whether only cross-role wishes or all wishes are counted.",
+    "help.veto_tier": "Not-desired wishes up to this tier become hard vetoes (0 = none).",
+    "help.top": "How many equally good solutions to search for and print.",
+    "help.near_optimal": (
+        "Fraction of the optimum a solution must reach to make the list (1.0 = exact optima only)."
+    ),
+    "help.tier_slack": (
+        "lexicographic-tiers only: how many fulfilled wishes a tier may give up so that a "
+        "weaker tier wins."
+    ),
+    "help.solution": "Which solution from the result file to explain (1 = best).",
+    "help.time_limit": "Solver time limit in seconds.",
+    "help.seed": "Random seed for the solver.",
+    "help.normalize": "Halve the score of a doubled position.",
+    "help.prefer_coupled": "Prefer complete doubled positions (weakest stage).",
+    "help.workers": "Number of parallel solver threads (1 = reproducible).",
+    "help.json": "Additionally write the result as JSON to this path.",
+    "help.dancer": "ID of the dancer to explain.",
+    "help.verbose": "Log solver progress.",
+}
+
+_STRINGS_DE: dict[str, str] = {
+    # -- feasibility diagnostics (feasibility.FeasibilityIssue.message) -------------------
+    "feasibility.ROLE_COUNT_OUT_OF_RANGE": (
+        "{role_label}: {n} Tänzer:innen auf {p} Positionen. Jede Position braucht eine oder "
         "zwei — möglich sind daher {p} bis {max_n}."
     ),
     "feasibility.TOO_MANY_POLE_POSITION": (
-        "{role_de}: {count} mit Startanspruch, aber nur {available} Position(en) mit "
-        "einfacher Besetzung ({n} {role_de} auf {p} Positionen)."
+        "{role_label}: {count} mit Startanspruch, aber nur {available} Position(en) mit "
+        "einfacher Besetzung ({n} {role_label} auf {p} Positionen)."
     ),
     "feasibility.TOO_MANY_COACHING": (
-        "{role_de}: {count} mit Coachingbedarf brauchen mindestens {needed} "
-        "Doppelbesetzung(en), es gibt aber nur {available} ({n} {role_de} auf {p} Positionen)."
+        "{role_label}: {count} mit Coachingbedarf brauchen mindestens {needed} "
+        "Doppelbesetzung(en), es gibt aber nur {available} ({n} {role_label} auf {p} "
+        "Positionen)."
     ),
     "feasibility.VETO_ALL_CROSS_ROLE": (
-        "{name} hat alle {opposite_de} als Nicht-Wunschpartner (Veto) — jede Position ist "
+        "{name} hat alle {opposite_label} als Nicht-Wunschpartner (Veto) — jede Position ist "
         "aber mit beiden Rollen besetzt."
     ),
     "feasibility.VETO_COACHING_ISOLATED": (
-        "{name} hat Coachingbedarf, aber zu allen anderen {role_de} besteht ein Veto — "
+        "{name} hat Coachingbedarf, aber zu allen anderen {role_label} besteht ein Veto — "
         "es gibt keine mögliche Doppelbesetzung."
     ),
     "feasibility.VETO_FORCES_SINGLES": (
-        "{role_de}: {count} Tänzer:innen können durch Startanspruch oder Vetos keine "
+        "{role_label}: {count} Tänzer:innen können durch Startanspruch oder Vetos keine "
         "Doppelbesetzung bilden, es gibt aber nur {available} Position(en) mit einfacher "
         "Besetzung."
     ),
@@ -140,6 +443,7 @@ STRINGS: dict[str, str] = {
     # -- UI: shared ----------------------------------------------------------------------
     "ui.title": "dancepartner",
     "ui.subtitle": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",
+    "ui.language": "Sprache",
     "ui.no_team": "Noch kein Team geladen — bitte zuerst auf »Start« ein Team laden oder anlegen.",
     "ui.no_solution_yet": "Noch keine Lösung berechnet — bitte zuerst auf »Lösung« rechnen lassen.",
     "ui.unsaved": "Ungespeicherte Änderungen. Sie gehen verloren, wenn Sie nicht speichern.",
@@ -265,7 +569,10 @@ STRINGS: dict[str, str] = {
     "ui.analysis.col_from": "von",
     "ui.analysis.col_to": "nach",
     "ui.analysis.detail_header": "Einzelne Tänzer:in",
-    # -- CLI help (German, like all user-facing text) ------------------------------------
+    # -- language names (native in both tables, so the toggle is always readable) ---------
+    "language.en": "English",
+    "language.de": "Deutsch",
+    # -- CLI help ------------------------------------------------------------------------
     "help.app": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",
     "help.check": "Prüft eine Teamdatei auf zählbare Hindernisse.",
     "help.solve": "Berechnet eine optimale Verpartnerung.",
@@ -296,12 +603,49 @@ STRINGS: dict[str, str] = {
     "help.verbose": "Solver-Fortschritt mitloggen.",
 }
 
+TABLES: dict[Language, dict[str, str]] = {
+    Language.EN: _STRINGS_EN,
+    Language.DE: _STRINGS_DE,
+}
 
-def de(key: str, **params: object) -> str:
-    """Return the German string for ``key``, formatted with ``params``.
+
+def _initial_language(raw: str | None) -> Language:
+    """Map the raw environment value to a language, falling back to English.
+
+    A typo'd or unset ``DANCEPARTNER_LANG`` must not crash the CLI, so anything that is not a
+    known language code silently means English.
+    """
+    if raw is None:
+        return Language.EN
+    try:
+        return Language(raw)
+    except ValueError:
+        return Language.EN
+
+
+_language: Language = _initial_language(os.environ.get(ENV_VAR))
+
+
+def get_language() -> Language:
+    """Return the currently active language."""
+    return _language
+
+
+def set_language(language: Language) -> None:
+    """Switch the active language for all subsequent :func:`t` calls.
+
+    The Streamlit app calls this at the top of every rerun from the coach's session state.
+    It cannot retro-translate strings that already resolved, notably Typer help texts.
+    """
+    global _language
+    _language = language
+
+
+def t(key: str, **params: object) -> str:
+    """Return the string for ``key`` in the active language, formatted with ``params``.
 
     Raises:
         KeyError: The key is not defined. Failing loudly beats shipping a screen with a raw
             key in it, and the test suite checks that every key used is present.
     """
-    return STRINGS[key].format(**params)
+    return TABLES[_language][key].format(**params)

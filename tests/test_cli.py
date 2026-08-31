@@ -1,16 +1,19 @@
-"""CLI behaviour: German output, exit codes, and the JSON contract between solve and explain."""
+"""CLI behaviour: localized output, exit codes, and the JSON contract between solve and explain."""
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner, Result
 
 from dancepartner.cli import app
-from dancepartner.i18n import STRINGS
+from dancepartner.i18n import TABLES, Language, set_language
 from dancepartner.model import Team
 from dancepartner.storage import dump_team, load_team
 
@@ -31,26 +34,26 @@ def run(*args: str) -> Result:
 def test_check_reports_a_solvable_team() -> None:
     result = run("check", EXAMPLE)
     assert result.exit_code == 0
-    assert "20 Tänzer:innen (9 Herren, 11 Damen)" in result.stdout
-    assert "19 von 20" in result.stdout
-    assert "Keine zählbaren Hindernisse" in result.stdout
+    assert "20 dancers (9 leaders, 11 followers)" in result.stdout
+    assert "19 of 20" in result.stdout
+    assert "No countable obstacles" in result.stdout
 
 
 def test_check_reports_issues_and_exits_one(tmp_path: Path) -> None:
-    # 3 Herren for 8 positions: decidable by counting.
+    # 3 leaders for 8 positions: decidable by counting.
     path = tmp_path / "team.yaml"
     path.write_text(dump_team(Team(dancers=roster(3, 8), n_positions=8)), encoding="utf-8")
     result = run("check", str(path))
     assert result.exit_code == 1
     assert "ROLE_COUNT_OUT_OF_RANGE" in result.stdout
-    assert "Positionen" in result.stdout
-    assert "betroffen: led0, led1, led2" in result.stdout
+    assert "positions" in result.stdout
+    assert "involved: led0, led1, led2" in result.stdout
 
 
 def test_check_missing_file_exits_one(tmp_path: Path) -> None:
     result = run("check", str(tmp_path / "nope.yaml"))
     assert result.exit_code == 1
-    assert "Datei nicht gefunden" in result.stderr
+    assert "File not found" in result.stderr
 
 
 def test_check_broken_yaml_exits_one(tmp_path: Path) -> None:
@@ -58,7 +61,7 @@ def test_check_broken_yaml_exits_one(tmp_path: Path) -> None:
     path.write_text("dancers: [\n  - unclosed", encoding="utf-8")
     result = run("check", str(path))
     assert result.exit_code == 1
-    assert "kein gültiges YAML" in result.stderr
+    assert "not valid YAML" in result.stderr
 
 
 def test_check_reports_a_shape_error_without_blaming_the_yaml_syntax(tmp_path: Path) -> None:
@@ -71,7 +74,7 @@ def test_check_reports_a_shape_error_without_blaming_the_yaml_syntax(tmp_path: P
     )
     result = run("check", str(path))
     assert result.exit_code == 1
-    assert "nicht den erwarteten Aufbau" in result.stderr
+    assert "not have the expected structure" in result.stderr
     assert "has_pole_position" in result.stderr
     assert "YAML" not in result.stderr
 
@@ -117,7 +120,7 @@ def test_check_invalid_team_exits_one(tmp_path: Path) -> None:
     )
     result = run("check", str(path))
     assert result.exit_code == 1
-    assert "ungültig" in result.stderr
+    assert "invalid" in result.stderr
     assert "mutually exclusive" in result.stderr
 
 
@@ -128,20 +131,20 @@ def test_solve_prints_positions_and_the_satisfaction_table() -> None:
     result = run("solve", EXAMPLE)
     assert result.exit_code == 0
     assert "Status: OPTIMAL" in result.stdout
-    assert "Zielfunktion in Stufen:" in result.stdout
-    assert "maximin: 0 (maximiert)" in result.stdout
-    assert "coupled: 4 (minimiert)" in result.stdout
-    assert "Gesamtpunkte: 55" in result.stdout
+    assert "Objective in stages:" in result.stdout
+    assert "maximin: 0 (maximized)" in result.stdout
+    assert "coupled: 4 (minimized)" in result.stdout
+    assert "Total score: 55" in result.stdout
     for label in "ABCDEFGH":
         assert f"Position {label}" in result.stdout
-    assert "Zufriedenheit (unzufriedenste zuerst):" in result.stdout
+    assert "Satisfaction (least satisfied first):" in result.stdout
     # Positions are labelled, never numbered.
     assert "Position 1" not in result.stdout
 
 
 def test_solve_table_is_sorted_unhappiest_first() -> None:
     result = run("solve", EXAMPLE)
-    body = result.stdout.split("Zufriedenheit (unzufriedenste zuerst):")[1]
+    body = result.stdout.split("Satisfaction (least satisfied first):")[1]
     scores = [int(m.group(1)) for m in re.finditer(r"^\S.{19}\s*(-?\d+)\s\s", body, re.M)]
     assert len(scores) == 20
     assert scores == sorted(scores)
@@ -177,12 +180,12 @@ def test_solve_veto_tier_zero_means_no_hard_vetoes(tmp_path: Path) -> None:
     assert ok.exit_code == 0
 
 
-def test_solve_reports_precheck_failure_in_german(tmp_path: Path) -> None:
+def test_solve_reports_precheck_failure(tmp_path: Path) -> None:
     path = tmp_path / "team.yaml"
     path.write_text(dump_team(Team(dancers=roster(3, 8), n_positions=8)), encoding="utf-8")
     result = run("solve", str(path))
     assert result.exit_code == 1
-    assert "nicht lösbar" in result.stdout
+    assert "not solvable" in result.stdout
     assert "ROLE_COUNT_OUT_OF_RANGE" in result.stdout
 
 
@@ -215,20 +218,20 @@ def test_solve_tier_objective_prints_tier_stages() -> None:
 
 def test_solve_top_one_prints_a_single_solution() -> None:
     stdout = run("solve", EXAMPLE).stdout
-    assert "1 gleichwertige" in stdout
-    assert "Lösung 1 von" not in stdout
+    assert "1 equally good" in stdout
+    assert "Solution 1 of" not in stdout
 
 
 def test_solve_top_three_prints_all_three_with_diffs() -> None:
     result = run("solve", EXAMPLE, "--top", "3")
     assert result.exit_code == 0
     # The example team has exactly three optima, so nothing may be reported as cut off.
-    assert "3 gleichwertige Lösung(en) gefunden." in result.stdout
-    assert "abgeschnitten" not in result.stdout
+    assert "3 equally good solution(s) found." in result.stdout
+    assert "cut off" not in result.stdout
     for index in (1, 2, 3):
-        assert f"Lösung {index} von 3" in result.stdout
-    assert "(beste)" in result.stdout
-    assert result.stdout.count("Unterschied zu Lösung 1:") == 2
+        assert f"Solution {index} of 3" in result.stdout
+    assert "(best)" in result.stdout
+    assert result.stdout.count("Difference to solution 1:") == 2
 
 
 def test_solve_reports_a_truncated_shortlist(tmp_path: Path) -> None:
@@ -237,24 +240,24 @@ def test_solve_reports_a_truncated_shortlist(tmp_path: Path) -> None:
     path.write_text(dump_team(Team(dancers=roster(10, 12), n_positions=8)), encoding="utf-8")
     result = run("solve", str(path), "--top", "4")
     assert result.exit_code == 0
-    assert "abgeschnitten" in result.stdout
-    assert result.stdout.count("Unterschied zu Lösung 1:") == 3
+    assert "cut off" in result.stdout
+    assert result.stdout.count("Difference to solution 1:") == 3
 
 
 def test_solve_near_optimal_widens_the_shortlist() -> None:
     exact = run("solve", EXAMPLE, "--top", "20")
     loose = run("solve", EXAMPLE, "--top", "20", "--near-optimal", "0.95")
     assert loose.exit_code == 0
-    assert "95 % des Optimums" in loose.stdout
-    assert loose.stdout.count("Unterschied zu Lösung 1:") > exact.stdout.count(
-        "Unterschied zu Lösung 1:"
+    assert "95 % of the optimum" in loose.stdout
+    assert loose.stdout.count("Difference to solution 1:") > exact.stdout.count(
+        "Difference to solution 1:"
     )
 
 
 def test_solve_tier_slack_is_reported_when_it_is_spent() -> None:
     result = run("solve", EXAMPLE, "--objective", "lexicographic-tiers", "--tier-slack", "2")
     assert result.exit_code == 0
-    assert "davon zugesichert" in result.stdout
+    assert "locked in: at least" in result.stdout
 
 
 def test_solve_json_carries_the_whole_shortlist(tmp_path: Path) -> None:
@@ -270,7 +273,7 @@ def test_solve_writes_json(tmp_path: Path) -> None:
     out = tmp_path / "nested" / "out.json"
     result = run("solve", EXAMPLE, "--json", str(out))
     assert result.exit_code == 0
-    assert f"Ergebnis geschrieben nach {out}" in result.stdout
+    assert f"Result written to {out}" in result.stdout
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["config"]["objective"] == "maximin_then_sum"
     assert payload["result"]["status"] == "OPTIMAL"
@@ -282,7 +285,7 @@ def test_solve_writes_json(tmp_path: Path) -> None:
 def test_solve_is_deterministic_across_runs() -> None:
     first = run("solve", EXAMPLE, "--seed", "11")
     second = run("solve", EXAMPLE, "--seed", "11")
-    body = "Positionen:"
+    body = "Positions:"
     assert first.stdout.split(body)[1] == second.stdout.split(body)[1]
 
 
@@ -311,49 +314,49 @@ def shortlisted(tmp_path: Path) -> Path:
 def test_explain_a_single_dancer(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "lukas-b")
     assert result.exit_code == 0
-    assert "Lukas Brandt (Herr) — Position A" in result.stdout
-    assert "Erfüllte Wünsche:" in result.stdout
+    assert "Lukas Brandt (Leader) — Position A" in result.stdout
+    assert "Fulfilled wishes:" in result.stdout
     assert "Tier 1: Anna Brenner" in result.stdout
-    assert "Nicht erfüllte Wünsche:" in result.stdout
-    assert "Eingehaltene Nicht-Wünsche:" in result.stdout
+    assert "Unfulfilled wishes:" in result.stdout
+    assert "Respected not-desired wishes:" in result.stdout
 
 
-def test_explain_reports_coachingbedarf(solved: Path) -> None:
+def test_explain_reports_coaching_need(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "paul-m")
     assert result.exit_code == 0
-    assert "Coachingbedarf: mit Jan Hübner" in result.stdout
+    assert "Coaching need: with Jan Hübner" in result.stdout
 
 
 def test_explain_reports_pole_position(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "tim-r")
     assert result.exit_code == 0
-    assert "Startanspruch: alleine" in result.stdout
+    assert "Pole position: alone" in result.stdout
 
 
 def test_explain_a_dancer_without_a_survey(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "marie-g")
     assert result.exit_code == 0
-    assert "Keine Teambefragung abgegeben" in result.stdout
-    assert "Punkte: 0" in result.stdout
+    assert "No team survey submitted" in result.stdout
+    assert "Score: 0" in result.stdout
 
 
 def test_explain_without_a_dancer_prints_the_whole_solution(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved))
     assert result.exit_code == 0
-    assert "Positionen:" in result.stdout
-    assert "Zufriedenheit" in result.stdout
+    assert "Positions:" in result.stdout
+    assert "Satisfaction" in result.stdout
 
 
 def test_explain_unknown_dancer_exits_one(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "nobody")
     assert result.exit_code == 1
-    assert "Unbekannte Tänzer:in-ID: nobody" in result.stderr
+    assert "Unknown dancer ID: nobody" in result.stderr
 
 
 def test_explain_missing_result_file_exits_one(tmp_path: Path) -> None:
     result = run("explain", EXAMPLE, str(tmp_path / "nope.json"))
     assert result.exit_code == 1
-    assert "Datei nicht gefunden" in result.stderr
+    assert "File not found" in result.stderr
 
 
 def test_explain_broken_json_exits_one(tmp_path: Path) -> None:
@@ -361,7 +364,7 @@ def test_explain_broken_json_exits_one(tmp_path: Path) -> None:
     path.write_text("{not json", encoding="utf-8")
     result = run("explain", EXAMPLE, str(path))
     assert result.exit_code == 1
-    assert "kein gültiges JSON" in result.stderr
+    assert "not valid JSON" in result.stderr
 
 
 def test_explain_json_of_the_wrong_shape_exits_one(tmp_path: Path) -> None:
@@ -369,15 +372,15 @@ def test_explain_json_of_the_wrong_shape_exits_one(tmp_path: Path) -> None:
     path.write_text('{"result": {}}', encoding="utf-8")
     result = run("explain", EXAMPLE, str(path))
     assert result.exit_code == 1
-    assert "ungültig" in result.stderr
+    assert "invalid" in result.stderr
 
 
 def test_explain_picks_a_solution_by_index(shortlisted: Path) -> None:
     first = run("explain", EXAMPLE, str(shortlisted), "--dancer", "emma-k", "--solution", "1")
     third = run("explain", EXAMPLE, str(shortlisted), "--dancer", "emma-k", "--solution", "3")
     assert first.exit_code == third.exit_code == 0
-    assert "(aus Lösung 1 von 3)" in first.stdout
-    assert "(aus Lösung 3 von 3)" in third.stdout
+    assert "(from solution 1 of 3)" in first.stdout
+    assert "(from solution 3 of 3)" in third.stdout
     # Emma Köhler is exactly the dancer the three optima disagree about.
     assert first.stdout != third.stdout
 
@@ -385,29 +388,29 @@ def test_explain_picks_a_solution_by_index(shortlisted: Path) -> None:
 def test_explain_rejects_a_solution_index_out_of_range(shortlisted: Path) -> None:
     result = run("explain", EXAMPLE, str(shortlisted), "--solution", "9")
     assert result.exit_code == 1
-    assert "nur 3 Lösung(en)" in result.stderr
+    assert "only 3 solution(s)" in result.stderr
 
 
 def test_explain_summarises_a_dancer_across_the_shortlist(shortlisted: Path) -> None:
     result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "clara-w")
     assert result.exit_code == 0
-    assert "Über alle 3 Lösungen hinweg:" in result.stdout
+    assert "Across all 3 solutions:" in result.stdout
     # Moritz is fixed; Emma is the actual open question.
-    assert "Moritz Sander: in 3 von 3 Lösungen" in result.stdout
-    assert "Emma Köhler: in 2 von 3 Lösungen" in result.stdout
+    assert "Moritz Sander: in 3 of 3 solutions" in result.stdout
+    assert "Emma Köhler: in 2 of 3 solutions" in result.stdout
 
 
 def test_explain_says_when_a_dancer_has_no_open_choice(shortlisted: Path) -> None:
     result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "lukas-b")
     assert result.exit_code == 0
-    assert "in allen 3 Lösungen gleich" in result.stdout
+    assert "the same in all 3 solutions" in result.stdout
 
 
 def test_explain_adds_no_cross_solution_note_for_a_single_solution(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "lukas-b")
     assert result.exit_code == 0
-    assert "Über alle" not in result.stdout
-    assert "aus Lösung" not in result.stdout
+    assert "Across all" not in result.stdout
+    assert "from solution" not in result.stdout
 
 
 def test_explain_json_without_a_solution_exits_one(tmp_path: Path) -> None:
@@ -418,33 +421,57 @@ def test_explain_json_without_a_solution_exits_one(tmp_path: Path) -> None:
     )
     result = run("explain", EXAMPLE, str(path))
     assert result.exit_code == 1
-    assert "ungültig" in result.stderr
+    assert "invalid" in result.stderr
 
 
 def test_explain_matches_the_solve_table(solved: Path) -> None:
-    solve_out = run("solve", EXAMPLE).stdout.split("Positionen:")[1]
-    explain_out = run("explain", EXAMPLE, str(solved)).stdout.split("Positionen:")[1]
+    solve_out = run("solve", EXAMPLE).stdout.split("Positions:")[1]
+    explain_out = run("explain", EXAMPLE, str(solved)).stdout.split("Positions:")[1]
     assert solve_out == explain_out
 
 
 # -- i18n ---------------------------------------------------------------------------------
 
 
-def test_help_is_german() -> None:
+def test_help_is_english() -> None:
     result = run("--help")
-    assert "Verpartnerung einer Lateinformation" in result.stdout
-    assert "Prüft eine Teamdatei" in result.stdout
+    assert "Partnering a Latin formation team" in result.stdout
+    assert "Checks a team file" in result.stdout
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_check_speaks_the_active_language(language: Language) -> None:
+    set_language(language)
+    result = run("check", EXAMPLE)
+    assert result.exit_code == 0
+    assert TABLES[language]["check.ok"] in result.stdout
+
+
+def test_the_environment_variable_selects_the_language_at_import() -> None:
+    # Typer help texts resolve at import time, so only a fresh process shows the effect.
+    proc = subprocess.run(
+        [sys.executable, "-c", "from dancepartner.cli import app; app(['--help'])"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DANCEPARTNER_LANG": "de", "COLUMNS": "200"},
+        check=False,
+    )
+    assert "Verpartnerung einer Lateinformation" in proc.stdout
+    assert "Prüft eine Teamdatei" in proc.stdout
 
 
 def test_no_string_key_is_missing_from_i18n() -> None:
-    # Every de() call resolves; a missing key raises KeyError and would fail above. This
+    # Every t() call resolves; a missing key raises KeyError and would fail above. This
     # guards the reverse: keys defined but never referenced. The UI is a second consumer of
-    # STRINGS, so app/ counts as a reference site too -- otherwise every ui. key looks unused.
+    # the tables, so app/ counts as a reference site too -- otherwise every ui. key looks
+    # unused. Key-set parity between the tables is covered by test_i18n.py, so scanning the
+    # English table covers both.
     root = Path(__file__).resolve().parents[1]
     sources = [*(root / "src" / "dancepartner").glob("*.py"), *(root / "app").rglob("*.py")]
     source = "\n".join(p.read_text(encoding="utf-8") for p in sources)
     dynamic_prefixes = (
         "feasibility.",
+        "language.",
         "role.",
         "solve.sense.",
         "ui.objective.",
@@ -452,7 +479,9 @@ def test_no_string_key_is_missing_from_i18n() -> None:
         "ui.scope.",
     )
     unused = [
-        key for key in STRINGS if f'"{key}"' not in source and not key.startswith(dynamic_prefixes)
+        key
+        for key in TABLES[Language.EN]
+        if f'"{key}"' not in source and not key.startswith(dynamic_prefixes)
     ]
     assert unused == []
 
@@ -460,16 +489,16 @@ def test_no_string_key_is_missing_from_i18n() -> None:
 def test_every_dancer_appears_exactly_once_in_the_solve_output() -> None:
     team = load_team(EXAMPLE)
     stdout = run("solve", EXAMPLE).stdout
-    positions = stdout.split("Positionen:")[1].split("Zufriedenheit")[0]
+    positions = stdout.split("Positions:")[1].split("Satisfaction")[0]
     for dancer in team.dancers:
         assert positions.count(dancer.name) == 1, dancer.name
 
 
 # -- the boundary between counting and the solver -----------------------------------------
 
-# 2 positions, 2 Herren, 4 Damen: both Damen positions must be doubled. led0 vetoes three of
-# the four Damen, so its position cannot be filled with two -- but no pure counting argument
-# sees that, which is exactly what feasibility.py documents about itself.
+# 2 positions, 2 leaders, 4 followers: both follower positions must be doubled. led0 vetoes
+# three of the four followers, so its position cannot be filled with two -- but no pure
+# counting argument sees that, which is exactly what feasibility.py documents about itself.
 COUNTING_CLEAN_BUT_INFEASIBLE = """
 n_positions: 2
 dancers:
@@ -499,8 +528,8 @@ def counting_clean_but_infeasible(tmp_path: Path) -> Path:
 def test_check_passes_where_counting_cannot_decide(counting_clean_but_infeasible: Path) -> None:
     result = run("check", str(counting_clean_but_infeasible))
     assert result.exit_code == 0
-    assert "Keine zählbaren Hindernisse" in result.stdout
-    assert "Endgültig entscheidet der Solver" in result.stdout
+    assert "No countable obstacles" in result.stdout
+    assert "The solver has the final say" in result.stdout
 
 
 def test_solve_reports_no_solution_with_its_own_exit_code(
@@ -509,7 +538,7 @@ def test_solve_reports_no_solution_with_its_own_exit_code(
     result = run("solve", str(counting_clean_but_infeasible))
     assert result.exit_code == 3
     assert "Status: INFEASIBLE" in result.stdout
-    assert "Keine Lösung gefunden (Status INFEASIBLE)" in result.stdout
+    assert "No solution found (status INFEASIBLE)" in result.stdout
 
 
 def test_explain_reports_violated_dislikes(counting_clean_but_infeasible: Path) -> None:
@@ -527,12 +556,12 @@ def test_explain_reports_violated_dislikes(counting_clean_but_infeasible: Path) 
     assert solved_result.exit_code == 0
     result = run("explain", str(counting_clean_but_infeasible), str(out), "--dancer", "led0")
     assert result.exit_code == 0
-    assert "Verletzte Nicht-Wünsche:" in result.stdout
-    assert "Eingehaltene Nicht-Wünsche:" in result.stdout
+    assert "Violated not-desired wishes:" in result.stdout
+    assert "Respected not-desired wishes:" in result.stdout
 
 
 def test_explain_a_dancer_whose_survey_holds_only_dislikes(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "felix-w")
     assert result.exit_code == 0
-    assert "Keine Wünsche erfüllt." in result.stdout
-    assert "Eingehaltene Nicht-Wünsche:" in result.stdout
+    assert "No wishes fulfilled." in result.stdout
+    assert "Respected not-desired wishes:" in result.stdout

@@ -4,7 +4,8 @@ The solver must never answer a question that arithmetic already settles: a bare 
 tells the coach nothing, while "5 leaders hold a pole position but only 4 positions carry a
 single leader" tells them exactly which flag to change.
 
-German diagnostics live in :mod:`dancepartner.i18n`, keyed ``feasibility.<code>``.
+Diagnostics live in :mod:`dancepartner.i18n`, keyed ``feasibility.<code>``, and render in the
+language active when the check runs.
 
 These checks are **necessary, not sufficient**. Passing them does not prove the instance is
 solvable; CP-SAT remains the authority on infeasibility. Every check here is a pure counting
@@ -15,12 +16,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from .i18n import de
+from .i18n import t
 from .model import Role, SolverConfig, Team, ceil_div
 
 __all__ = ["FeasibilityIssue", "check_feasibility", "veto_pairs"]
 
-_ROLE_DE = {Role.LEADER: de("role.leader.plural"), Role.FOLLOWER: de("role.follower.plural")}
+
+def _role_plural(role: Role) -> str:
+    """Plural label for ``role`` in the active language."""
+    return t(f"role.{role.value}.plural")
 
 
 class FeasibilityIssue(BaseModel):
@@ -28,20 +32,21 @@ class FeasibilityIssue(BaseModel):
 
     Attributes:
         code: Stable machine-readable identifier, English.
-        message_de: German explanation for the coach.
+        message: Explanation for the coach, rendered in the language active at construction.
+            Never store issues across a language switch — the UI recomputes them each run.
         involved_ids: Dancer ids the issue is about; empty when it is purely about counts.
     """
 
     model_config = ConfigDict(frozen=True)
 
     code: str
-    message_de: str
+    message: str
     involved_ids: tuple[str, ...] = ()
 
 
 def _issue(code: str, involved_ids: tuple[str, ...] = (), **params: object) -> FeasibilityIssue:
     return FeasibilityIssue(
-        code=code, message_de=de(f"feasibility.{code}", **params), involved_ids=involved_ids
+        code=code, message=t(f"feasibility.{code}", **params), involved_ids=involved_ids
     )
 
 
@@ -84,14 +89,14 @@ def _check_role_counts(team: Team) -> list[FeasibilityIssue]:
     for role in Role:
         dancers = team.by_role(role)
         n = len(dancers)
-        role_de = _ROLE_DE[role]
+        role_label = _role_plural(role)
 
         if not p <= n <= 2 * p:
             issues.append(
                 _issue(
                     "ROLE_COUNT_OUT_OF_RANGE",
                     tuple(d.id for d in dancers),
-                    role_de=role_de,
+                    role_label=role_label,
                     n=n,
                     p=p,
                     max_n=2 * p,
@@ -106,7 +111,7 @@ def _check_role_counts(team: Team) -> list[FeasibilityIssue]:
                 _issue(
                     "TOO_MANY_POLE_POSITION",
                     tuple(d.id for d in pole_position),
-                    role_de=role_de,
+                    role_label=role_label,
                     count=len(pole_position),
                     available=singles,
                     n=n,
@@ -122,7 +127,7 @@ def _check_role_counts(team: Team) -> list[FeasibilityIssue]:
                 _issue(
                     "TOO_MANY_COACHING",
                     tuple(d.id for d in coaching),
-                    role_de=role_de,
+                    role_label=role_label,
                     count=len(coaching),
                     needed=needed,
                     available=doubled,
@@ -151,7 +156,7 @@ def _check_vetoes(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
                     "VETO_ALL_CROSS_ROLE",
                     (dancer.id,),
                     name=dancer.name,
-                    opposite_de=_ROLE_DE[dancer.role.opposite],
+                    opposite_label=_role_plural(dancer.role.opposite),
                 )
             )
 
@@ -171,7 +176,7 @@ def _check_vetoes(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
                             "VETO_COACHING_ISOLATED",
                             (dancer.id,),
                             name=dancer.name,
-                            role_de=_ROLE_DE[role],
+                            role_label=_role_plural(role),
                         )
                     )
                 forced_single.append(dancer.id)
@@ -181,7 +186,7 @@ def _check_vetoes(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
                 _issue(
                     "VETO_FORCES_SINGLES",
                     tuple(forced_single),
-                    role_de=_ROLE_DE[role],
+                    role_label=_role_plural(role),
                     count=len(forced_single),
                     available=singles,
                 )

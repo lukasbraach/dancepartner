@@ -29,9 +29,15 @@ near-optimal assignments**, never a single mandated answer.
   No exceptions, including the domain terms of art — see §3 for the mapping.
 * **The on-disk YAML and JSON use the same English vocabulary as the code.** `role: leader`,
   `desired:`, `not_desired:`, `is_pole_position:`. There is one vocabulary, not two.
-* **All user-facing strings in the Streamlit UI and the CLI: German.** They route through
-  `dancepartner/i18n.py`, a flat `dict[str, str]` with English keys and German values. Never
-  inline a German string literal in a widget call or a `print`.
+* **All user-facing strings in the Streamlit UI and the CLI: bilingual, English (default) and
+  German.** They route through `dancepartner/i18n.py`, one flat `dict[str, str]` per language
+  with a shared English key set and, per key, identical format placeholders (the test suite
+  enforces both). The language comes from `DANCEPARTNER_LANG` (`en`/`de`, unset or unknown →
+  `en`), read once at import — Typer help texts resolve then — and the UI switches it per rerun
+  from a sidebar toggle held in session state. The active language is a process-wide setting;
+  two concurrent browser sessions in different languages can interleave core-rendered strings
+  for one rerun, which is acceptable for a single-coach tool. Never inline a user-facing string
+  literal, in either language, in a widget call or a `print`.
 * Where an English identifier replaced a German term the team actually says, its docstring names
   the old term once (`is_pole_position` — formerly *Startanspruch*). That is a breadcrumb for
   readers who know the team's vocabulary, not a licence to reintroduce the German spelling as an
@@ -42,7 +48,9 @@ near-optimal assignments**, never a single mandated answer.
 Until the end of Milestone 3 this section mandated the German nouns verbatim as identifiers
 (`has_startanspruch`, `Role.HERR`). That produced a codebase in two languages, with the seam
 running through the data model, the storage format and the test suite, so the team agreed to move
-to the English `leader`/`follower` vocabulary the wider dance world uses. There is **no backwards
+to the English `leader`/`follower` vocabulary the wider dance world uses. User-facing output was
+German-only (accessor `de()`, single table) until English support arrived with the bilingual
+tables and the `t()` accessor described above. There is **no backwards
 compatibility**: a team file in the old vocabulary fails to load with a `StorageError` naming the
 offending key. The mapping, kept as the migration aid for private team files:
 
@@ -120,7 +128,7 @@ dancepartner/
 │   ├── solver.py        # CP-SAT model construction + staged optimisation
 │   ├── reporting.py     # scope-aware satisfaction numbers shared by CLI and UI
 │   ├── storage.py       # YAML load/save
-│   ├── i18n.py          # German UI strings
+│   ├── i18n.py          # bilingual UI strings (EN default, DE)
 │   └── cli.py
 ├── app/
 │   ├── Home.py
@@ -138,10 +146,10 @@ reverse — deleting `app/` leaves everything runnable from the CLI, and CI prov
 direction inside the core: `i18n` ← `model` ← `feasibility` ← `scoring` ← `solver` ←
 `storage`/`cli`.
 
-The page modules are English with German sidebar titles supplied via `st.navigation` /
-`st.Page(title=de(...))`: Streamlit derives a file-based page's label from its filename, which
-would put untranslated German outside `i18n.py`, and a numeric prefix like `1_Team` is not a valid
-module name under `mypy --strict`. Ordering comes from the page list.
+The page modules are English with localized sidebar titles supplied via `st.navigation` /
+`st.Page(title=t(...))`: Streamlit derives a file-based page's label from its filename, which
+would put untranslated identifiers outside `i18n.py`, and a numeric prefix like `1_Team` is not a
+valid module name under `mypy --strict`. Ordering comes from the page list.
 
 ---
 
@@ -198,8 +206,9 @@ preferences are scored only when both dancers share a position.
 
 ## 7. Feasibility pre-check (`feasibility.py`)
 
-Runs before the CP-SAT model is built and returns structured, German-readable diagnostics, so the
-solver never returns a bare INFEASIBLE for a cause that is decidable by counting.
+Runs before the CP-SAT model is built and returns structured, coach-readable diagnostics
+(localized through `i18n.py`), so the solver never returns a bare INFEASIBLE for a cause that is
+decidable by counting.
 
 With `n = len(leaders)` and 8 positions:
 
@@ -390,7 +399,7 @@ No database.
 * PyYAML cannot preserve comments, so `save_team` drops them. `load_team` never writes; writing
   happens only on explicit request (CLI flag, UI save button — never autosave).
 * `StorageError` means the YAML *shape* is wrong; `ValidationError` means a §6 domain rule broke.
-  The CLI maps both to German messages and exit code 1.
+  The CLI maps both to localized messages and exit code 1.
 * Real survey data never enters the repo: `data/team.yaml` is gitignored, only the two example
   files are tracked.
 
@@ -425,8 +434,9 @@ Implementation rules:
 * The feasibility panel passes the **current** `SolverConfig`, not a default one — `veto_tier`
   and `scope` change the verdict. (`cli.py::check` still passes a default; that is a pre-existing
   CLI limitation, not a pattern to copy.)
-* Editing pages validate §6 rules 3 and 4 **themselves** so the conflict reads in German. Pydantic
-  stays the final gate, but its English message must never reach the coach.
+* Editing pages validate §6 rules 3 and 4 **themselves** so the conflict reads in the coach's
+  language, through `i18n.py`. Pydantic stays the final gate, but its raw message must never
+  reach the coach.
 * Empty and orphaned tiers are renumbered, not rejected — browser editing breaks the "contiguous
   from 1" rule constantly, and the coach did not cause it. See `common.renumber_tiers` /
   `tiers_from_selections`.

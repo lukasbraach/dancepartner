@@ -4,7 +4,7 @@ Identifiers are English throughout (SPEC.md 2). Where a name replaces a German t
 the team used to say, the docstring records the old word so the transition stays traceable:
 ``is_pole_position`` was *Startanspruch*, ``needs_coaching`` was *Coachingbedarf*,
 ``desired_tiers`` were *Wunschpartner*, ``is_doubled`` is a *Doppelbesetzung*. User-facing
-output stays German and lives in :mod:`dancepartner.i18n`.
+output is bilingual and lives in :mod:`dancepartner.i18n`.
 """
 
 from __future__ import annotations
