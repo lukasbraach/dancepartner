@@ -134,10 +134,6 @@ Zielfunktion in Stufen:
   coupled: 2 (minimiert)
 
 2 gleichwertige Lösung(en) gefunden.
-Tauschgruppen — austauschbar zwischen den gleichwertigen Lösungen:
-  Gruppe 1: Leah Dorn
-    Leah Dorn → F — in Lösung(en) 1
-    Leah Dorn → G — in Lösung(en) 2
 
 ── Lösung 1 von 2 (beste)
    Gesamtpunkte 60, niedrigste Einzelpunktzahl 0
@@ -195,12 +191,16 @@ Lukas Brandt (Herr) — Position A
 
 Der letzte Satz ist der Grund, warum das Programm überhaupt mehrere Lösungen aufzählt. Eine
 Partnerin, die in jeder optimalen Lösung dieselbe ist, ist keine Entscheidung, die der Trainer
-treffen muss. Eine, die in 3 von 20 Lösungen vorkommt, schon. Die **Tauschgruppen** über der
-Shortlist sammeln genau diese offenen Entscheidungen: Bei diesem Team bleibt eine Gruppe —
-Leah Dorn tanzt entweder als zweite Dame bei David Lorenz auf Position F oder neben Marie
-Günther auf Position G. In der Oberfläche tragen die Tänzer:innen jeder Gruppe deren Nummer
-(1️⃣, 2️⃣, …) direkt auf den Lösungskarten und in der Analyse-Tabelle — die Tauschmöglichkeiten,
-die nichts kosten, sind so auf einen Blick sichtbar.
+treffen muss. Eine, die in 3 von 20 Lösungen vorkommt, schon. Bei diesem Team bleibt genau
+eine Wahl: Leah Dorn tanzt entweder als zweite Dame bei David Lorenz auf Position F oder neben
+Marie Günther auf Position G.
+
+Zusätzlich zur Shortlist markiert das Programm **Tauschgruppen**: Tänzer:innen, die sich frei
+über ihre Positionen permutieren lassen — jede Anordnung hält jede harte Regel und den
+Punktevektor, ein Tausch innerhalb der Gruppe kostet also gar nichts. Ihre Mitglieder tragen
+die Gruppennummer (1️⃣, 2️⃣, …) direkt auf den Lösungskarten und in der Analyse-Tabelle.
+Dieses Beispielteam hat keine — Leah Dorns Wechsel verändert die Größe zweier Positionen,
+statt zwei Personen zu tauschen, und genau dafür gibt es den Lösungs-Browser.
 
 ## Die vier Zielfunktionen
 
@@ -290,9 +290,9 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 * **Team**: die Tänzer:innen als Tabelle mit Name, Rolle, Startanspruch, Coachingbedarf.
 * **Umfrage**: je Person und Richtung beliebig viele Tiers; Konflikte werden sofort gemeldet.
 * **Lösung**: Zielfunktion einstellen, rechnen, die acht Positionen als Karten — wer sich
-  zwischen den gleichwertigen Lösungen tauschen lässt, ist mit 1️⃣, 2️⃣, … nummeriert.
-* **Analyse**: Zufriedenheit aufsteigend sortiert, die Tauschgruppen mit allen möglichen
-  Konstellationen, dazu der Vergleich der gleichwertigen Lösungen.
+  kostenfrei tauschen lässt, ist mit 1️⃣, 2️⃣, … nummeriert.
+* **Analyse**: Zufriedenheit aufsteigend sortiert, die Tauschgruppen der gewählten Lösung,
+  dazu der Vergleich der gleichwertigen Lösungen.
 
 Gespeichert wird nur auf Knopfdruck. PyYAML kann Kommentare nicht erhalten; ein Autosave würde
 sie aus einer von Hand gepflegten Teamdatei stillschweigend entfernen. Echte Daten gehören nach

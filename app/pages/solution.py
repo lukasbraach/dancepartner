@@ -173,7 +173,7 @@ else:
 if config.near_optimal_ratio < 1.0:
     st.caption(t("solve.near_optimal", percent=config.near_optimal_ratio * 100))
 
-groups = exchange_groups(result.solutions)
+groups = exchange_groups(best, team, config)
 numbers = group_numbers(groups)
 if groups:
     st.caption(t("ui.solve.groups_hint"))

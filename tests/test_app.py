@@ -10,7 +10,6 @@ script raised, so asserting it is empty is a real check and not a formality.
 
 from __future__ import annotations
 
-from itertools import permutations
 from pathlib import Path
 
 import pytest
@@ -20,7 +19,7 @@ from streamlit.testing.v1.element_tree import Multiselect
 from dancepartner.i18n import TABLES, Language, t
 from dancepartner.model import Objective, Role, ScoreAggregation, SolverConfig, Team
 from dancepartner.scoring import build_solution
-from dancepartner.solver import SolveResult
+from dancepartner.solver import SolveResult, solve
 from dancepartner.storage import dump_team, load_team
 
 from .builders import desired, roster, tier
@@ -282,25 +281,27 @@ def test_group_marker_is_a_number_emoji_with_a_plain_fallback() -> None:
 
 
 def test_solution_page_marks_exchangeable_dancers() -> None:
-    team = load_team(EXAMPLE)
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=team)
+    # led0's fulfilled wish pins him and fol0; fol1/fol2 and led1/led2 rotate freely.
+    instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=instance)
     at.run()
-    at.number_input[1].set_value(3).run()
     at.button[0].click().run()
     assert not at.exception
 
     rendered = texts(at)
     assert t("ui.solve.groups_hint") in rendered
-    # Leah Dorn is the one open choice between the example team's two optima.
-    leah = team.dancers_by_id["leah-d"].name
-    line = next(line for line in rendered.splitlines() if leah in line and line[0] in "⬜🟥🟨🟩")
+    line = next(line for line in rendered.splitlines() if "FOL1" in line and line[0] in "⬜🟥🟨🟩")
     assert line.endswith("1️⃣")
+    pinned = next(
+        line for line in rendered.splitlines() if "FOL0" in line and line[0] in "⬜🟥🟨🟩"
+    )
+    assert not pinned.endswith("1️⃣")
 
 
-def test_solution_page_shows_no_marker_for_a_single_solution() -> None:
+def test_solution_page_shows_no_marker_when_nothing_is_interchangeable() -> None:
+    # On the example team every rearrangement costs somebody a wish.
     at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
     at.run()
-    at.number_input[1].set_value(1).run()
     at.button[0].click().run()
     assert not at.exception
     rendered = texts(at)
@@ -358,74 +359,53 @@ def test_analysis_shows_absolute_satisfaction_percentages() -> None:
     assert len(numbers) < len(column)
 
 
+def swappable_analysis() -> AppTest:
+    """The analysis page over a team whose unnamed dancers rotate freely."""
+    instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
+    config = SolverConfig(max_solutions=3)
+    result = solve(instance, config)
+    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
+    at.session_state["team"] = instance
+    at.session_state["config"] = config
+    at.session_state["result"] = result
+    return at.run()
+
+
 def test_analysis_table_has_the_group_column() -> None:
-    at = solved_analysis()
+    at = swappable_analysis()
     assert not at.exception
 
-    team = at.session_state["team"]
     table = at.dataframe[0].value
     markers = list(table[t("ui.analysis.col_group")])
     names = list(table[t("table.col_name")])
     filled = {name: marker for name, marker in zip(names, markers, strict=True) if marker}
-    # Leah Dorn is the example team's single open choice.
-    assert filled == {team.dancers_by_id["leah-d"].name: "1️⃣"}
+    assert filled == {"FOL1": "1️⃣", "FOL2": "1️⃣", "LED1": "2️⃣", "LED2": "2️⃣"}
 
 
 def test_analysis_renders_the_groups_block() -> None:
-    at = solved_analysis()
+    at = swappable_analysis()
     assert not at.exception
 
     rendered = texts(at)
     assert t("ui.analysis.groups_header") in rendered
-    assert "1️⃣ **Leah Dorn**" in rendered
-    assert "Leah Dorn → F" in rendered
-    assert "Leah Dorn → G" in rendered
+    assert "1️⃣ Followers — **FOL1 (" in rendered
+    assert "2️⃣ Leaders — **LED1 (" in rendered
     # The block is markdown, so the diff table stays the last dataframe.
     diff = at.dataframe[-1].value
     assert t("ui.analysis.col_from") in diff.columns
     assert t("ui.analysis.col_to") in diff.columns
 
 
-def test_analysis_lists_per_dancer_options_for_a_large_group() -> None:
-    # Six permutations of three neutral followers: more constellations than the listing cap,
-    # so the block shows one options line per dancer instead.
-    instance = team_builder(3, 3, 3)
-    config = SolverConfig()
-    followers = ["fol0", "fol1", "fol2"]
-    solutions = [
-        build_solution(
-            instance, config, [["led0", order[0]], ["led1", order[1]], ["led2", order[2]]]
-        )
-        for order in permutations(followers)
-    ]
-    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
-    at.session_state["team"] = instance
-    at.session_state["config"] = config
-    at.session_state["result"] = SolveResult(status="OPTIMAL", solutions=list(solutions))
-    at.run()
-    assert not at.exception
-    rendered = texts(at)
-    assert t("solve.group_variants_note", count=6).strip() in rendered
-    assert "FOL0: A, B, C" in rendered
-
-
-def test_analysis_says_nothing_to_swap_without_equal_solutions() -> None:
-    # Two solutions with different score vectors: browsable, but nothing to swap.
-    instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
-    config = SolverConfig()
-    best = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
-    worse = build_solution(instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]])
-    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
-    at.session_state["team"] = instance
-    at.session_state["config"] = config
-    at.session_state["result"] = SolveResult(status="OPTIMAL", solutions=[best, worse])
-    at.run()
-    assert not at.exception
-    assert t("ui.analysis.groups_none") in texts(at)
-
-
-def test_analysis_skips_the_groups_block_for_a_single_solution() -> None:
-    instance = team_builder(3, 3, 3)
+def test_analysis_says_nothing_to_swap_when_every_dancer_is_pinned() -> None:
+    # Three fulfilled tier-1 wishes: any rearrangement costs somebody their partner.
+    instance = team_builder(
+        3,
+        3,
+        3,
+        desired("led0", tier(1, "fol0")),
+        desired("led1", tier(1, "fol1")),
+        desired("led2", tier(1, "fol2")),
+    )
     config = SolverConfig()
     only = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
     at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
@@ -435,8 +415,8 @@ def test_analysis_skips_the_groups_block_for_a_single_solution() -> None:
     at.run()
     assert not at.exception
     rendered = texts(at)
-    assert t("ui.analysis.groups_header") not in rendered
-    assert t("ui.analysis.groups_none") not in rendered
+    assert t("ui.analysis.groups_header") in rendered
+    assert t("ui.analysis.groups_none") in rendered
 
 
 def test_analysis_diffs_two_shortlist_entries_by_position_label() -> None:

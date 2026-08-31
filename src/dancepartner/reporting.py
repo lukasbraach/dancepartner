@@ -11,16 +11,24 @@ No ``streamlit``, no ``typer``: this module sits between ``scoring`` and ``cli``
 from __future__ import annotations
 
 from collections.abc import Sequence
+from itertools import permutations
 
 from pydantic import BaseModel, ConfigDict
 
-from .model import SolverConfig, Team, WeightScheme
-from .scoring import DancerSatisfaction, Solution, build_weights, geometric_base, tier_weight
+from .feasibility import veto_pairs
+from .model import Role, SolverConfig, Team, WeightScheme
+from .scoring import (
+    DancerSatisfaction,
+    Solution,
+    build_satisfaction,
+    build_weights,
+    geometric_base,
+    tier_weight,
+)
 
 __all__ = [
-    "MAX_LISTED_VARIANTS",
+    "MAX_GROUP_SIZE",
     "ExchangeGroup",
-    "GroupVariant",
     "exchange_groups",
     "group_numbers",
     "moved_dancers",
@@ -118,122 +126,153 @@ def satisfaction_ratio(
     return 1.0 + satisfaction.score / top
 
 
-MAX_LISTED_VARIANTS = 5
-"""Above this many constellations the surfaces list per-dancer position options instead --
-fifty variant lines answer nothing a coach asks. Shared here so CLI and UI agree."""
-
-
-class GroupVariant(BaseModel):
-    """One constellation an exchange group can take.
-
-    Attributes:
-        solution_indices: 0-based indices into the **full** shortlist that realise this
-            constellation, ascending -- ``index + 1`` is the "solution n" both surfaces print.
-        labels: Dancer id -> position label under this constellation.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    solution_indices: list[int]
-    labels: dict[str, str]
+MAX_GROUP_SIZE = 8
+"""Cap on the members of one exchange group. Free interchangeability is verified against
+every permutation of the group, and 8! is where exhaustive checking stays instant."""
 
 
 class ExchangeGroup(BaseModel):
-    """Dancers the coach can swap between equally good solutions.
+    """Dancers who can be rearranged freely within one solution at zero cost.
 
-    "Equally good" means the sorted per-dancer score vector is identical to the best
-    solution's -- applying another variant of the group makes nobody worse off, individually
-    or in total. Movement is by position label, the same notion as :func:`moved_dancers`:
-    the partners a mover joins or leaves are not part of the group.
+    Every permutation of the group's dancers over their positions keeps every hard
+    constraint and the solution's sorted per-dancer score vector -- the coach can shuffle
+    them in any order and nobody ends up worse, individually or in total. Three dancers form
+    a group of three only when **all six** arrangements hold: interchangeability is not
+    transitive, so it is verified against full permutation closure, never chained.
+
+    Groups are role-pure by physics, not by fiat: a cross-role permutation would change a
+    position's role counts and can therefore never be equivalent.
 
     Attributes:
-        number: 1-based, deterministic -- group 1 touches the alphabetically first position.
-        dancer_ids: The movers, sorted by (best-solution label, id).
-        variants: The distinct constellations; ``variants[0]`` is the best solution's.
+        number: 1-based, deterministic -- group 1 holds the alphabetically first position.
+        role: The shared role of every dancer in the group.
+        dancer_ids: Sorted by (position label, id).
+        labels: Dancer id -> the position label they hold in the examined solution.
     """
 
     model_config = ConfigDict(frozen=True)
 
     number: int
+    role: Role
     dancer_ids: list[str]
-    variants: list[GroupVariant]
+    labels: dict[str, str]
 
 
-def exchange_groups(solutions: Sequence[Solution]) -> list[ExchangeGroup]:
-    """The exchange groups across a shortlist; empty without at least two equal solutions.
+def exchange_groups(solution: Solution, team: Team, config: SolverConfig) -> list[ExchangeGroup]:
+    """The maximal freely-interchangeable dancer sets of ``solution``.
 
-    Only solutions whose sorted score vector matches ``solutions[0]``'s take part -- a
-    near-optimal entry stays browsable in the shortlist but never suggests a swap that would
-    make the team unhappier. Within one peer solution, movers whose from/to labels touch a
-    common position form one group (a permutation cycle chains labels); groups sharing a
-    dancer across peers are merged.
+    Permuted assignments are re-validated and re-scored directly (via
+    :func:`~dancepartner.scoring.build_satisfaction`), so the groups depend only on the
+    solution being shown -- never on which other solutions the enumeration pass happened to
+    return before its cap. Grown greedily in (label, id) order and verified against full
+    permutation closure on every extension; a dancer belongs to at most one group.
+    Co-positioned dancers are never grouped: their "swap" changes nothing.
     """
-    if len(solutions) < 2:
-        return []
-    best_places = positions_by_dancer(solutions[0])
-    best_vector = sorted(s.score for s in solutions[0].per_dancer.values())
-    peers = [
-        (index, solution)
-        for index, solution in enumerate(solutions)
-        if sorted(s.score for s in solution.per_dancer.values()) == best_vector
-    ]
-    if len(peers) < 2:
-        return []
+    by_id = team.dancers_by_id
+    places = positions_by_dancer(solution)
+    base_vector = sorted(s.score for s in solution.per_dancer.values())
+    base_groups = {p.label: [*p.leaders, *p.followers] for p in solution.positions}
+    label_order = [p.label for p in solution.positions]
+    vetoes = veto_pairs(team, config)
 
-    parent: dict[str, str] = {}
+    def position_ok(occupants: list[str]) -> bool:
+        """Hard constraints that a same-role permutation can still break on one position."""
+        for role in Role:
+            role_members = [i for i in occupants if by_id[i].role is role]
+            if len(role_members) == 1 and by_id[role_members[0]].needs_coaching:
+                return False
+            if len(role_members) == 2:
+                if any(by_id[i].is_pole_position for i in role_members):
+                    return False
+                if all(by_id[i].needs_coaching for i in role_members):
+                    return False
+        return not any(frozenset((a, b)) in vetoes for a in occupants for b in occupants if a < b)
 
-    def find(dancer: str) -> str:
-        root = dancer
-        while parent[root] != root:
-            root = parent[root]
-        while parent[dancer] != root:
-            parent[dancer], dancer = root, parent[dancer]
-        return root
+    def base_slot(dancer: str) -> tuple[int, ...]:
+        return tuple(sorted(solution.per_dancer[i].score for i in base_groups[places[dancer]]))
 
-    def union(a: str, b: str) -> None:
-        root_a, root_b = find(a), find(b)
-        if root_a != root_b:
-            parent[root_b] = root_a
+    # slot_scores[(mover, displaced)]: the scores the displaced dancer's position takes when
+    # the mover stands there instead. Scores are position-local and within a group every
+    # position holds exactly one member, so the value holds in *any* permutation sending the
+    # mover to that member's place. None marks a transposition that broke a hard constraint
+    # or the sorted score vector.
+    slot_scores: dict[tuple[str, str], tuple[int, ...] | None] = {}
 
-    peer_places: dict[int, dict[str, str]] = {}
-    for index, solution in peers:
-        places = positions_by_dancer(solution)
-        peer_places[index] = places
-        # Movers whose from/to labels touch a common position change that position's
-        # constellation jointly, so they union into one group.
-        anchor_by_label: dict[str, str] = {}
-        for dancer in sorted(d for d, label in places.items() if label != best_places[d]):
-            parent.setdefault(dancer, dancer)
-            for label in (best_places[dancer], places[dancer]):
-                if label in anchor_by_label:
-                    union(anchor_by_label[label], dancer)
-                else:
-                    anchor_by_label[label] = dancer
+    def evaluate_swap(d: str, e: str) -> None:
+        """Score the transposition of ``d`` and ``e``, filling both slot_scores entries."""
+        if (d, e) in slot_scores:
+            return
+        permuted = {
+            label: [d if i == e else e if i == d else i for i in occupants]
+            for label, occupants in base_groups.items()
+        }
+        if not (position_ok(permuted[places[d]]) and position_ok(permuted[places[e]])):
+            slot_scores[(d, e)] = slot_scores[(e, d)] = None
+            return
+        satisfaction = build_satisfaction(team, config, [permuted[label] for label in label_order])
+        if sorted(s.score for s in satisfaction.values()) != base_vector:
+            slot_scores[(d, e)] = slot_scores[(e, d)] = None
+            return
+        slot_scores[(d, e)] = tuple(sorted(satisfaction[i].score for i in permuted[places[e]]))
+        slot_scores[(e, d)] = tuple(sorted(satisfaction[i].score for i in permuted[places[d]]))
 
-    members: dict[str, list[str]] = {}
-    for dancer in parent:
-        members.setdefault(find(dancer), []).append(dancer)
+    def closed(members: list[str]) -> bool:
+        """Whether every permutation of ``members`` preserves the sorted score vector.
 
-    unnumbered: list[tuple[list[str], list[GroupVariant]]] = []
-    for ids in members.values():
-        ordered_ids = sorted(ids, key=lambda d: (best_places[d], d))
-        seen: dict[tuple[tuple[str, str], ...], list[int]] = {}
-        for index, _ in peers:
-            key = tuple((d, peer_places[index][d]) for d in ordered_ids)
-            seen.setdefault(key, []).append(index)
-        # Peers arrive in shortlist order and the best solution is always a peer, so the
-        # first key is the best constellation and the rest sort by first appearance.
-        variants = [
-            GroupVariant(solution_indices=indices, labels=dict(key))
-            for key, indices in seen.items()
-        ]
-        unnumbered.append((ordered_ids, variants))
+        Positions outside the members' places never change, so only the members' positions'
+        score multisets are compared -- against the identity arrangement.
+        """
+        identity = sorted(score for m in members for score in base_slot(m))
+        for arrangement in permutations(members):
+            combined: list[int] = []
+            for mover, displaced in zip(arrangement, members, strict=True):
+                if mover == displaced:
+                    combined.extend(base_slot(displaced))
+                    continue
+                scores = slot_scores[(mover, displaced)]
+                assert scores is not None  # the pairwise pre-check filtered invalid swaps
+                combined.extend(scores)
+            if sorted(combined) != identity:
+                return False
+        return True
 
-    unnumbered.sort(key=lambda item: min((best_places[d], d) for d in item[0]))
-    return [
-        ExchangeGroup(number=number, dancer_ids=ids, variants=variants)
-        for number, (ids, variants) in enumerate(unnumbered, start=1)
-    ]
+    order = sorted(places, key=lambda i: (places[i], i))
+    assigned: set[str] = set()
+    groups: list[ExchangeGroup] = []
+    for seed in order:
+        if seed in assigned:
+            continue
+        members = [seed]
+        used_positions = {places[seed]}
+        for candidate in order:
+            if len(members) >= MAX_GROUP_SIZE:
+                break
+            if (
+                candidate in assigned
+                or candidate in members
+                or by_id[candidate].role is not by_id[seed].role
+                or places[candidate] in used_positions
+            ):
+                continue
+            for member in members:
+                evaluate_swap(member, candidate)
+            if any(slot_scores[(candidate, member)] is None for member in members) or not closed(
+                [*members, candidate]
+            ):
+                continue
+            members.append(candidate)
+            used_positions.add(places[candidate])
+        if len(members) > 1:
+            assigned.update(members)
+            groups.append(
+                ExchangeGroup(
+                    number=len(groups) + 1,
+                    role=by_id[seed].role,
+                    dancer_ids=members,
+                    labels={m: places[m] for m in members},
+                )
+            )
+    return groups
 
 
 def group_numbers(groups: Sequence[ExchangeGroup]) -> dict[str, int]:

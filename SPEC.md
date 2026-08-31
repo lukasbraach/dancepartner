@@ -414,17 +414,19 @@ asymmetry is deliberate: `respected_not_desired` filters by `config.scope`,
 wrote down stays visibly missed whether or not the objective ever scored it.
 
 `reporting.exchange_groups` / `group_numbers` derive the **exchange groups** both surfaces
-mark: whom the coach can swap through without making the team unhappier. Only solutions whose
-sorted per-dancer score vector is identical to the best solution's take part — a near-optimal
-entry stays browsable but never suggests a swap. Movement is by position label, the same
-notion as `moved_dancers` (the partners a mover joins or leaves are not part of the group).
-Within one peer solution, movers whose from/to labels touch a common position form one group —
-a permutation cycle chains labels — and groups sharing a dancer across peers merge. Each group
-carries its distinct constellations (`GroupVariant`) with the 0-based shortlist indices that
-realise them, so "solution n" stays the number the surfaces print. Numbering is deterministic:
-group 1 touches the alphabetically first position. Above `MAX_LISTED_VARIANTS` constellations
-both surfaces list per-dancer position options instead of the variants — fifty constellation
-lines answer nothing a coach asks; the exact combinations stay in the solution browser.
+mark: whom the coach can swap through without making the team unhappier. A group is a set of
+dancers in **one** solution such that *every* permutation of them over their positions keeps
+every hard constraint and the solution's sorted per-dancer score vector — three dancers form
+a group of three only when all six arrangements hold. Interchangeability is not transitive,
+so groups are grown greedily in (label, id) order and verified against full permutation
+closure on every extension (capped at `MAX_GROUP_SIZE`); permuted assignments are re-validated
+and re-scored directly via `build_satisfaction`, so the result never depends on which other
+solutions the enumeration pass returned before its cap. Groups are role-pure by physics, not
+by fiat — a cross-role permutation would change a position's role counts. Co-positioned
+dancers are never grouped (their "swap" changes nothing), and one-sided relocations that
+resize positions (a follower moving from a doubled position onto a single one) are not
+permutations: those alternatives stay visible in the solution browser. Numbering is
+deterministic: group 1 holds the alphabetically first position.
 
 ---
 
@@ -462,8 +464,9 @@ solve, formatting):
   pointing to the analysis page.
 * `pages/analysis.py` — per-dancer satisfaction sorted ascending (the unhappiest first — that is
   the row the coach actually needs) with an exchange-group column, an **exchange groups**
-  block listing every group's constellations and the solutions that realise them, plus a
-  browser over the enumerated solutions with a diff against the selected one.
+  block naming each freely interchangeable set with its positions (computed for the selected
+  solution), plus a browser over the enumerated solutions with a diff against the selected
+  one.
 
 Implementation rules:
 
@@ -519,16 +522,16 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
   themselves are never recomputed by `explain`.
 * `--veto-tier 0` is the CLI spelling of `SolverConfig.veto_tier=None`.
 * `--top N` sets `max_solutions` **and** prints all N, each alternative diffed against the best.
-  With more than one equally good solution the shortlist header is followed by the exchange
-  groups (§8 `reporting.exchange_groups`): each group's dancers and every constellation with
-  the solutions that realise it. `--near-optimal` and `--tier-slack` expose the other two
-  enumeration knobs.
+  When the best solution has exchange groups (§8 `reporting.exchange_groups`), the shortlist
+  header is followed by one line per group — its dancers with their positions. `--near-optimal`
+  and `--tier-slack` expose the other two enumeration knobs.
 * `solve --json` writes `{"config": ..., "result": ...}`; `explain` reads that back. Keep both
   ends in step — `test_explain_matches_the_solve_table` compares their rendered output.
-* `explain --solution N` picks a shortlist entry; with more than one solution in the file it also
-  summarises how stable the dancer's partners are across the whole shortlist, and names the
-  dancer's exchange group when they belong to one. That is the question enumeration exists to
-  answer: a partner in every optimum is not a choice the coach has to make, one in 3 of 20 is.
+* `explain --solution N` picks a shortlist entry and names the dancer's exchange group when
+  they belong to one in that solution; with more than one solution in the file it also
+  summarises how stable the dancer's partners are across the whole shortlist. That is the
+  question enumeration exists to answer: a partner in every optimum is not a choice the coach
+  has to make, one in 3 of 20 is.
 * Exit codes: `0` success, `1` file or instance rejected, `2` bad invocation (typer's), `3` the
   solver found no solution within its limits.
 

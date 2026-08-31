@@ -17,7 +17,8 @@ from dancepartner.i18n import TABLES, Language, set_language
 from dancepartner.model import Team
 from dancepartner.storage import dump_team, load_team
 
-from .builders import roster
+from .builders import desired, roster, tier
+from .builders import team as team_builder
 
 EXAMPLE = str(Path(__file__).resolve().parents[1] / "data" / "team.example.yaml")
 
@@ -244,27 +245,25 @@ def test_solve_top_three_prints_both_optima_with_diffs() -> None:
     assert result.stdout.count("Difference to solution 1:") == 1
 
 
-def test_solve_top_three_prints_the_exchange_group() -> None:
-    result = run("solve", EXAMPLE, "--top", "3")
-    assert result.exit_code == 0
-    assert "Exchange groups" in result.stdout
-    assert "Group 1: Leah Dorn" in result.stdout
-    assert "Leah Dorn → F — in solution(s) 1" in result.stdout
-    assert "Leah Dorn → G — in solution(s) 2" in result.stdout
-
-
-def test_solve_lists_per_dancer_options_for_a_large_group(tmp_path: Path) -> None:
-    # No surveys: every assignment is optimal, so the group collects far more constellations
-    # than anyone can read -- the block must fall back to one options line per dancer.
+@pytest.fixture
+def swappable_team(tmp_path: Path) -> Path:
+    """led0's fulfilled wish pins him and fol0; the unnamed rest is freely interchangeable."""
+    instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
     path = tmp_path / "team.yaml"
-    path.write_text(dump_team(Team(dancers=roster(10, 12), n_positions=8)), encoding="utf-8")
-    result = run("solve", str(path), "--top", "8")
+    path.write_text(dump_team(instance), encoding="utf-8")
+    return path
+
+
+def test_solve_prints_the_exchange_groups(swappable_team: Path) -> None:
+    result = run("solve", str(swappable_team))
     assert result.exit_code == 0
-    assert "constellations — see the individual solutions." in result.stdout
-    assert "→" not in result.stdout.split("Exchange groups")[1].split("── Solution")[0]
+    assert "Exchange groups — freely interchangeable" in result.stdout
+    assert "Group 1 (Followers): FOL1 (" in result.stdout
+    assert "Group 2 (Leaders): LED1 (" in result.stdout
 
 
-def test_solve_top_one_prints_no_group_block() -> None:
+def test_solve_prints_no_group_block_when_nothing_is_interchangeable() -> None:
+    # On the example team every rearrangement costs somebody a wish.
     result = run("solve", EXAMPLE)
     assert result.exit_code == 0
     assert "Exchange groups" not in result.stdout
@@ -448,10 +447,16 @@ def test_explain_summarises_a_dancer_across_the_shortlist(shortlisted: Path) -> 
     assert "Leah Dorn: in 1 of 2 solutions" in result.stdout
 
 
-def test_explain_names_the_exchange_group(shortlisted: Path) -> None:
-    result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "leah-d")
+def test_explain_names_the_exchange_group(swappable_team: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    assert run("solve", str(swappable_team), "--json", str(out)).exit_code == 0
+    result = run("explain", str(swappable_team), str(out), "--dancer", "fol1")
     assert result.exit_code == 0
-    assert "Exchange group 1: Leah Dorn" in result.stdout
+    assert "Exchange group 1: FOL1 (" in result.stdout
+    # fol0 carries led0's fulfilled wish and is pinned.
+    pinned = run("explain", str(swappable_team), str(out), "--dancer", "fol0")
+    assert pinned.exit_code == 0
+    assert "Exchange group" not in pinned.stdout
 
 
 def test_explain_says_when_a_dancer_has_no_open_choice(shortlisted: Path) -> None:

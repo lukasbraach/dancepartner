@@ -31,7 +31,6 @@ from .model import (
     WeightScheme,
 )
 from .reporting import (
-    MAX_LISTED_VARIANTS,
     ExchangeGroup,
     exchange_groups,
     group_numbers,
@@ -342,14 +341,13 @@ def explain(
     if dancer not in team.dancers_by_id:
         _fail(t("explain.unknown_dancer", dancer_id=dancer))
     _explain_dancer(dancer, solution, team, config)
+    groups = exchange_groups(solution, team, config)
+    numbers = group_numbers(groups)
+    if dancer in numbers:
+        group = groups[numbers[dancer] - 1]
+        _echo(t("explain.group", number=group.number, names=_group_members(group, team)))
     if count > 1:
         _echo("")
-        groups = exchange_groups(result.solutions)
-        numbers = group_numbers(groups)
-        if dancer in numbers:
-            group = groups[numbers[dancer] - 1]
-            names = ", ".join(sorted(team.dancers_by_id[i].name for i in group.dancer_ids))
-            _echo(t("explain.group", number=group.number, names=names))
         _print_across_solutions(dancer, result, team)
 
 
@@ -487,7 +485,7 @@ def _print_shortlist(result: SolveResult, team: Team, config: SolverConfig) -> N
     _echo(t(key, count=count))
     if config.near_optimal_ratio < 1.0:
         _echo(t("solve.near_optimal", percent=config.near_optimal_ratio * 100))
-    groups = exchange_groups(result.solutions)
+    groups = exchange_groups(result.best, team, config)
     if groups:
         _print_groups(groups, team)
     _echo("")
@@ -514,32 +512,33 @@ def _print_shortlist(result: SolveResult, team: Team, config: SolverConfig) -> N
         _echo("")
 
 
-def _print_groups(groups: list[ExchangeGroup], team: Team) -> None:
-    """Print every exchange group and the constellations it can take.
-
-    This is the answer to "whom can I swap through without making the team unhappier" --
-    only solutions with the best solution's exact score vector contribute (see
-    ``reporting.exchange_groups``).
-    """
+def _group_members(group: ExchangeGroup, team: Team) -> str:
+    """``"Anna (A), Berta (B)"`` -- the group's dancers with their current positions."""
     by_id = team.dancers_by_id
+    return ", ".join(
+        t("solve.group_member", name=by_id[i].name, label=group.labels[i])
+        for i in sorted(group.dancer_ids, key=lambda i: by_id[i].name)
+    )
+
+
+def _print_groups(groups: list[ExchangeGroup], team: Team) -> None:
+    """Print every freely interchangeable dancer set of the best solution.
+
+    This is the answer to "whom can I swap through without making the team unhappier":
+    any rearrangement within one group keeps every hard constraint and the score vector
+    (see ``reporting.exchange_groups``).
+    """
     _echo(t("solve.groups_header"))
     for group in groups:
-        names = ", ".join(sorted(by_id[i].name for i in group.dancer_ids))
-        _echo(t("solve.group_heading", number=group.number, names=names))
-        if len(group.variants) > MAX_LISTED_VARIANTS:
-            # Fifty constellation lines answer nothing; the per-dancer options do.
-            _echo(t("solve.group_variants_note", count=len(group.variants)))
-            for dancer_id in sorted(group.dancer_ids, key=lambda i: by_id[i].name):
-                labels = ", ".join(sorted({v.labels[dancer_id] for v in group.variants}))
-                _echo(t("solve.group_option", name=by_id[dancer_id].name, labels=labels))
-            continue
-        for variant in group.variants:
-            placements = "; ".join(
-                t("solve.group_placement", name=by_id[i].name, label=label)
-                for i, label in sorted(variant.labels.items(), key=lambda item: by_id[item[0]].name)
+        role = t(f"role.{group.role.value}.plural")
+        _echo(
+            t(
+                "solve.group_heading",
+                number=group.number,
+                role=role,
+                names=_group_members(group, team),
             )
-            solutions = ", ".join(str(index + 1) for index in variant.solution_indices)
-            _echo(t("solve.group_variant", placements=placements, solutions=solutions))
+        )
 
 
 def _print_diff(reference: Solution, solution: Solution, team: Team) -> None:

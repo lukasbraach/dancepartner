@@ -7,8 +7,9 @@ here, once, by value.
 
 from __future__ import annotations
 
-from dancepartner.model import PreferenceScope, SolverConfig, WeightScheme
+from dancepartner.model import PreferenceScope, Role, SolverConfig, WeightScheme
 from dancepartner.reporting import (
+    MAX_GROUP_SIZE,
     exchange_groups,
     group_numbers,
     moved_dancers,
@@ -259,103 +260,160 @@ def test_moved_dancers_is_never_empty_for_two_shortlist_entries() -> None:
 # -- exchange_groups ------------------------------------------------------------------------
 
 
-def test_exchange_groups_needs_at_least_two_solutions() -> None:
-    instance = team(3, 3, 3)
-    solution = build_solution(
-        instance, SolverConfig(), [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
-    )
-    assert exchange_groups([solution]) == []
-
-
-def test_exchange_groups_finds_a_two_cycle() -> None:
+def test_exchange_groups_finds_freely_interchangeable_neutrals() -> None:
+    # Nobody stated a preference, so any same-role rearrangement is equally good: all three
+    # followers form one group, all three leaders another. One solution is enough -- the
+    # permutations are verified directly, not looked up in a shortlist.
     instance = team(3, 3, 3)
     config = SolverConfig()
-    reference = build_solution(
+    solution = build_solution(
         instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
     )
-    swapped = build_solution(
-        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
-    )
-    groups = exchange_groups([reference, swapped])
+    groups = exchange_groups(solution, instance, config)
 
-    assert len(groups) == 1
-    group = groups[0]
-    assert group.number == 1
-    assert group.dancer_ids == ["fol0", "fol1"]
-    assert [v.solution_indices for v in group.variants] == [[0], [1]]
-    assert group.variants[0].labels == {"fol0": "A", "fol1": "B"}
-    assert group.variants[1].labels == {"fol0": "B", "fol1": "A"}
-    assert group_numbers(groups) == {"fol0": 1, "fol1": 1}
+    assert [(g.number, g.role, g.dancer_ids) for g in groups] == [
+        (1, Role.FOLLOWER, ["fol0", "fol1", "fol2"]),
+        (2, Role.LEADER, ["led0", "led1", "led2"]),
+    ]
+    assert groups[0].labels == {"fol0": "A", "fol1": "B", "fol2": "C"}
+    assert group_numbers(groups) == {
+        "fol0": 1,
+        "fol1": 1,
+        "fol2": 1,
+        "led0": 2,
+        "led1": 2,
+        "led2": 2,
+    }
 
 
-def test_exchange_groups_splits_label_disjoint_swaps() -> None:
-    # One peer applies two independent swaps at once: A<->B and C<->D touch no common
-    # position, so they are two groups the coach can decide separately.
-    instance = team(4, 4, 4)
+def test_exchange_groups_exclude_a_dancer_whose_swap_costs_a_wish() -> None:
+    # Moving fol0 (or led0) away from the fulfilled tier-1 wish changes the score vector, so
+    # neither is interchangeable; the unnamed rest still is.
+    instance = team(3, 3, 3, desired("led0", tier(1, "fol0")))
     config = SolverConfig()
-    reference = build_solution(
+    solution = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    groups = exchange_groups(solution, instance, config)
+
+    assert [(g.role, g.dancer_ids) for g in groups] == [
+        (Role.FOLLOWER, ["fol1", "fol2"]),
+        (Role.LEADER, ["led1", "led2"]),
+    ]
+
+
+def test_exchange_groups_respect_vetoes() -> None:
+    # fol1 must never stand with led2, so any arrangement sending fol1 to C is out; the
+    # greedy build keeps {fol0, fol1} and leaves fol2 alone. The same veto blocks led2 from
+    # position B, splitting the leaders analogously.
+    instance = team(3, 3, 3, not_desired("fol1", tier(1, "led2")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    groups = exchange_groups(solution, instance, config)
+
+    assert [(g.role, g.dancer_ids) for g in groups] == [
+        (Role.FOLLOWER, ["fol0", "fol1"]),
+        (Role.LEADER, ["led0", "led1"]),
+    ]
+
+
+def test_exchange_groups_respect_the_coaching_pairing() -> None:
+    # led0 needs coaching: any arrangement leaving him alone is invalid, so he stays put
+    # while the three experienced leaders rotate freely. His co-positioned partner led1 is
+    # never grouped with him -- swapping two dancers on one position changes nothing.
+    instance = team(4, 3, 3, **{"led0": {"needs_coaching": True}})
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "led1", "fol0"], ["led2", "fol1"], ["led3", "fol2"]]
+    )
+    groups = exchange_groups(solution, instance, config)
+
+    assert [(g.role, g.dancer_ids) for g in groups] == [
+        (Role.FOLLOWER, ["fol0", "fol1", "fol2"]),
+        (Role.LEADER, ["led1", "led2", "led3"]),
+    ]
+    assert "led0" not in group_numbers(groups)
+
+
+def test_exchange_groups_never_pair_two_coaching_dancers() -> None:
+    # fol0's wish pins led0 (coaching) on A. Swapping led1 for led2 would double up the two
+    # coaching dancers on A -- invalid, so led1 and led2 land in different groups.
+    instance = team(
+        6,
+        4,
+        3,
+        desired("fol0", tier(1, "led0")),
+        **{"led0": {"needs_coaching": True}, "led2": {"needs_coaching": True}},
+    )
+    config = SolverConfig()
+    solution = build_solution(
+        instance,
+        config,
+        [["led0", "led1", "fol0"], ["led2", "led3", "fol1"], ["led4", "led5", "fol2", "fol3"]],
+    )
+    groups = exchange_groups(solution, instance, config)
+    numbers = group_numbers(groups)
+
+    assert "led0" not in numbers
+    assert "led1" in numbers
+    assert "led2" in numbers
+    assert numbers["led1"] != numbers["led2"]
+
+
+def test_exchange_groups_respect_a_pole_position() -> None:
+    # led2 holds a pole position: he may swap onto another single slot but never onto the
+    # doubled position A, and nobody may double up with him.
+    instance = team(4, 3, 3, **{"led2": {"is_pole_position": True}})
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "led1", "fol0"], ["led2", "fol1"], ["led3", "fol2"]]
+    )
+    groups = exchange_groups(solution, instance, config)
+
+    leaders = next(g for g in groups if g.role is Role.LEADER)
+    assert leaders.dancer_ids == ["led0", "led3"]
+    assert "led2" not in group_numbers(groups)
+
+
+def test_exchange_groups_verify_full_permutation_closure() -> None:
+    # Every pairwise swap of fol0/fol1/fol2 preserves the score vector, but the three-cycles
+    # do not -- the wish matrix is built so the tier-1 and tier-2 fulfilments only balance
+    # pairwise. A transitive chain would claim a group of three; the closure check must not.
+    instance = team(
+        4,
+        4,
+        4,
+        desired("led0", tier(1, "fol3"), tier(2, "fol0", "fol1", "fol2")),
+        desired("led1", tier(1, "fol0", "fol1"), tier(2, "fol2")),
+        desired("led2", tier(1, "fol1"), tier(2, "fol0", "fol2")),
+    )
+    config = SolverConfig()
+    solution = build_solution(
         instance,
         config,
         [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
     )
-    peer = build_solution(
-        instance,
-        config,
-        [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol3"], ["led3", "fol2"]],
-    )
-    groups = exchange_groups([reference, peer])
+    groups = exchange_groups(solution, instance, config)
 
-    assert [group.dancer_ids for group in groups] == [["fol0", "fol1"], ["fol2", "fol3"]]
-    assert [group.number for group in groups] == [1, 2]
+    assert [(g.role, g.dancer_ids) for g in groups] == [
+        (Role.FOLLOWER, ["fol0", "fol1"]),
+        (Role.LEADER, ["led0", "led1"]),
+    ]
+    assert "fol2" not in group_numbers(groups)
 
 
-def test_exchange_groups_merges_label_overlapping_moves_in_one_peer() -> None:
-    # fol0/fol1 swap A<->B while led1/led2 swap B<->C: position B changes in both moves, so
-    # the constellations are one joint choice, never two independent ones.
-    instance = team(3, 3, 3)
+def test_exchange_groups_cap_the_group_size() -> None:
+    # Nine neutral followers on eight positions: at most MAX_GROUP_SIZE join one group, and
+    # the second follower of the doubled position is skipped (same position, nothing to swap).
+    instance = team(9, 9, 8)
     config = SolverConfig()
-    reference = build_solution(
-        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
-    )
-    peer = build_solution(instance, config, [["led0", "fol1"], ["led2", "fol0"], ["led1", "fol2"]])
-    groups = exchange_groups([reference, peer])
+    positions = [[f"led{i}", f"fol{i}"] for i in range(7)]
+    positions.append(["led7", "led8", "fol7", "fol8"])
+    solution = build_solution(instance, config, positions)
+    groups = exchange_groups(solution, instance, config)
 
-    assert len(groups) == 1
-    assert groups[0].dancer_ids == ["fol0", "fol1", "led1", "led2"]
-
-
-def test_exchange_groups_merges_groups_sharing_a_dancer_across_peers() -> None:
-    instance = team(3, 3, 3)
-    config = SolverConfig()
-    best = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
-    peer_one = build_solution(
-        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
-    )
-    peer_two = build_solution(
-        instance, config, [["led0", "fol2"], ["led1", "fol1"], ["led2", "fol0"]]
-    )
-    groups = exchange_groups([best, peer_one, peer_two])
-
-    assert len(groups) == 1
-    group = groups[0]
-    assert group.dancer_ids == ["fol0", "fol1", "fol2"]
-    assert [v.solution_indices for v in group.variants] == [[0], [1], [2]]
-
-
-def test_exchange_groups_excludes_a_worse_score_vector() -> None:
-    # led0's wish is fulfilled in the best solution and in one peer, but not in the middle
-    # entry -- that one is near-optimal, not equal, and must suggest no swap. The variant
-    # indices still count against the full shortlist, so "solution 3" stays solution 3.
-    instance = team(3, 3, 3, desired("led0", tier(1, "fol0")))
-    config = SolverConfig()
-    best = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
-    worse = build_solution(instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]])
-    peer = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol2"], ["led2", "fol1"]])
-    groups = exchange_groups([best, worse, peer])
-
-    assert len(groups) == 1
-    group = groups[0]
-    assert group.dancer_ids == ["fol1", "fol2"]
-    assert [v.solution_indices for v in group.variants] == [[0], [2]]
-
-    assert exchange_groups([best, worse]) == []
+    followers = next(g for g in groups if g.role is Role.FOLLOWER)
+    assert len(followers.dancer_ids) == MAX_GROUP_SIZE
+    assert len({followers.labels[i] for i in followers.dancer_ids}) == MAX_GROUP_SIZE

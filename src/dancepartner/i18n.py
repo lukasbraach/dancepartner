@@ -119,12 +119,11 @@ _STRINGS_EN: dict[str, str] = {
     "solve.solution_scores": "   Total score {total}, lowest individual score {minimum}",
     "solve.diff_header": "   Difference to solution 1:",
     "solve.diff_entry": "     {name}: {from_label} → {to_label}",
-    "solve.groups_header": "Exchange groups — interchangeable between the equally good solutions:",
-    "solve.group_heading": "  Group {number}: {names}",
-    "solve.group_variant": "    {placements} — in solution(s) {solutions}",
-    "solve.group_placement": "{name} → {label}",
-    "solve.group_variants_note": "    {count} constellations — see the individual solutions.",
-    "solve.group_option": "    {name}: {labels}",
+    "solve.groups_header": (
+        "Exchange groups — freely interchangeable, every arrangement equally good:"
+    ),
+    "solve.group_heading": "  Group {number} ({role}): {names}",
+    "solve.group_member": "{name} ({label})",
     "solve.written": "Result written to {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Satisfaction (least satisfied first):",
@@ -147,7 +146,8 @@ _STRINGS_EN: dict[str, str] = {
         "  This placement is the same in all {count} solutions — there is nothing to choose here."
     ),
     "explain.group": (
-        "  Exchange group {number}: {names} — interchangeable between the equally good solutions."
+        "  Exchange group {number}: {names} — freely interchangeable, every arrangement "
+        "equally good."
     ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Score: {score}",
@@ -265,8 +265,8 @@ _STRINGS_EN: dict[str, str] = {
     "ui.solve.cards_header": "Positions",
     "ui.solve.doubled_badge": "doubled",
     "ui.solve.groups_hint": (
-        "Marked dancers can be swapped between the equally good solutions — details on the "
-        "Analysis page."
+        "Dancers sharing a number can be swapped freely — every arrangement is equally "
+        "good. Details on the Analysis page."
     ),
     "ui.solve.fulfilled_badge": "fulfilled",
     "ui.solve.violated_badge": "violated",
@@ -296,7 +296,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.analysis.col_violated": "Violated not-desired wishes",
     "ui.analysis.groups_header": "Exchange groups",
     "ui.analysis.groups_none": (
-        "Nothing to swap — every placement is fixed across the equally good solutions."
+        "Nothing to swap — no rearrangement of this solution is equally good."
     ),
     "ui.analysis.shortlist_header": "Equally good solutions",
     "ui.analysis.pick": "Solution",
@@ -433,12 +433,9 @@ _STRINGS_DE: dict[str, str] = {
     "solve.solution_scores": "   Gesamtpunkte {total}, niedrigste Einzelpunktzahl {minimum}",
     "solve.diff_header": "   Unterschied zu Lösung 1:",
     "solve.diff_entry": "     {name}: {from_label} → {to_label}",
-    "solve.groups_header": "Tauschgruppen — austauschbar zwischen den gleichwertigen Lösungen:",
-    "solve.group_heading": "  Gruppe {number}: {names}",
-    "solve.group_variant": "    {placements} — in Lösung(en) {solutions}",
-    "solve.group_placement": "{name} → {label}",
-    "solve.group_variants_note": "    {count} Konstellationen — siehe die einzelnen Lösungen.",
-    "solve.group_option": "    {name}: {labels}",
+    "solve.groups_header": "Tauschgruppen — frei tauschbar, jede Anordnung gleichwertig:",
+    "solve.group_heading": "  Gruppe {number} ({role}): {names}",
+    "solve.group_member": "{name} ({label})",
     "solve.written": "Ergebnis geschrieben nach {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Zufriedenheit (unzufriedenste zuerst):",
@@ -461,7 +458,7 @@ _STRINGS_DE: dict[str, str] = {
         "  Diese Besetzung ist in allen {count} Lösungen gleich — hier gibt es nichts zu wählen."
     ),
     "explain.group": (
-        "  Tauschgruppe {number}: {names} — austauschbar zwischen den gleichwertigen Lösungen."
+        "  Tauschgruppe {number}: {names} — frei tauschbar, jede Anordnung gleichwertig."
     ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Punkte: {score}",
@@ -582,8 +579,8 @@ _STRINGS_DE: dict[str, str] = {
     "ui.solve.cards_header": "Positionen",
     "ui.solve.doubled_badge": "Doppelbesetzung",
     "ui.solve.groups_hint": (
-        "Markierte Tänzer:innen lassen sich zwischen den gleichwertigen Lösungen tauschen — "
-        "Details auf der Analyse-Seite."
+        "Gleich nummerierte Tänzer:innen lassen sich frei tauschen — jede Anordnung ist "
+        "gleichwertig. Details auf der Analyse-Seite."
     ),
     "ui.solve.fulfilled_badge": "erfüllt",
     "ui.solve.violated_badge": "verletzt",
@@ -613,7 +610,7 @@ _STRINGS_DE: dict[str, str] = {
     "ui.analysis.col_violated": "Verletzte Nicht-Wünsche",
     "ui.analysis.groups_header": "Tauschgruppen",
     "ui.analysis.groups_none": (
-        "Nichts zu tauschen — jede Besetzung ist über die gleichwertigen Lösungen hinweg fest."
+        "Nichts zu tauschen — keine Umstellung dieser Lösung ist gleichwertig."
     ),
     "ui.analysis.shortlist_header": "Gleichwertige Lösungen",
     "ui.analysis.pick": "Lösung",

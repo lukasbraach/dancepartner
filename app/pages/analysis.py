@@ -14,7 +14,6 @@ import common
 from dancepartner.i18n import t
 from dancepartner.model import ScoreAggregation
 from dancepartner.reporting import (
-    MAX_LISTED_VARIANTS,
     exchange_groups,
     group_numbers,
     moved_dancers,
@@ -61,8 +60,8 @@ rows = satisfaction_rows(selected, team)
 scores = [sat.score for _, _, sat in rows]
 worst, best_score = min(scores), max(scores)
 places = positions_by_dancer(selected)
-# A property of the whole shortlist, not of the selected solution.
-groups = exchange_groups(solutions)
+# A property of the selected solution: any rearrangement within a group is equally good.
+groups = exchange_groups(selected, team, config)
 numbers = group_numbers(groups)
 
 
@@ -133,36 +132,21 @@ st.dataframe(
 # -- the exchange groups -------------------------------------------------------------------
 #
 # The question the coach asks the diagram: whom can I swap through without making the team
-# unhappier? One block per group, each constellation with the solutions that realise it.
-# Rendered as markdown, never as a dataframe -- the tests address the satisfaction and diff
-# tables by dataframe index.
+# unhappier? Any rearrangement within one group keeps every hard constraint and the score
+# vector of the solution shown. Rendered as markdown, never as a dataframe -- the tests
+# address the satisfaction and diff tables by dataframe index.
 
-if len(solutions) > 1:
-    st.subheader(t("ui.analysis.groups_header"))
-    if not groups:
-        st.caption(t("ui.analysis.groups_none"))
-    by_id = team.dancers_by_id
-    for group in groups:
-        group_names = ", ".join(sorted(by_id[i].name for i in group.dancer_ids))
-        st.markdown(f"{common.group_marker(group.number)} **{group_names}**")
-        if len(group.variants) > MAX_LISTED_VARIANTS:
-            # Fifty constellation lines answer nothing; the per-dancer options do.
-            st.caption(t("solve.group_variants_note", count=len(group.variants)).strip())
-            for dancer_id in sorted(group.dancer_ids, key=lambda i: by_id[i].name):
-                options = ", ".join(sorted({v.labels[dancer_id] for v in group.variants}))
-                st.caption(
-                    t("solve.group_option", name=by_id[dancer_id].name, labels=options).strip()
-                )
-            continue
-        for variant in group.variants:
-            placements = "; ".join(
-                t("solve.group_placement", name=by_id[i].name, label=label)
-                for i, label in sorted(variant.labels.items(), key=lambda item: by_id[item[0]].name)
-            )
-            in_solutions = ", ".join(str(index + 1) for index in variant.solution_indices)
-            st.caption(
-                t("solve.group_variant", placements=placements, solutions=in_solutions).strip()
-            )
+st.subheader(t("ui.analysis.groups_header"))
+if not groups:
+    st.caption(t("ui.analysis.groups_none"))
+by_id = team.dancers_by_id
+for group in groups:
+    members = ", ".join(
+        t("solve.group_member", name=by_id[i].name, label=group.labels[i])
+        for i in sorted(group.dancer_ids, key=lambda i: by_id[i].name)
+    )
+    role = common.role_plural(group.role)
+    st.markdown(f"{common.group_marker(group.number)} {role} — **{members}**")
 
 # -- the shortlist browser -----------------------------------------------------------------
 
@@ -246,13 +230,15 @@ else:
 
 # -- how stable is this dancer's position across the shortlist? ----------------------------
 
+if picked in numbers:
+    picked_group = groups[numbers[picked] - 1]
+    picked_members = ", ".join(
+        t("solve.group_member", name=by_id[i].name, label=picked_group.labels[i])
+        for i in sorted(picked_group.dancer_ids, key=lambda i: by_id[i].name)
+    )
+    st.markdown(t("explain.group", number=picked_group.number, names=picked_members).strip())
+
 if len(solutions) > 1:
-    if picked in numbers:
-        picked_group = groups[numbers[picked] - 1]
-        picked_names = ", ".join(
-            sorted(team.dancers_by_id[i].name for i in picked_group.dancer_ids)
-        )
-        st.markdown(t("explain.group", number=picked_group.number, names=picked_names).strip())
     counts: dict[str, int] = {}
     for solution in solutions:
         here = next(p for p in solution.positions if picked in (*p.leaders, *p.followers))

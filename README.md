@@ -129,10 +129,6 @@ Objective in stages:
   coupled: 2 (minimized)
 
 2 equally good solution(s) found.
-Exchange groups — interchangeable between the equally good solutions:
-  Group 1: Leah Dorn
-    Leah Dorn → F — in solution(s) 1
-    Leah Dorn → G — in solution(s) 2
 
 ── Solution 1 of 2 (best)
    Total score 60, lowest individual score 0
@@ -188,11 +184,15 @@ Lukas Brandt (Leader) — Position A
 
 The last sentence is the reason the program enumerates several solutions at all. A partner who
 is the same in every optimal solution is not a decision the coach has to make. One who appears
-in 3 of 20 solutions is. The **exchange groups** above the shortlist collect exactly those open
-choices: for this team, one group remains — Leah Dorn dances either as David Lorenz' second
-follower on position F or beside Marie Günther on position G. In the interface the dancers of
-each group carry its number (1️⃣, 2️⃣, …) right on the solution cards and in the analysis
-table, so the swaps that cost nothing are visible at a glance.
+in 3 of 20 solutions is. For this team, exactly one choice remains: Leah Dorn dances either as
+David Lorenz' second follower on position F or beside Marie Günther on position G.
+
+On top of the shortlist, the program marks **exchange groups**: sets of dancers who can be
+permuted freely over their positions — every arrangement keeps every hard constraint and the
+score vector, so a swap within a group costs nothing at all. Their dancers carry the group's
+number (1️⃣, 2️⃣, …) right on the solution cards and in the analysis table. This example team
+has none — Leah Dorn's move resizes two positions rather than swapping two dancers, which is
+exactly what the solution browser is for.
 
 ## The four objectives
 
@@ -279,9 +279,9 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 * **Team**: the dancers as a table with name, role, pole position, coaching need.
 * **Survey**: any number of tiers per person and direction; conflicts are reported immediately.
 * **Solution**: configure the objective, solve, the eight positions as cards — dancers who can
-  be swapped between the equally good solutions are numbered 1️⃣, 2️⃣, …
-* **Analysis**: satisfaction sorted ascending, the exchange groups with every constellation
-  they can take, plus the comparison of the equally good solutions.
+  be swapped freely at zero cost are numbered 1️⃣, 2️⃣, …
+* **Analysis**: satisfaction sorted ascending, the exchange groups of the selected solution,
+  plus the comparison of the equally good solutions.
 
 Saving happens only at the press of a button. PyYAML cannot preserve comments; an autosave would
 silently strip them from a hand-maintained team file. Real data belongs in `data/team.yaml`: the
