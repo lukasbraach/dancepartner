@@ -48,6 +48,9 @@ jobs:
           dancepartner check data/team.example.yaml
           dancepartner solve data/team.example.yaml --json /tmp/out.json
           dancepartner explain data/team.example.yaml /tmp/out.json --dancer lukas-b
+          # The 24-dancer instance the README's performance table is measured on. Only
+          # `check` -- a full solve of it takes ~12 s, which is not worth the CI minute.
+          dancepartner check data/team.large.example.yaml
 
       - name: The core runs without the UI
         # SPEC.md 5: a reviewer must be able to delete app/ and still run everything from the

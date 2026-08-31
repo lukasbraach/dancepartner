@@ -1,0 +1,210 @@
+# Großes Beispielteam für dancepartner — erfundene Daten, keine echte Teambefragung.
+#
+# 24 Tänzer:innen (12 Herren, 12 Damen) auf 8 Positionen. Das ist die Größe, auf die sich die
+# Performance-Angaben im README beziehen: je Rolle bleiben 4 Positionen einfach und 4 doppelt
+# besetzt, und mit 22 beantworteten Teambefragungen über drei Tiers ist die Zielfunktion dicht
+# genug besetzt, dass der Solver wirklich etwas zu entscheiden hat.
+#
+# Aufbau und Regeln wie in team.example.yaml:
+#
+# Rollen:      leader (Herr) | follower (Dame)
+# Flags:       is_pole_position   (Startanspruch: muss allein in der eigenen Rolle auf der
+#                                 Position sein)
+#              needs_coaching     (Coachingbedarf: darf NICHT allein in der eigenen Rolle sein)
+#              Die beiden schließen sich gegenseitig aus.
+# Wünsche:     desired / not_desired, jeweils  <tier>: [ids]  — Tier 1 ist der stärkste Wunsch.
+#              Tiers müssen bei 1 beginnen und lückenlos sein, je Richtung.
+#              Eine ID darf pro Richtung in nur einem Tier stehen und nie in beiden Richtungen.
+#
+# Wünsche sind gerichtet: dass Finn sich Alina wünscht, heißt nicht, dass Alina sich Finn
+# wünscht. Hier tun es die meisten, aber eben nicht alle — genau daran wird die Zielfunktion
+# interessant.
+#
+# Die Reihenfolge der Tänzer:innen ist bedeutsam: die Symmetriebrechung des Solvers numeriert
+# die Positionen nach dem Index der leader in dieser Liste.
+#
+# Philipp Möller und Katharina Grothe haben nicht geantwortet — das ist Absicht. Wer keine
+# Teambefragung abgibt, bekommt 0 Punkte und ist damit automatisch unter den Unzufriedensten.
+n_positions: 8
+dancers:
+  - id: finn-a
+    name: Finn Ahrens
+    role: leader
+  - id: tobias-b
+    name: Tobias Brinkmann
+    role: leader
+  - id: lars-c
+    name: Lars Cordes
+    role: leader
+  - id: henrik-d
+    name: Henrik Dahlmann
+    role: leader
+    is_pole_position: true
+  - id: sebastian-e
+    name: Sebastian Ebert
+    role: leader
+  - id: korbinian-f
+    name: Korbinian Frey
+    role: leader
+  - id: matthias-g
+    name: Matthias Gerlach
+    role: leader
+    needs_coaching: true
+  - id: simon-h
+    name: Simon Hartwig
+    role: leader
+  - id: jannik-k
+    name: Jannik Kranz
+    role: leader
+  - id: oliver-l
+    name: Oliver Lindner
+    role: leader
+    is_pole_position: true
+  - id: philipp-m
+    name: Philipp Möller
+    role: leader
+  - id: raphael-n
+    name: Raphael Neuner
+    role: leader
+    needs_coaching: true
+  - id: alina-o
+    name: Alina Ostermann
+    role: follower
+  - id: bettina-p
+    name: Bettina Pflüger
+    role: follower
+  - id: carolin-r
+    name: Carolin Reuter
+    role: follower
+    is_pole_position: true
+  - id: daniela-s
+    name: Daniela Seibold
+    role: follower
+  - id: elisa-t
+    name: Elisa Tannert
+    role: follower
+  - id: franziska-v
+    name: Franziska Vollmer
+    role: follower
+    needs_coaching: true
+  - id: greta-w
+    name: Greta Wiedemann
+    role: follower
+  - id: helena-z
+    name: Helena Zink
+    role: follower
+  - id: isabel-b
+    name: Isabel Bergmann
+    role: follower
+  - id: johanna-e
+    name: Johanna Eichhorn
+    role: follower
+    is_pole_position: true
+  - id: katharina-g
+    name: Katharina Grothe
+    role: follower
+  - id: luisa-h
+    name: Luisa Hoffmann
+    role: follower
+    needs_coaching: true
+surveys:
+  - dancer_id: finn-a
+    desired:
+      1: [alina-o]
+      2: [bettina-p]
+      3: [carolin-r]
+    not_desired:
+      1: [greta-w]
+  - dancer_id: tobias-b
+    desired:
+      1: [bettina-p]
+      2: [elisa-t]
+  - dancer_id: lars-c
+    desired:
+      1: [carolin-r]
+      2: [daniela-s, elisa-t]
+  - dancer_id: henrik-d
+    desired:
+      1: [daniela-s]
+      2: [franziska-v]
+    not_desired:
+      1: [helena-z]
+  - dancer_id: sebastian-e
+    desired:
+      1: [elisa-t]
+      2: [greta-w]
+      3: [helena-z]
+  - dancer_id: korbinian-f
+    desired:
+      1: [franziska-v]
+    not_desired:
+      1: [alina-o]
+  - dancer_id: matthias-g
+    desired:
+      1: [greta-w]
+      2: [isabel-b]
+  - dancer_id: simon-h
+    desired:
+      1: [helena-z]
+      2: [johanna-e]
+  - dancer_id: jannik-k
+    desired:
+      1: [isabel-b]
+      2: [katharina-g]
+  - dancer_id: oliver-l
+    desired:
+      1: [johanna-e]
+      2: [luisa-h]
+    not_desired:
+      1: [bettina-p]
+  - dancer_id: raphael-n
+    desired:
+      1: [katharina-g, luisa-h]
+  - dancer_id: alina-o
+    desired:
+      1: [finn-a]
+      2: [tobias-b]
+  - dancer_id: bettina-p
+    desired:
+      1: [tobias-b]
+    not_desired:
+      1: [oliver-l]
+  - dancer_id: carolin-r
+    desired:
+      1: [lars-c]
+      2: [henrik-d]
+      3: [finn-a]
+  - dancer_id: daniela-s
+    desired:
+      1: [henrik-d]
+  - dancer_id: elisa-t
+    desired:
+      1: [sebastian-e]
+      2: [lars-c]
+  - dancer_id: franziska-v
+    desired:
+      1: [korbinian-f]
+      2: [henrik-d]
+  - dancer_id: greta-w
+    desired:
+      1: [matthias-g]
+    not_desired:
+      1: [finn-a]
+  - dancer_id: helena-z
+    desired:
+      1: [simon-h]
+      2: [sebastian-e]
+    not_desired:
+      1: [henrik-d]
+  - dancer_id: isabel-b
+    desired:
+      1: [jannik-k]
+      2: [matthias-g]
+  - dancer_id: johanna-e
+    desired:
+      1: [oliver-l]
+      2: [simon-h]
+  - dancer_id: luisa-h
+    desired:
+      1: [raphael-n]
+      2: [oliver-l]

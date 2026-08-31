@@ -15,7 +15,9 @@ start the next milestone without explicit confirmation.
   deduplication, cross-solution `explain` output.
 * **M4 — Streamlit UI** ✅ `app/` with all four pages, the `ui.`/`nav.` i18n keys,
   `reporting.py`, `tests/test_app.py`.
-* **M5 — Polish** German README with a worked example, screenshots, performance notes.
+* **M5 — Polish** ✅ German `README.md` with a worked example and measured performance notes,
+  `data/team.large.example.yaml`. Screenshots deferred by agreement — the README ships
+  without image slots rather than with broken ones.
 
 ## Language policy (§2)
 
@@ -190,6 +192,27 @@ and the determinism tests are the guard.
 * `test_the_ui_inlines_no_german_literal` scans `app/` for umlauts outside docstrings, and
   `test_no_string_key_is_missing_from_i18n` now globs `app/` too, so a UI-only key is not
   reported unused. Keys looked up dynamically need a prefix in `dynamic_prefixes`.
+
+## Performance and the example instances
+
+* `data/team.example.yaml` (20 dancers) and `data/team.large.example.yaml` (24, tiers to 3)
+  are both committed and both used by the README's numbers. `make cli TEAM=... DANCER=...`
+  reruns them.
+* **`SolveResult.wall_time` used to report only the last stage.** A `CpSolver` reports its most
+  recent solve, and `_run_stages` solves once per stage; reading `solver.wall_time` after the
+  loop under-reported the 24-dancer instance as 2.4 s when it took 12.3 s. `_run_stages` now
+  accumulates and returns the totals. `test_wall_time_counts_every_stage_not_just_the_last`
+  pins it with a spy on `_make_solver` and fails if the accumulation is reverted.
+* **Counter-intuitive but measured: `LEXIMIN` is ~70× *faster* than `WEIGHTED_SUM`** on the
+  24-dancer instance (0.17 s vs 12.5 s), and both reach the same total. Optimising a bare sum
+  leaves a huge space in which to prove no better assignment exists; leximin's rounds pin the
+  whole sorted score vector, and each of those constraints prunes hard. Do not "optimise" the
+  staging on the assumption that more stages cost more time — measure.
+* On the 20-dancer instance every objective finishes under 0.1 s, so the choice is about
+  meaning, not speed. Enumeration is nearly free (`--top 50` costs < 0.2 s over `--top 1`):
+  pass 2 runs on a model whose optima are already pinned.
+* Any figure quoted in the README came from an actual run on this machine. Re-measure rather
+  than adjusting a number by hand.
 
 ## Storage and CLI
 

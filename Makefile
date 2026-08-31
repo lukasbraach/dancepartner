@@ -12,6 +12,7 @@ PYTEST  := $(PY) -m pytest
 DP      := $(VENV)/bin/dancepartner
 
 TEAM    ?= data/team.example.yaml
+DANCER  ?= lukas-b
 PORT    ?= 8501
 
 .DEFAULT_GOAL := help
@@ -21,7 +22,7 @@ help:  ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk -F':.*?## ' '{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
 	@echo
-	@echo "  Variables:  TEAM=$(TEAM)  PORT=$(PORT)"
+	@echo "  Variables:  TEAM=$(TEAM)  DANCER=$(DANCER)  PORT=$(PORT)"
 
 ## -- the UI ------------------------------------------------------------------------------
 
@@ -69,10 +70,10 @@ check: lint typecheck cov cli  ## Everything CI runs
 
 ## -- the CLI, as a smoke test -------------------------------------------------------------
 
-cli: ## Run check/solve/explain against $(TEAM)
+cli: ## Run check/solve/explain against $(TEAM) (set DANCER for a different team)
 	$(DP) check $(TEAM)
 	$(DP) solve $(TEAM) --json /tmp/dancepartner-out.json
-	$(DP) explain $(TEAM) /tmp/dancepartner-out.json --dancer lukas-b
+	$(DP) explain $(TEAM) /tmp/dancepartner-out.json --dancer $(DANCER)
 
 clean: ## Remove caches and build artefacts
 	rm -rf .mypy_cache .pytest_cache .ruff_cache .coverage htmlcov dist build

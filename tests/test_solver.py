@@ -426,3 +426,42 @@ def test_a_realistic_instance_solves_within_the_time_limit(full: Team) -> None:
     assert result.status == "OPTIMAL"
     assert_result_valid(result, instance, config)
     assert result.wall_time < 30.0
+
+
+def test_wall_time_counts_every_stage_not_just_the_last(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A CpSolver reports only its most recent solve, and staged objectives solve repeatedly.
+
+    Reading the solver once after the loop silently reported the last stage as if it were the
+    whole search -- a five-fold under-report on an instance whose first stage does the work.
+    """
+    from ortools.sat.python import cp_model
+
+    from dancepartner import solver as solver_module
+
+    per_stage: list[float] = []
+    make_solver = solver_module._make_solver
+
+    def spy(config: SolverConfig) -> cp_model.CpSolver:
+        created = make_solver(config)
+        inner = created.solve
+
+        def recording(
+            model: cp_model.CpModel,
+            solution_callback: cp_model.CpSolverSolutionCallback | None = None,
+        ) -> cp_model.CpSolverStatus:
+            status = inner(model, solution_callback)
+            per_stage.append(created.wall_time)
+            return status
+
+        created.solve = recording  # type: ignore[method-assign]
+        return created
+
+    monkeypatch.setattr(solver_module, "_make_solver", spy)
+
+    instance = team(4, 4, 3, desired("led0", tier(1, "fol0")), not_desired("led1", tier(1, "fol1")))
+    # max_solutions=1 skips the enumeration pass, so pass 1 is the whole of the reported time.
+    config = SolverConfig(objective=Objective.MAXIMIN_THEN_SUM, max_solutions=1)
+    result = solve(instance, config)
+
+    assert len(per_stage) > 1, "this objective must run more than one stage"
+    assert result.wall_time == pytest.approx(sum(per_stage))

@@ -177,9 +177,9 @@ def solve(
     model = cp_model.CpModel()
     variables = _build_model(model, team, config, break_symmetry=break_symmetry)
     solver = _make_solver(config)
-    stages, status = _run_stages(model, solver, _stage_source(model, team, config, variables))
-    wall_time = solver.wall_time
-    num_branches = solver.num_branches
+    stages, status, wall_time, num_branches = _run_stages(
+        model, solver, _stage_source(model, team, config, variables)
+    )
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return SolveResult(
@@ -228,7 +228,7 @@ def _make_solver(config: SolverConfig) -> cp_model.CpSolver:
 
 def _run_stages(
     model: cp_model.CpModel, solver: cp_model.CpSolver, source: StageSource
-) -> tuple[list[StageResult], cp_model.CpSolverStatus]:
+) -> tuple[list[StageResult], cp_model.CpSolverStatus, float, int]:
     """Optimise each stage in turn, pinning its optimum before the next one is built.
 
     The pin is an inequality rather than an equality (``expr >= optimum - slack`` when
@@ -239,10 +239,15 @@ def _run_stages(
     results: list[StageResult] = []
     history: list[Stage] = []
     status = cp_model.UNKNOWN
+    # A CpSolver reports only its most recent solve, and there is one solve per stage. These
+    # have to be accumulated here or the reported figures silently become "the last stage"
+    # rather than the whole search -- which, on a staged objective, is most of it.
+    wall_time = 0.0
+    num_branches = 0
     try:
         stage = next(source)
     except StopIteration:  # pragma: no cover -- every objective yields at least one stage
-        return results, status
+        return results, status, wall_time, num_branches
 
     while True:
         if stage.tie_break:
@@ -252,10 +257,12 @@ def _run_stages(
         else:
             model.minimize(stage.expr)
         status = solver.solve(model)
+        wall_time += solver.wall_time
+        num_branches += solver.num_branches
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             logger.warning("stage %s ended with status %s", stage.name, solver.status_name(status))
             source.close()
-            return results, status
+            return results, status, wall_time, num_branches
 
         value = round(solver.objective_value)
         logger.info("stage %s (%s) = %d", stage.name, stage.sense.value, value)
@@ -269,7 +276,7 @@ def _run_stages(
     # The sequence is over, so nothing is entitled to spend the remaining slack any more --
     # least of all the enumeration pass, which would otherwise offer the coach a shortlist of
     # assignments worse than the one the stages actually achieved.
-    return _lock_in(model, solver, history, results), status
+    return _lock_in(model, solver, history, results), status, wall_time, num_branches
 
 
 def _lock_in(
