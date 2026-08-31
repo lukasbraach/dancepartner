@@ -375,6 +375,19 @@ class SolverConfig(BaseModel):
     sharing a position). Soft: it is the weakest stage of the objective and can never
     cost a fulfilled wish."""
 
+    tier_slack: int = Field(default=0, ge=0)
+    """Slack epsilon for LEXICOGRAPHIC_TIERS: stage *k* may give up this many fulfilled
+    tier-*k* wishes if a later tier gains by it. 0 is strict lexicographic order."""
+
+    max_solutions: int = Field(default=50, ge=1)
+    """Cap on the enumerated shortlist. 1 skips enumeration entirely."""
+
+    near_optimal_ratio: float = Field(default=1.0, gt=0.0, le=1.0)
+    """Which solutions the enumeration accepts. 1.0 means only the exact optima; 0.95 also
+    accepts a stage value within 5 % of its optimum. The slack is computed from the absolute
+    value of the optimum, so it widens the bound for negative optima too instead of
+    tightening it."""
+
     max_time_in_seconds: float = Field(default=30.0, gt=0)
     random_seed: int = 0
     num_workers: int = Field(default=1, ge=1)

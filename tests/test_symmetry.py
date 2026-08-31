@@ -54,15 +54,26 @@ def test_symmetry_breaking_reduces_the_search() -> None:
     assert constrained.num_branches < free.num_branches
 
 
+# The canonical-numbering assertions below must look at the solver's own solution, not at the
+# ranked shortlist: `solver._ranking_key` orders the enumerated ties by a string built from the
+# dancer ids per position, which imposes an order of its own and would mask a missing constraint.
+CANONICAL = SolverConfig(max_solutions=1)
+
+
 def test_canonical_numbering_puts_the_first_herr_on_position_a() -> None:
+    # Asserted across the whole shortlist, not just the best solution: the constraint forces
+    # `x[herr_0, p] == 0` for every p > 0, so *no* admissible assignment may place h0 elsewhere.
+    # Checking only one solution would pass by luck even with the constraint deleted.
     instance = _instance()
-    result = solve(instance, SolverConfig(), break_symmetry=True)
-    assert "h0" in result.best.positions[0].herren
+    result = solve(instance, SolverConfig(max_solutions=30), break_symmetry=True)
+    assert len(result.solutions) > 1, "the instance must have several optima to be a real test"
+    for solution in result.solutions:
+        assert "h0" in solution.positions[0].herren
 
 
 def test_canonical_numbering_fills_positions_in_order() -> None:
     instance = _instance()
-    result = solve(instance, SolverConfig(), break_symmetry=True)
+    result = solve(instance, CANONICAL, break_symmetry=True)
     herren = [dancer.id for dancer in instance.by_role(Role.HERR)]
     first_seen: list[int] = []
     for position in result.best.positions:

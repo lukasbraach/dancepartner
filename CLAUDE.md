@@ -11,8 +11,8 @@ start the next milestone without explicit confirmation.
   `WEIGHTED_SUM` + `MAXIMIN_THEN_SUM`.
 * **M2 — CLI + storage** ✅ `storage.py`, `cli.py`, `i18n.py`, `data/team.example.yaml`,
   `.github/workflows/ci.yml`.
-* **M3 — Remaining objectives** `LEXIMIN`, `LEXICOGRAPHIC_TIERS`, solution enumeration and
-  deduplication (`Solution.signature` is already there), `explain` output.
+* **M3 — Remaining objectives** ✅ `LEXIMIN`, `LEXICOGRAPHIC_TIERS`, solution enumeration and
+  deduplication, cross-solution `explain` output.
 * **M4 — Streamlit UI** all four pages (`i18n.py` already exists; add the UI keys).
 * **M5 — Polish** German README with a worked example, screenshots, performance notes.
 
@@ -86,6 +86,51 @@ are the parts the team has actually agreed on.
   break `mypy --strict`.
 * Dead code is not kept "for later". No heuristic fallback, no unused weight scheme.
 
+## Objectives and staging
+
+* Stages come from a **generator**, not a list: `LEXIMIN` cannot know its later stages until it
+  sees the earlier optima. The generator yields a `Stage` and receives the achieved value back
+  via `send`, which makes it deterministic given that sequence — and that is the only reason the
+  enumeration pass can rebuild the identical stages on a fresh model.
+* `LEXIMIN` runs two stages per round: maximise the floor among the dancers still in play, then
+  maximise how many escape it. The "in play" indicators are reified from the scores, so the
+  solver picks *which* dancers escape while the stage fixes only *how many*. That is what makes
+  it a leximin instead of a maximin repeated on an arbitrary set. The rounds pin the entire
+  sorted score vector, so `LEXIMIN` needs no `sum` stage and every optimum has the same total.
+* `LEXICOGRAPHIC_TIERS` counts fulfilled wishes per tier rather than scoring them, so
+  `SolverConfig.weights` does not affect it. §8 specifies only the wish half; the mirror-image
+  dislike stages (`nicht_wunsch.tierN`, minimised) are an addition — without them every dislike
+  weaker than `veto_tier` would be ignored outright under this objective.
+* **`Stage.surrogate`** marks an artificial bound variable (a maximin/leximin floor). Once the
+  objective is gone in the enumeration pass such a variable floats free, and CP-SAT would report
+  the same assignment once per admissible floor value. Surrogates are pinned to a single value;
+  real objectives get an inequality.
+* **`Stage.tie_break` + `solver._lock_in`** is the guard that keeps `prefer_coupled` honest.
+  `tier_slack` lets tier *k+1* buy from tier *k*; nothing else may spend that epsilon — not the
+  coupled tie-break, and not the enumeration pass. `_lock_in` therefore runs twice: before any
+  tie-break stage, and once the stage sequence ends. It records `StageResult.locked_at`.
+* `locked_at` is a **floor, not a final figure**. The enumeration pass may find something better
+  than pass 1 settled for and is free to. Assertions on it must be one-sided.
+
+## Enumeration
+
+* Two passes. Pass 1 optimises the stages on a throwaway model; pass 2 builds a fresh model,
+  replays the same stages as *constraints*, drops the objective, and turns on
+  `enumerate_all_solutions` with a single worker.
+* `max_solutions == 1` skips pass 2 entirely.
+* The collector asks for `max_solutions + 1` and reports `truncated` only if it actually got the
+  extra one. Setting `truncated` on merely reaching the cap is wrong — the cap and the true
+  count can coincide, and the example team's three optima are exactly that case.
+* Dedup is by `Solution.signature` (frozenset of frozensets of dancer ids per position). With
+  symmetry breaking on it catches nothing; with it off, the same partition arrives once per
+  labelling, which is what `test_dedup_survives_symmetry_breaking_being_off` pins down.
+* `near_optimal_ratio` computes its slack from `abs(optimum)`, so 0.95 *widens* the band for a
+  negative optimum. Taking `0.95 * optimum` literally would tighten it there — the opposite of
+  what "near-optimal" means.
+* Anything asserting the canonical position numbering must use `max_solutions=1` or check the
+  whole shortlist: `_ranking_key` imposes an order of its own and will otherwise mask a missing
+  symmetry-breaking constraint.
+
 ## Storage and CLI
 
 * `storage.py` writes canonical YAML with `sort_keys=False` and a fixed key order; **never**
@@ -101,6 +146,12 @@ are the parts the team has actually agreed on.
   `ObjectiveChoice`/`WeightChoice`/`ScopeChoice` enums in `cli.py`, mapped to the domain enums
   by member name. The domain enums keep snake_case values because YAML and JSON carry those.
 * `--veto-tier 0` is the CLI spelling of `SolverConfig.veto_tier=None`.
+* `--top N` sets `max_solutions` **and** prints all N, each alternative diffed against the best.
+  `--near-optimal` and `--tier-slack` expose the other two M3 knobs.
+* `explain --solution N` picks a shortlist entry; with more than one solution in the file it also
+  summarises how stable the dancer's partners are across the whole shortlist. That is the
+  question enumeration exists to answer — a partner in every optimum is not a choice the coach
+  has to make, one in three of twenty is.
 * Exit codes: `0` success, `1` file or instance rejected, `2` bad invocation (typer's), `3` the
   solver found no solution within its limits.
 * `solve --json` writes `{"config": ..., "result": ...}`; `explain` reads that back. Keep both
@@ -117,9 +168,16 @@ are the parts the team has actually agreed on.
   `result.stages`, not on `per_dancer`.
 * Micro-instances (3 positions, 6–9 dancers) with a hand-computed optimum, asserted **by
   value**. `tests/builders.py` has the terse constructors.
-* Verify the two constraints the spec singles out by mutation: delete the `add_bool_or` half of
-  the reification, or the symmetry-breaking constraint, and the suite must go red.
+* Verify the load-bearing constraints by mutation; each must turn the suite red:
+  the `add_bool_or` half of the reification (35 failures), the symmetry-breaking constraint (3),
+  the signature dedup (1), and the `_lock_in` tie-break guard (2).
 * Coverage is at 100 % on `src/dancepartner/`; the gate is 90 %.
+* `tests/test_objectives.py::divergent_instance` is the instance where maximising the total and
+  levelling up genuinely disagree — `MAXIMIN_THEN_SUM` reaches `[0, 0, 2, 6, 6, 6, 6]`, `LEXIMIN`
+  gives up five points of total for `[0, 2, 2, 3, 4, 4, 6]`. Without it the two objectives look
+  identical on every instance in the repo.
+* `assert_leximin_vector` reconstructs the score multiset from the reported rounds alone. If the
+  rounds and the assignment disagree, one of them is lying.
 * `tests/test_cli.py::COUNTING_CLEAN_BUT_INFEASIBLE` is the instance that passes every counting
   check and is still INFEASIBLE. It is the executable form of `feasibility.py`'s "necessary,
   not sufficient" claim — do not "fix" the pre-check to catch it, that needs general matching.

@@ -69,6 +69,7 @@ STRINGS: dict[str, str] = {
     "solve.status": "Status: {status} — {wall_time:.2f} s, {branches} Verzweigungen.",
     "solve.stages": "Zielfunktion in Stufen:",
     "solve.stage": "  {name}: {value} ({sense})",
+    "solve.stage_locked": "  {name}: {value} ({sense}), davon zugesichert: mindestens {locked}",
     "solve.sense.maximize": "maximiert",
     "solve.sense.minimize": "minimiert",
     "solve.scores": "Gesamtpunkte: {total}   niedrigste Einzelpunktzahl: {minimum}",
@@ -80,11 +81,19 @@ STRINGS: dict[str, str] = {
     "solve.doubled": "  (Doppelbesetzung)",
     "solve.herren": "     Herren: {names}",
     "solve.damen": "     Damen:  {names}",
-    "solve.solution_count": "{count} Lösung(en) gefunden.",
-    "solve.top_not_yet": (
-        "Hinweis: --top wird erst mit der Lösungsaufzählung wirksam (Milestone 3); "
-        "es wird nur die beste Lösung ausgegeben."
+    "solve.solution_count": "{count} gleichwertige Lösung(en) gefunden.",
+    "solve.solution_count_truncated": (
+        "Mindestens {count} gleichwertige Lösungen — die Liste ist bei {count} abgeschnitten. "
+        "Mit --top mehr anfordern."
     ),
+    "solve.near_optimal": (
+        "Fast-optimale Lösungen bis {percent:.0f} % des Optimums sind zugelassen."
+    ),
+    "solve.solution_heading": "── Lösung {index} von {count}{marker}",
+    "solve.solution_best": " (beste)",
+    "solve.solution_scores": "   Gesamtpunkte {total}, niedrigste Einzelpunktzahl {minimum}",
+    "solve.diff_header": "   Unterschied zu Lösung 1:",
+    "solve.diff_entry": "     {name}: {from_label} → {to_label}",
     "solve.written": "Ergebnis geschrieben nach {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Zufriedenheit (unzufriedenste zuerst):",
@@ -97,6 +106,15 @@ STRINGS: dict[str, str] = {
     "table.nothing": "—",
     # -- explain -------------------------------------------------------------------------
     "explain.unknown_dancer": "Unbekannte Tänzer:in-ID: {dancer_id}",
+    "explain.unknown_solution": (
+        "Die Ergebnisdatei enthält nur {count} Lösung(en), Lösung {index} gibt es nicht."
+    ),
+    "explain.solution_note": "(aus Lösung {index} von {count})",
+    "explain.across_header": "  Über alle {count} Lösungen hinweg:",
+    "explain.across_entry": "    {name}: in {hits} von {count} Lösungen",
+    "explain.across_stable": (
+        "  Diese Besetzung ist in allen {count} Lösungen gleich — hier gibt es nichts zu wählen."
+    ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Punkte: {score}",
     "explain.partners": "  Auf derselben Position: {names}",
@@ -121,7 +139,16 @@ STRINGS: dict[str, str] = {
     "help.weights": "Gewichtungsschema für die Tiers.",
     "help.scope": "Ob nur rollenübergreifende oder alle Wünsche gewertet werden.",
     "help.veto_tier": "Nicht-Wünsche bis zu diesem Tier werden harte Vetos (0 = keine).",
-    "help.top": "Wie viele Lösungen ausgegeben werden.",
+    "help.top": "Wie viele gleichwertige Lösungen gesucht und ausgegeben werden.",
+    "help.near_optimal": (
+        "Anteil des Optimums, den eine Lösung erreichen muss, um in die Liste zu kommen "
+        "(1.0 = nur exakte Optima)."
+    ),
+    "help.tier_slack": (
+        "Nur für lexicographic-tiers: wie viele erfüllte Wünsche ein Tier abgeben darf, "
+        "damit ein schwächeres Tier gewinnt."
+    ),
+    "help.solution": "Welche Lösung aus der Ergebnisdatei erklärt wird (1 = beste).",
     "help.time_limit": "Zeitlimit des Solvers in Sekunden.",
     "help.seed": "Zufalls-Startwert des Solvers.",
     "help.normalize": "Punkte einer Doppelbesetzung halbieren.",

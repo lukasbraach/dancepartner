@@ -124,10 +124,12 @@ def _format_wishes(satisfaction: DancerSatisfaction, team: Team) -> str:
     return "; ".join(parts) if parts else de("table.nothing")
 
 
-def _print_solution(solution: Solution, team: Team) -> None:
+def _print_scores(solution: Solution) -> None:
     _echo(de("solve.scores", total=solution.total_score, minimum=solution.min_score))
     _echo(de("solve.scale_note"))
-    _echo("")
+
+
+def _print_solution(solution: Solution, team: Team) -> None:
     _echo(de("solve.positions"))
     for position in solution.positions:
         doubled = de("solve.doubled") if position.is_doubled else ""
@@ -194,6 +196,11 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
     ] = ScopeChoice.CROSS_ROLE_ONLY,
     veto_tier: Annotated[int, typer.Option("--veto-tier", help=de("help.veto_tier"))] = 1,
     top: Annotated[int, typer.Option("--top", min=1, help=de("help.top"))] = 1,
+    near_optimal: Annotated[
+        float,
+        typer.Option("--near-optimal", min=0.01, max=1.0, help=de("help.near_optimal")),
+    ] = 1.0,
+    tier_slack: Annotated[int, typer.Option("--tier-slack", min=0, help=de("help.tier_slack"))] = 0,
     time_limit: Annotated[
         float, typer.Option("--time-limit", min=0.001, help=de("help.time_limit"))
     ] = 30.0,
@@ -221,6 +228,9 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
         veto_tier=veto_tier if veto_tier > 0 else None,
         normalize_double=normalize,
         prefer_coupled=prefer_coupled,
+        tier_slack=tier_slack,
+        max_solutions=top,
+        near_optimal_ratio=near_optimal,
         max_time_in_seconds=time_limit,
         random_seed=seed,
         num_workers=workers,
@@ -235,10 +245,6 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
         _echo(de("solve.infeasible_precheck"))
         _print_issues(error.issues)
         raise typer.Exit(EXIT_REJECTED) from None
-    except NotImplementedError as error:
-        # M3 objectives; the message already names the milestone.
-        _fail(str(error))
-        raise AssertionError("unreachable") from None  # pragma: no cover
 
     _echo("")
     _echo(
@@ -253,21 +259,9 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
         _echo(de("solve.no_solution", status=result.status))
         raise typer.Exit(EXIT_NO_SOLUTION)
 
-    _echo(de("solve.stages"))
-    for stage in result.stages:
-        _echo(
-            de(
-                "solve.stage",
-                name=stage.name,
-                value=stage.value,
-                sense=de(f"solve.sense.{stage.sense.value}"),
-            )
-        )
+    _print_stages(result)
     _echo("")
-    if top > len(result.solutions):
-        _echo(de("solve.top_not_yet"))
-        _echo("")
-    _print_solution(result.best, team)
+    _print_shortlist(result, team, config)
     _print_table(result.best, team)
 
     if json_out is not None:
@@ -291,21 +285,35 @@ def explain(
     path: TeamFile,
     result_path: ResultFile,
     dancer: Annotated[str | None, typer.Option("--dancer", help=de("help.dancer"))] = None,
+    solution_index: Annotated[int, typer.Option("--solution", min=1, help=de("help.solution"))] = 1,
 ) -> None:
     """Explain what one dancer -- or everyone -- got out of a stored solution."""
     team = _read_team(path)
-    solution, config = _read_result(result_path)
+    result, config = _read_result(result_path)
+    count = len(result.solutions)
+    if solution_index > count:
+        _fail(de("explain.unknown_solution", count=count, index=solution_index))
+    solution = result.solutions[solution_index - 1]
+
+    if count > 1:
+        _echo(de("explain.solution_note", index=solution_index, count=count))
+        _echo("")
 
     if dancer is None:
+        _print_scores(solution)
+        _echo("")
         _print_solution(solution, team)
         _print_table(solution, team)
         return
     if dancer not in team.dancers_by_id:
         _fail(de("explain.unknown_dancer", dancer_id=dancer))
     _explain_dancer(dancer, solution, team, config)
+    if count > 1:
+        _echo("")
+        _print_across_solutions(dancer, result, team)
 
 
-def _read_result(path: Path) -> tuple[Solution, SolverConfig]:
+def _read_result(path: Path) -> tuple[SolveResult, SolverConfig]:
     try:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -315,10 +323,37 @@ def _read_result(path: Path) -> tuple[Solution, SolverConfig]:
     try:
         result = SolveResult.model_validate(raw["result"])
         config = SolverConfig.model_validate(raw["config"])
-        return result.best, config
+        if not result.solutions:
+            raise ValueError("the result file holds no solution")
+        return result, config
     except (KeyError, TypeError, ValidationError, ValueError) as error:
         _fail(de("error.invalid_team", detail=f"  - {error}"))
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _print_across_solutions(dancer_id: str, result: SolveResult, team: Team) -> None:
+    """How stable this dancer's partners are across the whole shortlist.
+
+    This is the question the enumeration exists to answer: a partner who appears in every
+    near-optimal solution is not a choice the coach has to make, and one that appears in three
+    of twenty is.
+    """
+    by_id = team.dancers_by_id
+    count = len(result.solutions)
+    hits: dict[str, int] = {}
+    for solution in result.solutions:
+        position = next(p for p in solution.positions if dancer_id in (*p.herren, *p.damen))
+        for other in (*position.herren, *position.damen):
+            if other != dancer_id:
+                hits[other] = hits.get(other, 0) + 1
+
+    if all(value == count for value in hits.values()):
+        _echo(de("explain.across_stable", count=count))
+        return
+    _echo(de("explain.across_header", count=count))
+    ordered = sorted(hits.items(), key=lambda item: (-item[1], by_id[item[0]].name))
+    for other, value in ordered:
+        _echo(de("explain.across_entry", name=by_id[other].name, hits=value, count=count))
 
 
 def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: SolverConfig) -> None:
@@ -393,3 +428,79 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
 # typer derives the command name from the function name; "solve" collides with the imported
 # solver entry point, so the function is named solve_command and renamed here.
 app.registered_commands[1].name = "solve"
+
+
+def _print_stages(result: SolveResult) -> None:
+    _echo(de("solve.stages"))
+    for stage in result.stages:
+        sense = de(f"solve.sense.{stage.sense.value}")
+        if stage.locked_at is None or stage.locked_at == stage.value:
+            _echo(de("solve.stage", name=stage.name, value=stage.value, sense=sense))
+        else:
+            # A later stage spent this one's tier slack; showing only the optimum would
+            # overstate what the coach is guaranteed.
+            _echo(
+                de(
+                    "solve.stage_locked",
+                    name=stage.name,
+                    value=stage.value,
+                    sense=sense,
+                    locked=stage.locked_at,
+                )
+            )
+
+
+def _print_shortlist(result: SolveResult, team: Team, config: SolverConfig) -> None:
+    """Print the whole shortlist, each alternative diffed against the best solution."""
+    count = len(result.solutions)
+    key = "solve.solution_count_truncated" if result.truncated else "solve.solution_count"
+    _echo(de(key, count=count))
+    if config.near_optimal_ratio < 1.0:
+        _echo(de("solve.near_optimal", percent=config.near_optimal_ratio * 100))
+    _echo("")
+
+    if count == 1:
+        _print_scores(result.best)
+        _echo("")
+        _print_solution(result.best, team)
+        return
+
+    for index, solution in enumerate(result.solutions, start=1):
+        marker = de("solve.solution_best") if index == 1 else ""
+        _echo(de("solve.solution_heading", index=index, count=count, marker=marker))
+        _echo(
+            de(
+                "solve.solution_scores",
+                total=solution.total_score,
+                minimum=solution.min_score,
+            )
+        )
+        _print_solution(solution, team)
+        if index > 1:
+            _print_diff(result.best, solution, team)
+        _echo("")
+
+
+def _positions_by_dancer(solution: Solution) -> dict[str, str]:
+    return {
+        dancer_id: position.label
+        for position in solution.positions
+        for dancer_id in (*position.herren, *position.damen)
+    }
+
+
+def _print_diff(reference: Solution, solution: Solution, team: Team) -> None:
+    """Show which dancers sit somewhere else than in the reference solution."""
+    before = _positions_by_dancer(reference)
+    after = _positions_by_dancer(solution)
+    by_id = team.dancers_by_id
+    moved = [
+        (by_id[dancer_id].name, before[dancer_id], after[dancer_id])
+        for dancer_id in sorted(after, key=lambda i: by_id[i].name)
+        if before[dancer_id] != after[dancer_id]
+    ]
+    # `moved` is never empty: the shortlist is deduplicated by signature, so two entries always
+    # differ in who sits with whom, not merely in which label a group carries.
+    _echo(de("solve.diff_header"))
+    for name, from_label, to_label in moved:
+        _echo(de("solve.diff_entry", name=name, from_label=from_label, to_label=to_label))

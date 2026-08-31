@@ -1,14 +1,24 @@
-"""CP-SAT model construction and staged optimisation.
+"""CP-SAT model construction, staged optimisation, and solution enumeration.
 
-The model is built once; the objective is optimised in stages, each stage pinning its
+The model is built once per pass; the objective is optimised in stages, each stage pinning its
 achieved optimum before the next one runs. That is what keeps ``MAXIMIN_THEN_SUM`` honest:
 stage 2 may not buy total score by lowering the worst-off dancer.
+
+Stages come from a **generator** rather than a list, because ``LEXIMIN`` cannot know its later
+stages until it sees the earlier optima. The generator yields a :class:`Stage` and receives the
+achieved value back via ``send``, which makes it deterministic given that sequence of values --
+and that is what lets the enumeration pass rebuild exactly the same stages on a fresh model.
+
+Enumeration is a second pass: a fresh model, every stage pinned (optionally with slack) as a
+*constraint* instead of an objective, and ``enumerate_all_solutions`` on. See
+:func:`_enumerate`.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from collections.abc import Generator
+from dataclasses import dataclass, field
 from enum import Enum
 
 from ortools.sat.python import cp_model
@@ -18,7 +28,7 @@ from .feasibility import FeasibilityIssue, check_feasibility, veto_pairs
 from .model import Objective, Role, SolverConfig, Team
 from .scoring import Solution, build_solution, build_weights, scored_pairs
 
-__all__ = ["InfeasibleInstanceError", "Sense", "SolveResult", "solve"]
+__all__ = ["InfeasibleInstanceError", "Sense", "SolveResult", "Stage", "StageResult", "solve"]
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +38,39 @@ class Sense(Enum):
 
     MAXIMIZE = "maximize"
     MINIMIZE = "minimize"
+
+
+@dataclass(frozen=True)
+class Stage:
+    """One step of the staged objective.
+
+    Attributes:
+        name: Stable identifier, used in logs and in ``SolveResult.stages``.
+        expr: What to optimise.
+        sense: Which direction.
+        slack: How far a later stage may walk this one's optimum back. Only
+            ``LEXICOGRAPHIC_TIERS`` uses it (SPEC.md 8's epsilon).
+        surrogate: ``expr`` is an artificial bound variable (a maximin floor), not a quantity
+            with meaning of its own. Such a variable is otherwise free once the objective is
+            gone, so the enumeration pass pins it to a single value instead of a range --
+            without that, CP-SAT reports the same assignment once per admissible floor value
+            and burns the shortlist on duplicates.
+        tie_break: This stage exists only to choose between equally good assignments and must
+            never make an earlier stage worse. Before it runs, every earlier stage that was
+            pinned with slack is re-pinned at the value it actually achieved, so the tie-break
+            cannot spend somebody else's epsilon. See ``_run_stages``.
+    """
+
+    name: str
+    expr: cp_model.LinearExpr
+    sense: Sense
+    slack: int = 0
+    surrogate: bool = False
+    tie_break: bool = False
+
+
+StageSource = Generator[Stage, int, None]
+"""Yields stages, receives each achieved optimum. See the module docstring."""
 
 
 class InfeasibleInstanceError(ValueError):
@@ -48,18 +91,27 @@ class StageResult(BaseModel):
     name: str
     sense: Sense
     value: int
+    locked_at: int | None = None
+    """The floor this stage was finally guaranteed, when a later stage was allowed to walk its
+    optimum back (``SolverConfig.tier_slack``). ``None`` -- the default -- means nothing was
+    ever allowed to, so the guarantee is ``value`` itself.
+
+    It is a floor, not a final figure: the enumeration pass may well find an assignment
+    that does better than the one pass 1 happened to stop at, and it is free to."""
 
 
 class SolveResult(BaseModel):
     """Everything a solve produced.
 
     Attributes:
-        status: CP-SAT status name of the final stage.
-        solutions: Optimal (and, from Milestone 3, near-optimal) assignments. At most one
-            entry until solution enumeration lands.
+        status: CP-SAT status name of the final optimisation stage.
+        solutions: The shortlist, best first. One entry when ``max_solutions == 1``, otherwise
+            the deduplicated optimal (or near-optimal) assignments found within the caps.
         stages: Per-stage objective values, in the order they were optimised.
-        wall_time: Total solver wall time across all stages, in seconds.
-        num_branches: Total branches explored across all stages.
+        truncated: The enumeration hit ``max_solutions`` or its time limit, so the shortlist is
+            a sample of the optima rather than all of them.
+        wall_time: Total solver wall time across every pass, in seconds.
+        num_branches: Total branches explored across every pass.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -67,6 +119,7 @@ class SolveResult(BaseModel):
     status: str
     solutions: list[Solution]
     stages: list[StageResult] = []
+    truncated: bool = False
     wall_time: float = 0.0
     num_branches: int = 0
 
@@ -87,8 +140,11 @@ class _Vars:
     role_count: dict[tuple[Role, int], cp_model.IntVar]
     doubled: dict[tuple[Role, int], cp_model.IntVar]
     score: dict[str, cp_model.IntVar]
-    mismatch: dict[int, cp_model.IntVar]
-    score_bound: int
+    mismatch: dict[int, cp_model.IntVar] = field(default_factory=dict)
+    score_bound: int = 0
+
+
+# -- entry point --------------------------------------------------------------------------
 
 
 def solve(
@@ -98,19 +154,18 @@ def solve(
     skip_precheck: bool = False,
     break_symmetry: bool = True,
 ) -> SolveResult:
-    """Solve the assignment problem.
+    """Solve the assignment problem and return a shortlist of optima.
 
     Args:
         team: The instance.
         config: Solver configuration; defaults to ``SolverConfig()``.
-        skip_precheck: Skip ``feasibility.check_feasibility``. Only for tests that want to
-            see how CP-SAT reacts to an instance the counting checks already reject.
+        skip_precheck: Skip ``feasibility.check_feasibility``. Only for tests that want to see
+            how CP-SAT reacts to an instance the counting checks already reject.
         break_symmetry: Add the canonical position numbering. Off only for the test that
             asserts symmetry breaking does not change the optimum.
 
     Raises:
         InfeasibleInstanceError: The counting pre-checks found an obstruction.
-        NotImplementedError: ``config.objective`` is not implemented yet (Milestone 3).
     """
     config = config or SolverConfig()
     if not skip_precheck:
@@ -118,50 +173,44 @@ def solve(
         if issues:
             raise InfeasibleInstanceError(issues)
 
-    if config.objective in (Objective.LEXIMIN, Objective.LEXICOGRAPHIC_TIERS):
-        raise NotImplementedError(f"objective {config.objective.value!r} arrives in Milestone 3")
-
+    # Pass 1: find the stage optima.
     model = cp_model.CpModel()
     variables = _build_model(model, team, config, break_symmetry=break_symmetry)
-    stages = _stages(model, team, config, variables)
-
     solver = _make_solver(config)
-    stage_results: list[StageResult] = []
-    wall_time = 0.0
-    num_branches = 0
-    status = cp_model.UNKNOWN
+    stages, status = _run_stages(model, solver, _stage_source(model, team, config, variables))
+    wall_time = solver.wall_time
+    num_branches = solver.num_branches
 
-    for name, expression, sense in stages:
-        if sense is Sense.MAXIMIZE:
-            model.maximize(expression)
-        else:
-            model.minimize(expression)
-        status = solver.solve(model)
-        wall_time += solver.wall_time
-        num_branches += solver.num_branches
-        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            logger.warning("stage %s ended with status %s", name, solver.status_name(status))
-            return SolveResult(
-                status=solver.status_name(status),
-                solutions=[],
-                stages=stage_results,
-                wall_time=wall_time,
-                num_branches=num_branches,
-            )
-        value = round(solver.objective_value)
-        logger.info("stage %s (%s) = %d", name, sense.value, value)
-        stage_results.append(StageResult(name=name, sense=sense, value=value))
-        # Pin this stage's optimum so later stages can only break ties.
-        model.add(expression == value)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return SolveResult(
+            status=solver.status_name(status),
+            solutions=[],
+            stages=stages,
+            wall_time=wall_time,
+            num_branches=num_branches,
+        )
 
-    groups = _extract_groups(solver, team, variables)
-    solution = build_solution(team, config, groups)
+    if config.max_solutions == 1:
+        groups = _extract_groups(solver, team, variables)
+        return SolveResult(
+            status=solver.status_name(status),
+            solutions=[build_solution(team, config, groups)],
+            stages=stages,
+            wall_time=wall_time,
+            num_branches=num_branches,
+        )
+
+    # Pass 2: enumerate the ties on a fresh model with the same stages pinned.
+    solutions, truncated, extra_time, extra_branches = _enumerate(
+        team, config, stages, break_symmetry=break_symmetry
+    )
     return SolveResult(
         status=solver.status_name(status),
-        solutions=[solution],
-        stages=stage_results,
-        wall_time=wall_time,
-        num_branches=num_branches,
+        solutions=solutions,
+        stages=stages,
+        truncated=truncated,
+        wall_time=wall_time + extra_time,
+        num_branches=num_branches + extra_branches,
     )
 
 
@@ -172,6 +221,116 @@ def _make_solver(config: SolverConfig) -> cp_model.CpSolver:
     solver.parameters.num_workers = config.num_workers
     solver.parameters.log_search_progress = config.log_search_progress
     return solver
+
+
+# -- running the stages -------------------------------------------------------------------
+
+
+def _run_stages(
+    model: cp_model.CpModel, solver: cp_model.CpSolver, source: StageSource
+) -> tuple[list[StageResult], cp_model.CpSolverStatus]:
+    """Optimise each stage in turn, pinning its optimum before the next one is built.
+
+    The pin is an inequality rather than an equality (``expr >= optimum - slack`` when
+    maximising). With zero slack that is exactly equivalent -- constraints only ever shrink the
+    feasible set, so the optimum can never be beaten later -- and with slack it is what SPEC.md
+    8's epsilon means.
+    """
+    results: list[StageResult] = []
+    history: list[Stage] = []
+    status = cp_model.UNKNOWN
+    try:
+        stage = next(source)
+    except StopIteration:  # pragma: no cover -- every objective yields at least one stage
+        return results, status
+
+    while True:
+        if stage.tie_break:
+            results = _lock_in(model, solver, history, results)
+        if stage.sense is Sense.MAXIMIZE:
+            model.maximize(stage.expr)
+        else:
+            model.minimize(stage.expr)
+        status = solver.solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            logger.warning("stage %s ended with status %s", stage.name, solver.status_name(status))
+            source.close()
+            return results, status
+
+        value = round(solver.objective_value)
+        logger.info("stage %s (%s) = %d", stage.name, stage.sense.value, value)
+        results.append(StageResult(name=stage.name, sense=stage.sense, value=value))
+        _pin(model, stage, value, extra_slack=0)
+        history.append(stage)
+        try:
+            stage = source.send(value)
+        except StopIteration:
+            break
+    # The sequence is over, so nothing is entitled to spend the remaining slack any more --
+    # least of all the enumeration pass, which would otherwise offer the coach a shortlist of
+    # assignments worse than the one the stages actually achieved.
+    return _lock_in(model, solver, history, results), status
+
+
+def _lock_in(
+    model: cp_model.CpModel,
+    solver: cp_model.CpSolver,
+    history: list[Stage],
+    results: list[StageResult],
+) -> list[StageResult]:
+    """Stop a tie-break stage from spending an earlier stage's slack.
+
+    A stage pinned with slack (``SolverConfig.tier_slack``) is only meant to be traded against
+    the *other* stages of its group -- tier 2 may buy from tier 1. Nothing else is entitled to
+    that epsilon: not a tie-break like ``coupled``, which exists to pick between equally good
+    assignments and so must leave "equally good" meaning what it says, and not the enumeration
+    pass, which would otherwise put assignments on the shortlist that are strictly worse than
+    the one the stages achieved.
+
+    So this is called twice: before any tie-break stage, and once the stage sequence ends. Each
+    slack-pinned stage is re-pinned at the value the current solution actually delivers. That
+    solution stays feasible, so the extra constraint can never make the model infeasible; it
+    just withdraws the licence to make anything worse. The achieved values are recorded on the
+    ``StageResult`` as ``locked_at`` so the enumeration pass can reproduce the same guard.
+    """
+    locked = list(results)
+    for index, stage in enumerate(history):
+        if stage.slack == 0:
+            continue
+        achieved = round(solver.value(stage.expr))
+        if stage.sense is Sense.MAXIMIZE:
+            model.add(stage.expr >= achieved)
+        else:
+            model.add(stage.expr <= achieved)
+        locked[index] = results[index].model_copy(update={"locked_at": achieved})
+        logger.info("locked stage %s at %d", stage.name, achieved)
+    return locked
+
+
+def _pin(model: cp_model.CpModel, stage: Stage, value: int, extra_slack: int) -> None:
+    """Constrain a stage's expression to its achieved optimum, within slack."""
+    slack = stage.slack + extra_slack
+    if stage.sense is Sense.MAXIMIZE:
+        if stage.surrogate:
+            # A maximin floor variable. Fixing it to the relaxed threshold both applies the
+            # slack (via `floor <= score[d]`) and keeps the variable from floating.
+            model.add(stage.expr == value - slack)
+        else:
+            model.add(stage.expr >= value - slack)
+    else:
+        model.add(stage.expr <= value + slack)
+
+
+def _slack_for(value: int, ratio: float) -> int:
+    """How far below a stage optimum the enumeration still accepts.
+
+    Computed from ``abs(value)`` so that a ratio of 0.95 widens the admissible band for a
+    negative optimum as well. Taking ``0.95 * value`` directly would *tighten* it there, which
+    is the opposite of what "near-optimal" means.
+    """
+    if ratio >= 1.0:
+        return 0
+    return int((1.0 - ratio) * abs(value))
 
 
 # -- model construction ------------------------------------------------------------------
@@ -407,29 +566,290 @@ def _build_mismatch(
     return mismatch
 
 
-# -- objective staging -------------------------------------------------------------------
+# -- the stage sources --------------------------------------------------------------------
 
 
-def _stages(
+def _stage_source(
     model: cp_model.CpModel, team: Team, config: SolverConfig, variables: _Vars
-) -> list[tuple[str, cp_model.LinearExpr, Sense]]:
-    """Build the ordered list of objective stages for ``config.objective``."""
-    total = cp_model.LinearExpr.sum([variables.score[dancer.id] for dancer in team.dancers])
-    stages: list[tuple[str, cp_model.LinearExpr, Sense]] = []
-
-    if config.objective is Objective.MAXIMIN_THEN_SUM:
-        bound = variables.score_bound
-        lo = model.new_int_var(-bound, bound, "lo")
-        for dancer in team.dancers:
-            model.add(lo <= variables.score[dancer.id])
-        stages.append(("maximin", lo, Sense.MAXIMIZE))
-
-    stages.append(("sum", total, Sense.MAXIMIZE))
+) -> StageSource:
+    """Yield the stages for ``config.objective``, then the soft coupled-position tie-break."""
+    if config.objective is Objective.WEIGHTED_SUM:
+        yield from _weighted_sum_stages(team, variables)
+    elif config.objective is Objective.MAXIMIN_THEN_SUM:
+        yield from _maximin_then_sum_stages(model, team, variables)
+    elif config.objective is Objective.LEXIMIN:
+        yield from _leximin_stages(model, team, variables)
+    else:
+        yield from _lexicographic_tier_stages(model, team, config, variables)
 
     if config.prefer_coupled and variables.mismatch:
         lopsided = cp_model.LinearExpr.sum(list(variables.mismatch.values()))
-        stages.append(("coupled", lopsided, Sense.MINIMIZE))
-    return stages
+        yield Stage("coupled", lopsided, Sense.MINIMIZE, tie_break=True)
+
+
+def _total_score(team: Team, variables: _Vars) -> cp_model.LinearExpr:
+    return cp_model.LinearExpr.sum([variables.score[dancer.id] for dancer in team.dancers])
+
+
+def _weighted_sum_stages(team: Team, variables: _Vars) -> StageSource:
+    """Single stage. Reliably leaves one or two people with nothing; kept for comparison."""
+    yield Stage("sum", _total_score(team, variables), Sense.MAXIMIZE)
+
+
+def _maximin_then_sum_stages(model: cp_model.CpModel, team: Team, variables: _Vars) -> StageSource:
+    """Lift the worst-off dancer first, then maximise the total at that floor."""
+    bound = variables.score_bound
+    floor = model.new_int_var(-bound, bound, "maximin_floor")
+    for dancer in team.dancers:
+        model.add(floor <= variables.score[dancer.id])
+    yield Stage("maximin", floor, Sense.MAXIMIZE, surrogate=True)
+    yield Stage("sum", _total_score(team, variables), Sense.MAXIMIZE)
+
+
+def _leximin_stages(model: cp_model.CpModel, team: Team, variables: _Vars) -> StageSource:
+    """Iteratively fix the current smallest score and re-solve on the remainder.
+
+    Each round is two stages:
+
+    1. ``leximin.<r>.floor`` -- maximise the smallest score among the dancers still *at or
+       above* the previous round's floor.
+    2. ``leximin.<r>.count`` -- maximise how many of them get strictly above that floor, which
+       is the same as minimising how many are stuck at it.
+
+    Round *r+1* then recurses on exactly those. The "who is still in play" indicators are
+    reified from the scores, so the solver chooses *which* dancers escape the floor while the
+    stage fixes only *how many* -- that freedom is what makes this a leximin rather than a
+    maximin repeated on an arbitrary set.
+
+    The stages together pin the whole sorted score vector, and therefore the total as well, so
+    no separate ``sum`` stage is needed or wanted here.
+    """
+    bound = variables.score_bound
+    active: dict[str, cp_model.IntVar] | None = None
+    round_index = 0
+
+    while True:
+        round_index += 1
+        floor = model.new_int_var(-bound, bound, f"leximin_floor_{round_index}")
+        for dancer in team.dancers:
+            constraint = model.add(floor <= variables.score[dancer.id])
+            if active is not None:
+                constraint.only_enforce_if(active[dancer.id])
+        level = yield Stage(f"leximin.{round_index}.floor", floor, Sense.MAXIMIZE, surrogate=True)
+
+        still_in_play: dict[str, cp_model.IntVar] = {}
+        for dancer in team.dancers:
+            above = model.new_bool_var(f"above_{round_index}[{dancer.id}]")
+            score = variables.score[dancer.id]
+            model.add(score >= level + 1).only_enforce_if(above)
+            model.add(score <= level).only_enforce_if(above.negated())
+            if active is None:
+                still_in_play[dancer.id] = above
+                continue
+            both = model.new_bool_var(f"in_play_{round_index}[{dancer.id}]")
+            model.add_bool_and([active[dancer.id], above]).only_enforce_if(both)
+            model.add_bool_or([active[dancer.id].negated(), above.negated()]).only_enforce_if(
+                both.negated()
+            )
+            still_in_play[dancer.id] = both
+
+        remaining = yield Stage(
+            f"leximin.{round_index}.count",
+            cp_model.LinearExpr.sum(list(still_in_play.values())),
+            Sense.MAXIMIZE,
+        )
+        if remaining == 0:
+            # Everyone is pinned at some round's floor; the vector is fully determined.
+            return
+        active = still_in_play
+
+
+def _lexicographic_tier_stages(
+    model: cp_model.CpModel, team: Team, config: SolverConfig, variables: _Vars
+) -> StageSource:
+    """Maximise fulfilled tier-1 wishes, pin that, then tier 2, and so on.
+
+    Weight-scheme free: this objective counts fulfilled wishes instead of scoring them, so
+    ``SolverConfig.weights`` has no effect on it (it still shapes the reported scores).
+
+    After the wish tiers come the mirror-image stages for the dislikes, strongest tier first.
+    SPEC.md 8 only specifies the wish half; without the second half every dislike weaker than
+    ``veto_tier`` would be ignored outright under this objective, which is not a trade the
+    coach ever asked for.
+    """
+    del model  # the tier expressions are sums over existing `together` variables
+    by_rank = _tier_expressions(team, config, variables)
+    for direction, sense in (("wunsch", Sense.MAXIMIZE), ("nicht_wunsch", Sense.MINIMIZE)):
+        for rank in sorted(by_rank.get(direction, {})):
+            yield Stage(
+                f"{direction}.tier{rank}",
+                by_rank[direction][rank],
+                sense,
+                slack=config.tier_slack,
+            )
+
+
+def _tier_expressions(
+    team: Team, config: SolverConfig, variables: _Vars
+) -> dict[str, dict[int, cp_model.LinearExpr]]:
+    """Per direction and rank, the count of in-scope entries whose pair shares a position."""
+    collected: dict[str, dict[int, list[cp_model.IntVar]]] = {"wunsch": {}, "nicht_wunsch": {}}
+    for entry in team.preference_entries(config.scope):
+        variable = variables.together[frozenset((entry.source, entry.target))]
+        collected[entry.direction].setdefault(entry.rank, []).append(variable)
+    return {
+        direction: {rank: cp_model.LinearExpr.sum(items) for rank, items in sorted(ranks.items())}
+        for direction, ranks in collected.items()
+    }
+
+
+# -- enumeration --------------------------------------------------------------------------
+
+
+class _Collector(cp_model.CpSolverSolutionCallback):
+    """Collects deduplicated assignments until the cap is reached."""
+
+    def __init__(
+        self,
+        team: Team,
+        config: SolverConfig,
+        x: dict[tuple[str, int], cp_model.IntVar],
+        limit: int,
+    ) -> None:
+        """Set up the collector for one enumeration pass."""
+        super().__init__()
+        self._team = team
+        self._config = config
+        self._x = x
+        self._limit = limit
+        self._seen: set[frozenset[frozenset[str]]] = set()
+        self.solutions: list[Solution] = []
+
+    def on_solution_callback(self) -> None:
+        """Record one solution, and stop the search once the cap is reached."""
+        groups = [
+            [dancer.id for dancer in self._team.dancers if self.value(self._x[(dancer.id, p)])]
+            for p in self._team.positions
+        ]
+        solution = build_solution(self._team, self._config, groups)
+        # SPEC.md 8: the frozenset of frozensets of dancer ids per position is the honest key.
+        # Symmetry breaking already makes the labelling canonical, so in practice this catches
+        # nothing -- but it is the guard that makes the shortlist correct if it is ever off.
+        if solution.signature in self._seen:
+            return
+        self._seen.add(solution.signature)
+        self.solutions.append(solution)
+        if len(self.solutions) >= self._limit:
+            self.stop_search()
+
+
+def _enumerate(
+    team: Team,
+    config: SolverConfig,
+    recorded: list[StageResult],
+    *,
+    break_symmetry: bool,
+) -> tuple[list[Solution], bool, float, int]:
+    """Collect the optima on a fresh model with every stage pinned instead of optimised.
+
+    Preference problems have many equal optima, and the coach needs to see a handful of them
+    rather than whichever one CP-SAT happened to prove first. The stage generator is replayed
+    against the recorded values, which reproduces exactly the stages of pass 1 -- including
+    ``LEXIMIN``'s, whose later rounds depend on the earlier optima.
+    """
+    model = cp_model.CpModel()
+    variables = _build_model(model, team, config, break_symmetry=break_symmetry)
+    _replay_stages(model, _stage_source(model, team, config, variables), recorded, config)
+
+    solver = _make_solver(config)
+    # Full enumeration is only well defined on a single worker.
+    solver.parameters.num_workers = 1
+    solver.parameters.enumerate_all_solutions = True
+    # Collect one more than asked for: that extra solution is the only honest way to tell
+    # "there are exactly N" from "we stopped counting at N".
+    collector = _Collector(team, config, variables.x, config.max_solutions + 1)
+    status = solver.solve(model, collector)
+
+    found = sorted(collector.solutions, key=lambda s: _ranking_key(s, config))
+    truncated = len(found) > config.max_solutions or status == cp_model.UNKNOWN
+    solutions = found[: config.max_solutions]
+    logger.info(
+        "enumerated %d solution(s), truncated=%s, status %s",
+        len(solutions),
+        truncated,
+        solver.status_name(status),
+    )
+    return solutions, truncated, solver.wall_time, solver.num_branches
+
+
+def _replay_stages(
+    model: cp_model.CpModel,
+    source: StageSource,
+    recorded: list[StageResult],
+    config: SolverConfig,
+) -> None:
+    """Rebuild pass 1's stages on a fresh model and pin each to its recorded optimum.
+
+    The generator is deterministic given the sequence of achieved values, which is what makes
+    replay possible at all -- ``LEXIMIN``'s later rounds only exist because of the earlier
+    optima. ``_lock_in``'s guard is reproduced from the recorded ``locked_at`` floors.
+    """
+    history: list[Stage] = []
+    try:
+        stage = next(source)
+    except StopIteration:  # pragma: no cover -- every objective yields at least one stage
+        return
+    for result in recorded:
+        if stage.name != result.name:  # pragma: no cover -- the generator is deterministic
+            raise AssertionError(f"stage replay diverged: {stage.name!r} != {result.name!r}")
+        if stage.tie_break:
+            _replay_lock_in(model, history, recorded, config)
+        _pin(model, stage, result.value, _slack_for(result.value, config.near_optimal_ratio))
+        history.append(stage)
+        try:
+            stage = source.send(result.value)
+        except StopIteration:
+            break
+    _replay_lock_in(model, history, recorded, config)
+
+
+def _replay_lock_in(
+    model: cp_model.CpModel,
+    history: list[Stage],
+    recorded: list[StageResult],
+    config: SolverConfig,
+) -> None:
+    """Reapply ``_lock_in``'s guard on the enumeration model, from the recorded values.
+
+    The enumeration keeps its ``near_optimal_ratio`` band around each locked-in floor -- that
+    band is what the shortlist is *for*. What it must not reproduce is the tie-break's ability
+    to spend an earlier stage's tier slack, which is what the guard removes.
+    """
+    by_name = {result.name: result for result in recorded}
+    for stage in history:
+        result = by_name.get(stage.name)
+        if result is None or result.locked_at is None:  # pragma: no cover -- names always match
+            continue
+        slack = _slack_for(result.locked_at, config.near_optimal_ratio)
+        if stage.sense is Sense.MAXIMIZE:
+            model.add(stage.expr >= result.locked_at - slack)
+        else:
+            model.add(stage.expr <= result.locked_at + slack)
+
+
+def _ranking_key(solution: Solution, config: SolverConfig) -> tuple[int, int, str]:
+    """Order the shortlist best first, deterministically.
+
+    With the default ``near_optimal_ratio`` of 1.0 every entry has the same scores, so only the
+    tie-break matters and it exists to keep the order reproducible across runs.
+    """
+    fairness_first = config.objective in (Objective.MAXIMIN_THEN_SUM, Objective.LEXIMIN)
+    primary = -solution.min_score if fairness_first else -solution.total_score
+    secondary = -solution.total_score if fairness_first else -solution.min_score
+    tie_break = "|".join(
+        ",".join(sorted((*position.herren, *position.damen))) for position in solution.positions
+    )
+    return (primary, secondary, tie_break)
 
 
 def _extract_groups(solver: cp_model.CpSolver, team: Team, variables: _Vars) -> list[list[str]]:

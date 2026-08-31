@@ -6,16 +6,18 @@ here reads the CP-SAT model: it re-derives everything from the ``Solution`` and 
 
 from __future__ import annotations
 
+from collections import Counter
+
 from dancepartner.feasibility import veto_pairs
-from dancepartner.model import Role, SolverConfig, Team
+from dancepartner.model import Objective, Role, SolverConfig, Team
 from dancepartner.scoring import Solution, build_satisfaction
-from dancepartner.solver import SolveResult
+from dancepartner.solver import Sense, SolveResult
 
 
 def assert_result_valid(
     result: SolveResult, team: Team, config: SolverConfig | None = None
 ) -> None:
-    """Check the solution *and* that the model's own objective agrees with it.
+    """Check every returned solution *and* that the model's own objective agrees with them.
 
     ``assert_valid`` alone cannot catch a mis-modelled objective: the scores it compares
     against are recomputed from the assignment by ``scoring``, so they stay correct even when
@@ -24,22 +26,120 @@ def assert_result_valid(
     up here and nowhere else.
     """
     config = config or SolverConfig()
-    assert_valid(result.best, team, config)
+    for solution in result.solutions:
+        assert_valid(solution, team, config)
+    assert_shortlist_distinct(result)
+    assert_stages_consistent(result, team, config)
+    if config.objective is Objective.LEXIMIN:
+        assert_leximin_vector(result)
 
-    expected: dict[str, int] = {
-        "maximin": result.best.min_score,
-        "sum": result.best.total_score,
-        "coupled": sum(
+
+def assert_shortlist_distinct(result: SolveResult) -> None:
+    """No two entries of the shortlist may be the same Verpartnerung.
+
+    The signature ignores position labels on purpose (SPEC.md 8): two assignments that differ
+    only in which label a group carries are one solution, not two.
+    """
+    signatures = [solution.signature for solution in result.solutions]
+    assert len(set(signatures)) == len(signatures), "the shortlist contains a duplicate"
+
+
+def stage_expectation(name: str, solution: Solution) -> int:
+    """Recompute one stage's value from a concrete solution, independently of the model."""
+    if name == "maximin":
+        return solution.min_score
+    if name == "sum":
+        return solution.total_score
+    if name == "coupled":
+        return sum(
             1
-            for position in result.best.positions
+            for position in solution.positions
             if (len(position.herren) == 2) != (len(position.damen) == 2)
-        ),
-    }
-    for stage in result.stages:
-        assert stage.value == expected[stage.name], (
-            f"stage {stage.name!r} reports {stage.value} but the assignment gives "
-            f"{expected[stage.name]} -- the model is not optimising what it claims to"
         )
+    direction, _, tier = name.partition(".tier")
+    if tier:
+        rank = int(tier)
+        field = "fulfilled_wunsch" if direction == "wunsch" else "violated_nicht_wunsch"
+        return sum(
+            len(getattr(satisfaction, field).get(rank, []))
+            for satisfaction in solution.per_dancer.values()
+        )
+    raise AssertionError(f"no independent expectation defined for stage {name!r}")
+
+
+def assert_stages_consistent(result: SolveResult, team: Team, config: SolverConfig) -> None:
+    """Every stage value must match what the best solution actually delivers.
+
+    A later stage can only ever walk an earlier stage's optimum back by that stage's declared
+    slack -- ``tier_slack`` for a LEXICOGRAPHIC_TIERS stage, plus whatever
+    ``near_optimal_ratio`` allows the enumeration pass to give up. Anything beyond that means
+    the model is not optimising what it reports. The slack is recomputed here rather than read
+    off the solver, so a bug in the solver's own arithmetic cannot hide behind it.
+    """
+    del team
+    for stage in result.stages:
+        if stage.name.startswith("leximin."):
+            continue  # covered by assert_leximin_vector
+        actual = stage_expectation(stage.name, result.best)
+        if stage.locked_at is not None:
+            # A later stage walked this one back and the solver then locked in a floor. The
+            # assignment must honour that floor -- doing *better* than it is always allowed.
+            band = _ratio_slack(stage.locked_at, config.near_optimal_ratio)
+            guaranteed = (
+                actual >= stage.locked_at - band
+                if stage.sense is Sense.MAXIMIZE
+                else actual <= stage.locked_at + band
+            )
+            assert guaranteed, (
+                f"stage {stage.name!r} was locked at {stage.locked_at} but the assignment "
+                f"gives {actual}"
+            )
+        allowed = _ratio_slack(stage.value, config.near_optimal_ratio)
+        if ".tier" in stage.name:
+            allowed += config.tier_slack
+        low, high = (
+            (stage.value - allowed, stage.value)
+            if stage.sense is Sense.MAXIMIZE
+            else (stage.value, stage.value + allowed)
+        )
+        assert low <= actual <= high, (
+            f"stage {stage.name!r} reports {stage.value} (slack {allowed}) but the assignment "
+            f"gives {actual} -- the model is not optimising what it claims to"
+        )
+
+
+def _ratio_slack(value: int, ratio: float) -> int:
+    """How far the enumeration pass may fall short of a stage optimum."""
+    return 0 if ratio >= 1.0 else int((1.0 - ratio) * abs(value))
+
+
+def assert_leximin_vector(result: SolveResult) -> None:
+    """The leximin rounds must reconstruct the actual score multiset exactly.
+
+    Round *r* reports a floor and how many dancers got strictly above it, so the number stuck
+    at that floor is ``active_before - count``. Replaying that gives the whole sorted score
+    vector without looking at the model -- if the rounds and the assignment disagree, one of
+    them is lying.
+    """
+    rounds = [stage for stage in result.stages if stage.name.startswith("leximin.")]
+    assert rounds, "a LEXIMIN solve must report leximin stages"
+    assert len(rounds) % 2 == 0, "every round is a floor stage plus a count stage"
+
+    active = len(result.best.per_dancer)
+    reconstructed: Counter[int] = Counter()
+    for index in range(0, len(rounds), 2):
+        floor_stage, count_stage = rounds[index], rounds[index + 1]
+        assert floor_stage.name.endswith(".floor")
+        assert count_stage.name.endswith(".count")
+        reconstructed[floor_stage.value] += active - count_stage.value
+        active = count_stage.value
+    assert active == 0, "the last round must leave nobody above its floor"
+
+    actual = Counter(s.score for s in result.best.per_dancer.values())
+    assert reconstructed == actual, (
+        f"leximin rounds imply {sorted(reconstructed.elements())} but the assignment gives "
+        f"{sorted(actual.elements())}"
+    )
 
 
 def assert_valid(solution: Solution, team: Team, config: SolverConfig | None = None) -> None:

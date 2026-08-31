@@ -277,10 +277,12 @@ def test_maximin_prefers_a_lifted_floor_over_a_larger_total() -> None:
     assert result.best.total_score == 6
 
 
-@pytest.mark.parametrize("objective", [Objective.LEXIMIN, Objective.LEXICOGRAPHIC_TIERS])
-def test_unimplemented_objectives_say_so(tiny: Team, objective: Objective) -> None:
-    with pytest.raises(NotImplementedError, match="Milestone 3"):
-        solve(tiny, SolverConfig(objective=objective))
+@pytest.mark.parametrize("objective", list(Objective))
+def test_every_objective_solves_and_verifies(tiny: Team, objective: Objective) -> None:
+    config = SolverConfig(objective=objective)
+    result = solve(tiny, config)
+    assert result.status == "OPTIMAL"
+    assert_result_valid(result, tiny, config)
 
 
 @pytest.mark.parametrize("scheme", list(WeightScheme))

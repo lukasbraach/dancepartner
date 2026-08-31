@@ -139,20 +139,84 @@ def test_solve_reports_precheck_failure_in_german(tmp_path: Path) -> None:
     assert "ROLE_COUNT_OUT_OF_RANGE" in result.stdout
 
 
-def test_solve_rejects_an_unimplemented_objective() -> None:
-    result = run("solve", EXAMPLE, "--objective", "leximin")
-    assert result.exit_code == 1
-    assert "Milestone 3" in result.stderr
-
-
-def test_solve_warns_that_top_is_not_wired_yet() -> None:
-    result = run("solve", EXAMPLE, "--top", "10")
+@pytest.mark.parametrize(
+    "objective", ["weighted-sum", "maximin-then-sum", "leximin", "lexicographic-tiers"]
+)
+def test_solve_accepts_every_objective_by_its_hyphenated_name(objective: str) -> None:
+    result = run("solve", EXAMPLE, "--objective", objective)
     assert result.exit_code == 0
-    assert "Milestone 3" in result.stdout
+    assert "Status: OPTIMAL" in result.stdout
 
 
-def test_solve_top_one_prints_no_warning() -> None:
-    assert "--top" not in run("solve", EXAMPLE).stdout
+def test_solve_leximin_prints_its_rounds() -> None:
+    result = run("solve", EXAMPLE, "--objective", "leximin")
+    assert result.exit_code == 0
+    assert "leximin.1.floor" in result.stdout
+    assert "leximin.1.count" in result.stdout
+    assert "sum:" not in result.stdout
+
+
+def test_solve_tier_objective_prints_tier_stages() -> None:
+    result = run("solve", EXAMPLE, "--objective", "lexicographic-tiers")
+    assert result.exit_code == 0
+    assert "wunsch.tier1" in result.stdout
+    assert "nicht_wunsch.tier1" in result.stdout
+
+
+# -- the shortlist ------------------------------------------------------------------------
+
+
+def test_solve_top_one_prints_a_single_solution() -> None:
+    stdout = run("solve", EXAMPLE).stdout
+    assert "1 gleichwertige" in stdout
+    assert "Lösung 1 von" not in stdout
+
+
+def test_solve_top_three_prints_all_three_with_diffs() -> None:
+    result = run("solve", EXAMPLE, "--top", "3")
+    assert result.exit_code == 0
+    # The example team has exactly three optima, so nothing may be reported as cut off.
+    assert "3 gleichwertige Lösung(en) gefunden." in result.stdout
+    assert "abgeschnitten" not in result.stdout
+    for index in (1, 2, 3):
+        assert f"Lösung {index} von 3" in result.stdout
+    assert "(beste)" in result.stdout
+    assert result.stdout.count("Unterschied zu Lösung 1:") == 2
+
+
+def test_solve_reports_a_truncated_shortlist(tmp_path: Path) -> None:
+    # No surveys at all: every assignment is optimal, so the cap must bite and say so.
+    path = tmp_path / "team.yaml"
+    path.write_text(dump_team(Team(dancers=roster(10, 12), n_positions=8)), encoding="utf-8")
+    result = run("solve", str(path), "--top", "4")
+    assert result.exit_code == 0
+    assert "abgeschnitten" in result.stdout
+    assert result.stdout.count("Unterschied zu Lösung 1:") == 3
+
+
+def test_solve_near_optimal_widens_the_shortlist() -> None:
+    exact = run("solve", EXAMPLE, "--top", "20")
+    loose = run("solve", EXAMPLE, "--top", "20", "--near-optimal", "0.95")
+    assert loose.exit_code == 0
+    assert "95 % des Optimums" in loose.stdout
+    assert loose.stdout.count("Unterschied zu Lösung 1:") > exact.stdout.count(
+        "Unterschied zu Lösung 1:"
+    )
+
+
+def test_solve_tier_slack_is_reported_when_it_is_spent() -> None:
+    result = run("solve", EXAMPLE, "--objective", "lexicographic-tiers", "--tier-slack", "2")
+    assert result.exit_code == 0
+    assert "davon zugesichert" in result.stdout
+
+
+def test_solve_json_carries_the_whole_shortlist(tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    assert run("solve", EXAMPLE, "--top", "3", "--json", str(out)).exit_code == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert len(payload["result"]["solutions"]) == 3
+    assert payload["config"]["max_solutions"] == 3
+    assert payload["result"]["truncated"] is False
 
 
 def test_solve_writes_json(tmp_path: Path) -> None:
@@ -187,6 +251,13 @@ def test_solve_verbose_logs_stages() -> None:
 def solved(tmp_path: Path) -> Path:
     out = tmp_path / "out.json"
     assert run("solve", EXAMPLE, "--json", str(out)).exit_code == 0
+    return out
+
+
+@pytest.fixture
+def shortlisted(tmp_path: Path) -> Path:
+    out = tmp_path / "top3.json"
+    assert run("solve", EXAMPLE, "--top", "3", "--json", str(out)).exit_code == 0
     return out
 
 
@@ -252,6 +323,44 @@ def test_explain_json_of_the_wrong_shape_exits_one(tmp_path: Path) -> None:
     result = run("explain", EXAMPLE, str(path))
     assert result.exit_code == 1
     assert "ungültig" in result.stderr
+
+
+def test_explain_picks_a_solution_by_index(shortlisted: Path) -> None:
+    first = run("explain", EXAMPLE, str(shortlisted), "--dancer", "emma-k", "--solution", "1")
+    third = run("explain", EXAMPLE, str(shortlisted), "--dancer", "emma-k", "--solution", "3")
+    assert first.exit_code == third.exit_code == 0
+    assert "(aus Lösung 1 von 3)" in first.stdout
+    assert "(aus Lösung 3 von 3)" in third.stdout
+    # Emma Köhler is exactly the dancer the three optima disagree about.
+    assert first.stdout != third.stdout
+
+
+def test_explain_rejects_a_solution_index_out_of_range(shortlisted: Path) -> None:
+    result = run("explain", EXAMPLE, str(shortlisted), "--solution", "9")
+    assert result.exit_code == 1
+    assert "nur 3 Lösung(en)" in result.stderr
+
+
+def test_explain_summarises_a_dancer_across_the_shortlist(shortlisted: Path) -> None:
+    result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "clara-w")
+    assert result.exit_code == 0
+    assert "Über alle 3 Lösungen hinweg:" in result.stdout
+    # Moritz is fixed; Emma is the actual open question.
+    assert "Moritz Sander: in 3 von 3 Lösungen" in result.stdout
+    assert "Emma Köhler: in 2 von 3 Lösungen" in result.stdout
+
+
+def test_explain_says_when_a_dancer_has_no_open_choice(shortlisted: Path) -> None:
+    result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "lukas-b")
+    assert result.exit_code == 0
+    assert "in allen 3 Lösungen gleich" in result.stdout
+
+
+def test_explain_adds_no_cross_solution_note_for_a_single_solution(solved: Path) -> None:
+    result = run("explain", EXAMPLE, str(solved), "--dancer", "lukas-b")
+    assert result.exit_code == 0
+    assert "Über alle" not in result.stdout
+    assert "aus Lösung" not in result.stdout
 
 
 def test_explain_json_without_a_solution_exits_one(tmp_path: Path) -> None:
