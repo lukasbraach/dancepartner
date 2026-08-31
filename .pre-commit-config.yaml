@@ -1,0 +1,31 @@
+# Run against the project venv so the hooks see the same ortools/pydantic as the tests.
+#   .venv/bin/pre-commit install
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: ^SPEC\.md$
+      - id: trailing-whitespace
+        exclude: ^SPEC\.md$
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict
+        entry: .venv/bin/mypy
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]

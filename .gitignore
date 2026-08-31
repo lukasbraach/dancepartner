@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# dancepartner
+.venv/
+# Real survey data is never committed; only data/team.example.yaml is tracked.
+data/team.yaml
