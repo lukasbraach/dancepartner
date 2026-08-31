@@ -66,16 +66,9 @@ def _load_uploaded(data: bytes, name: str) -> None:
 
 
 def _render_load() -> None:
-    """The three ways in: a path, an upload, or the bundled example."""
+    """The three ways in: an upload, a fresh team, or the bundled example."""
     st.subheader(t("ui.load.header"))
-    from_path, from_upload, from_example = st.columns(3)
-
-    with from_path:
-        st.markdown(f"**{t('ui.load.from_path')}**")
-        default = common.team_path() or str(common.EXAMPLE_TEAM)
-        raw = st.text_input(t("ui.load.path"), value=default)
-        if st.button(t("ui.load.button"), use_container_width=True) and raw.strip():
-            _load_from_path(raw.strip())
+    from_upload, from_example = st.columns(2)
 
     with from_upload:
         st.markdown(f"**{t('ui.load.upload')}**")
@@ -83,18 +76,18 @@ def _render_load() -> None:
         if upload is not None:
             _load_uploaded(upload.getvalue(), upload.name)
 
-    with from_example:
-        st.markdown(f"**{t('ui.load.example')}**")
-        st.caption(t("ui.load.example_hint"))
-        if st.button(t("ui.load.example_button"), use_container_width=True):
-            _load_from_path(str(common.EXAMPLE_TEAM))
-
         st.markdown(f"**{t('ui.load.create')}**")
         n_positions = st.number_input(
             t("ui.load.n_positions"), min_value=1, max_value=26, value=DEFAULT_N_POSITIONS
         )
         if st.button(t("ui.load.create_button"), use_container_width=True):
             common.set_team(common.empty_team(int(n_positions)))
+
+    with from_example:
+        st.markdown(f"**{t('ui.load.example')}**")
+        st.caption(t("ui.load.example_hint"))
+        if st.button(t("ui.load.example_button"), use_container_width=True):
+            _load_from_path(str(common.EXAMPLE_TEAM))
 
 
 def _render_summary() -> None:

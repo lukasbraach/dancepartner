@@ -122,24 +122,6 @@ def test_home_loads_the_example_team() -> None:
     assert t("ui.unsaved") not in texts(at)
 
 
-def test_home_reports_a_missing_file() -> None:
-    at = app().run()
-    at.text_input[0].set_value("/nope/missing.yaml").run()
-    at.button[0].click().run()
-    assert not at.exception
-    assert "not found" in texts(at)
-
-
-def test_home_reports_a_broken_team_file(tmp_path: Path) -> None:
-    broken = tmp_path / "broken.yaml"
-    broken.write_text("n_positions: 8\ndancers: [{id: a}]\n", encoding="utf-8")
-    at = app().run()
-    at.text_input[0].set_value(str(broken)).run()
-    at.button[0].click().run()
-    assert not at.exception
-    assert "invalid" in texts(at) or "structure" in texts(at)
-
-
 def test_home_shows_the_feasibility_verdict_for_a_solvable_team() -> None:
     at = loaded(HOME).run()
     assert not at.exception

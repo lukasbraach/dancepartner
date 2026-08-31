@@ -180,9 +180,6 @@ _STRINGS_EN: dict[str, str] = {
     "ui.saved_at": "Saved to {path}.",
     # -- UI: Home (load / create / feasibility) ------------------------------------------
     "ui.load.header": "Load team",
-    "ui.load.from_path": "Load from file",
-    "ui.load.path": "Path to the team file (YAML)",
-    "ui.load.button": "Load",
     "ui.load.upload": "Upload file",
     "ui.load.uploader": "Drop a team file (YAML) here",
     "ui.load.example": "Example team",
@@ -497,9 +494,6 @@ _STRINGS_DE: dict[str, str] = {
     "ui.saved_at": "Gespeichert nach {path}.",
     # -- UI: Start (load / create / feasibility) -----------------------------------------
     "ui.load.header": "Team laden",
-    "ui.load.from_path": "Aus Datei laden",
-    "ui.load.path": "Pfad zur Teamdatei (YAML)",
-    "ui.load.button": "Laden",
     "ui.load.upload": "Datei hochladen",
     "ui.load.uploader": "Teamdatei (YAML) hierher ziehen",
     "ui.load.example": "Beispielteam",
