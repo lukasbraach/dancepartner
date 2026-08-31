@@ -1,0 +1,154 @@
+# Beispielteam für dancepartner — erfundene Daten, keine echte Teambefragung.
+#
+# Rollen:      herr | dame
+# Flags:       has_startanspruch  (muss allein in der eigenen Rolle auf der Position sein)
+#              needs_coaching     (darf NICHT allein in der eigenen Rolle sein)
+#              Die beiden schließen sich gegenseitig aus.
+# Wünsche:     wunsch / nicht_wunsch, jeweils  <tier>: [ids]  — Tier 1 ist der stärkste Wunsch.
+#              Tiers müssen bei 1 beginnen und lückenlos sein, je Richtung.
+#              Eine ID darf pro Richtung in nur einem Tier stehen und nie in beiden Richtungen.
+#
+# Die Reihenfolge der Tänzer:innen ist bedeutsam: die Symmetriebrechung des Solvers numeriert
+# die Positionen nach dem Index der Herren in dieser Liste.
+#
+# ACHTUNG: »dancepartner solve --save« o. Ä. gibt es nicht, aber save_team() aus storage.py
+# schreibt diese Datei ohne Kommentare neu. Echte Daten gehören nach data/team.yaml
+# (gitignored), nicht hierher.
+n_positions: 8
+dancers:
+  - id: lukas-b
+    name: Lukas Brandt
+    role: herr
+  - id: jonas-k
+    name: Jonas Kettner
+    role: herr
+  - id: tim-r
+    name: Tim Rothe
+    role: herr
+    has_startanspruch: true
+  - id: felix-w
+    name: Felix Wendt
+    role: herr
+  - id: moritz-s
+    name: Moritz Sander
+    role: herr
+  - id: david-l
+    name: David Lorenz
+    role: herr
+  - id: nils-p
+    name: Nils Petersen
+    role: herr
+  - id: jan-h
+    name: Jan Hübner
+    role: herr
+  - id: paul-m
+    name: Paul Mertens
+    role: herr
+    needs_coaching: true
+  - id: anna-b
+    name: Anna Brenner
+    role: dame
+  - id: lena-f
+    name: Lena Fricke
+    role: dame
+  - id: mia-t
+    name: Mia Thalmann
+    role: dame
+  - id: sofia-r
+    name: Sofia Reinhardt
+    role: dame
+    has_startanspruch: true
+  - id: emma-k
+    name: Emma Köhler
+    role: dame
+  - id: clara-w
+    name: Clara Wagner
+    role: dame
+  - id: nina-s
+    name: Nina Steinbach
+    role: dame
+  - id: leah-d
+    name: Leah Dorn
+    role: dame
+    needs_coaching: true
+  - id: marie-g
+    name: Marie Günther
+    role: dame
+  - id: julia-v
+    name: Julia Voigt
+    role: dame
+  - id: hanna-z
+    name: Hanna Zeller
+    role: dame
+surveys:
+  - dancer_id: lukas-b
+    wunsch:
+      1: [anna-b]
+      2: [lena-f, mia-t]
+    nicht_wunsch:
+      1: [emma-k]
+  - dancer_id: jonas-k
+    wunsch:
+      1: [lena-f]
+      2: [sofia-r]
+  - dancer_id: tim-r
+    wunsch:
+      1: [mia-t]
+    nicht_wunsch:
+      1: [nina-s]
+  - dancer_id: felix-w
+    nicht_wunsch:
+      1: [clara-w]
+  - dancer_id: moritz-s
+    wunsch:
+      1: [emma-k, clara-w]
+  - dancer_id: david-l
+    wunsch:
+      1: [nina-s]
+      2: [leah-d]
+  - dancer_id: nils-p
+    wunsch:
+      1: [marie-g]
+      2: [julia-v]
+  - dancer_id: jan-h
+    wunsch:
+      1: [hanna-z]
+  - dancer_id: paul-m
+    wunsch:
+      1: [hanna-z]
+    nicht_wunsch:
+      1: [julia-v]
+  - dancer_id: anna-b
+    wunsch:
+      1: [lukas-b]
+  - dancer_id: lena-f
+    wunsch:
+      1: [jonas-k]
+      2: [tim-r]
+  - dancer_id: mia-t
+    wunsch:
+      1: [tim-r]
+      2: [lukas-b]
+  - dancer_id: sofia-r
+    wunsch:
+      1: [jonas-k]
+    nicht_wunsch:
+      1: [felix-w]
+  - dancer_id: emma-k
+    nicht_wunsch:
+      1: [lukas-b]
+  - dancer_id: clara-w
+    wunsch:
+      1: [moritz-s]
+  - dancer_id: nina-s
+    wunsch:
+      1: [david-l]
+  - dancer_id: leah-d
+    wunsch:
+      1: [david-l, nils-p]
+  - dancer_id: hanna-z
+    wunsch:
+      1: [paul-m]
+  - dancer_id: julia-v
+    nicht_wunsch:
+      1: [paul-m]

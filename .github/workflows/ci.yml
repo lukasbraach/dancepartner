@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # requirements-dev.txt is the lock (this project uses pip + venv, not uv);
+          # the editable install then wires up the package itself.
+          pip install -r requirements-dev.txt
+          pip install -e . --no-deps
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format
+        run: ruff format --check .
+
+      - name: mypy
+        run: mypy
+
+      - name: pytest
+        run: pytest --cov=src/dancepartner --cov-report=term-missing --cov-fail-under=90
+
+      - name: CLI smoke test
+        run: |
+          dancepartner check data/team.example.yaml
+          dancepartner solve data/team.example.yaml --json /tmp/out.json
+          dancepartner explain data/team.example.yaml /tmp/out.json --dancer lukas-b

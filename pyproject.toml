@@ -12,6 +12,8 @@ license = { file = "LICENSE" }
 dependencies = [
     "ortools>=9.10",
     "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "typer>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +23,11 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "pre-commit>=3.7",
+    "types-pyyaml>=6.0",
 ]
+
+[project.scripts]
+dancepartner = "dancepartner.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dancepartner"]

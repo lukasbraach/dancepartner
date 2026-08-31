@@ -2,6 +2,7 @@
 #   python3 -m venv .venv && .venv/bin/pip install -e '.[dev]' && .venv/bin/pip freeze
 # Stands in for uv.lock; see CLAUDE.md for why this project uses pip + venv.
 absl-py==2.5.0
+annotated-doc==0.0.5
 annotated-types==0.8.0
 ast_serialize==0.8.0
 cfgv==3.5.0
@@ -12,6 +13,8 @@ identify==2.6.19
 immutabledict==4.3.1
 iniconfig==2.3.0
 librt==0.15.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
 mypy==2.3.1
 mypy_extensions==1.1.0
 nodeenv==1.10.0
@@ -32,8 +35,12 @@ pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
 python-discovery==1.6.0
 PyYAML==6.0.3
+rich==15.0.0
 ruff==0.16.5
+shellingham==1.5.4
 six==1.17.0
+typer==0.27.2
+types-PyYAML==6.0.12.20260815
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 virtualenv==21.7.7

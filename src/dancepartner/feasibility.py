@@ -4,6 +4,8 @@ The solver must never answer a question that arithmetic already settles: a bare 
 tells the coach nothing, while "du hast 5 Herren mit Startanspruch, aber nur 4 Positionen
 mit einfacher Herrenbesetzung" tells them exactly which flag to change.
 
+German diagnostics live in :mod:`dancepartner.i18n`, keyed ``feasibility.<code>``.
+
 These checks are **necessary, not sufficient**. Passing them does not prove the instance is
 solvable; CP-SAT remains the authority on infeasibility. Every check here is a pure counting
 argument, so a reported issue is always a real one.
@@ -13,41 +15,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from .i18n import de
 from .model import Role, SolverConfig, Team, ceil_div
 
 __all__ = ["FeasibilityIssue", "check_feasibility", "veto_pairs"]
 
-_ROLE_DE = {Role.HERR: "Herren", Role.DAME: "Damen"}
-
-# German diagnostics. These move to i18n.py when the UI lands (Milestone 4); until then the
-# core is the only producer of them and a second module would just be indirection.
-_MESSAGES: dict[str, str] = {
-    "ROLE_COUNT_OUT_OF_RANGE": (
-        "{role_de}: {n} Tänzer:innen auf {p} Positionen. Jede Position braucht eine oder "
-        "zwei — möglich sind daher {p} bis {max_n}."
-    ),
-    "TOO_MANY_STARTANSPRUCH": (
-        "{role_de}: {count} mit Startanspruch, aber nur {available} Position(en) mit "
-        "einfacher Besetzung ({n} {role_de} auf {p} Positionen)."
-    ),
-    "TOO_MANY_COACHING": (
-        "{role_de}: {count} mit Coachingbedarf brauchen mindestens {needed} "
-        "Doppelbesetzung(en), es gibt aber nur {available} ({n} {role_de} auf {p} Positionen)."
-    ),
-    "VETO_ALL_CROSS_ROLE": (
-        "{name} hat alle {opposite_de} als Nicht-Wunschpartner (Veto) — jede Position ist "
-        "aber mit beiden Rollen besetzt."
-    ),
-    "VETO_COACHING_ISOLATED": (
-        "{name} hat Coachingbedarf, aber zu allen anderen {role_de} besteht ein Veto — "
-        "es gibt keine mögliche Doppelbesetzung."
-    ),
-    "VETO_FORCES_SINGLES": (
-        "{role_de}: {count} Tänzer:innen können durch Startanspruch oder Vetos keine "
-        "Doppelbesetzung bilden, es gibt aber nur {available} Position(en) mit einfacher "
-        "Besetzung."
-    ),
-}
+_ROLE_DE = {Role.HERR: de("role.herr.plural"), Role.DAME: de("role.dame.plural")}
 
 
 class FeasibilityIssue(BaseModel):
@@ -68,7 +41,7 @@ class FeasibilityIssue(BaseModel):
 
 def _issue(code: str, involved_ids: tuple[str, ...] = (), **params: object) -> FeasibilityIssue:
     return FeasibilityIssue(
-        code=code, message_de=_MESSAGES[code].format(**params), involved_ids=involved_ids
+        code=code, message_de=de(f"feasibility.{code}", **params), involved_ids=involved_ids
     )
 
 

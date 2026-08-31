@@ -1,0 +1,143 @@
+"""German user-facing strings for the CLI and the Streamlit UI.
+
+SPEC.md 2: all user-facing output is German and is routed through this module. Never inline a
+German literal in a widget call or a ``print``; add a key here instead. Everything *about* the
+code -- identifiers, comments, docstrings, log records, exception messages -- stays English.
+
+Keys are namespaced by surface (``feasibility.``, ``cli.``) and the values are
+``str.format`` templates. Call :func:`de`.
+"""
+
+from __future__ import annotations
+
+__all__ = ["STRINGS", "de"]
+
+STRINGS: dict[str, str] = {
+    # -- feasibility diagnostics (feasibility.FeasibilityIssue.message_de) ----------------
+    "feasibility.ROLE_COUNT_OUT_OF_RANGE": (
+        "{role_de}: {n} Tänzer:innen auf {p} Positionen. Jede Position braucht eine oder "
+        "zwei — möglich sind daher {p} bis {max_n}."
+    ),
+    "feasibility.TOO_MANY_STARTANSPRUCH": (
+        "{role_de}: {count} mit Startanspruch, aber nur {available} Position(en) mit "
+        "einfacher Besetzung ({n} {role_de} auf {p} Positionen)."
+    ),
+    "feasibility.TOO_MANY_COACHING": (
+        "{role_de}: {count} mit Coachingbedarf brauchen mindestens {needed} "
+        "Doppelbesetzung(en), es gibt aber nur {available} ({n} {role_de} auf {p} Positionen)."
+    ),
+    "feasibility.VETO_ALL_CROSS_ROLE": (
+        "{name} hat alle {opposite_de} als Nicht-Wunschpartner (Veto) — jede Position ist "
+        "aber mit beiden Rollen besetzt."
+    ),
+    "feasibility.VETO_COACHING_ISOLATED": (
+        "{name} hat Coachingbedarf, aber zu allen anderen {role_de} besteht ein Veto — "
+        "es gibt keine mögliche Doppelbesetzung."
+    ),
+    "feasibility.VETO_FORCES_SINGLES": (
+        "{role_de}: {count} Tänzer:innen können durch Startanspruch oder Vetos keine "
+        "Doppelbesetzung bilden, es gibt aber nur {available} Position(en) mit einfacher "
+        "Besetzung."
+    ),
+    # -- roles ---------------------------------------------------------------------------
+    "role.herr.plural": "Herren",
+    "role.dame.plural": "Damen",
+    "role.herr": "Herr",
+    "role.dame": "Dame",
+    # -- shared --------------------------------------------------------------------------
+    "team.summary": (
+        "{n_dancers} Tänzer:innen ({n_herren} Herren, {n_damen} Damen) "
+        "auf {n_positions} Positionen {labels}."
+    ),
+    "team.surveys": "{n_surveys} von {n_dancers} haben die Teambefragung beantwortet.",
+    "error.file_not_found": "Datei nicht gefunden: {path}",
+    "error.invalid_team": "Die Teamdatei ist ungültig:\n{detail}",
+    "error.invalid_yaml": "Die Datei ist kein gültiges YAML: {detail}",
+    # -- check ---------------------------------------------------------------------------
+    "check.ok": "Keine zählbaren Hindernisse gefunden.",
+    "check.caveat": (
+        "Das schließt eine Lösung nicht zu — es heißt nur, dass keine reine "
+        "Abzählung dagegen spricht. Endgültig entscheidet der Solver."
+    ),
+    "check.issues": "{count} Problem(e) gefunden:",
+    "check.issue": "  [{code}] {message}",
+    "check.involved": "      betroffen: {ids}",
+    # -- solve ---------------------------------------------------------------------------
+    "solve.running": "Suche eine optimale Verpartnerung …",
+    "solve.infeasible_precheck": "Die Teamdatei ist nicht lösbar:",
+    "solve.no_solution": "Keine Lösung gefunden (Status {status}).",
+    "solve.status": "Status: {status} — {wall_time:.2f} s, {branches} Verzweigungen.",
+    "solve.stages": "Zielfunktion in Stufen:",
+    "solve.stage": "  {name}: {value} ({sense})",
+    "solve.sense.maximize": "maximiert",
+    "solve.sense.minimize": "minimiert",
+    "solve.scores": "Gesamtpunkte: {total}   niedrigste Einzelpunktzahl: {minimum}",
+    "solve.scale_note": (
+        "Punkte sind auf der ×2-Skala des Solvers (Normalisierung der Doppelbesetzung)."
+    ),
+    "solve.positions": "Positionen:",
+    "solve.position": "  Position {label}{doubled}",
+    "solve.doubled": "  (Doppelbesetzung)",
+    "solve.herren": "     Herren: {names}",
+    "solve.damen": "     Damen:  {names}",
+    "solve.solution_count": "{count} Lösung(en) gefunden.",
+    "solve.top_not_yet": (
+        "Hinweis: --top wird erst mit der Lösungsaufzählung wirksam (Milestone 3); "
+        "es wird nur die beste Lösung ausgegeben."
+    ),
+    "solve.written": "Ergebnis geschrieben nach {path}.",
+    # -- satisfaction table --------------------------------------------------------------
+    "table.header": "Zufriedenheit (unzufriedenste zuerst):",
+    "table.columns": "{name:<20} {score:>7}  {wishes}",
+    "table.col_name": "Tänzer:in",
+    "table.col_score": "Punkte",
+    "table.col_wishes": "Erfüllt / verletzt",
+    "table.fulfilled": "Tier {rank}: {names}",
+    "table.violated": "verletzt Tier {rank}: {names}",
+    "table.nothing": "—",
+    # -- explain -------------------------------------------------------------------------
+    "explain.unknown_dancer": "Unbekannte Tänzer:in-ID: {dancer_id}",
+    "explain.heading": "{name} ({role}) — Position {label}",
+    "explain.score": "  Punkte: {score}",
+    "explain.partners": "  Auf derselben Position: {names}",
+    "explain.fulfilled": "  Erfüllte Wünsche:",
+    "explain.violated": "  Verletzte Nicht-Wünsche:",
+    "explain.neutral": "  Neutrale Partner:innen: {names}",
+    "explain.entry": "    Tier {rank}: {names}",
+    "explain.no_wishes": "  Keine Wünsche erfüllt.",
+    "explain.no_survey": "  Keine Teambefragung abgegeben — die Punktzahl bleibt daher 0.",
+    "explain.unfulfilled": "  Nicht erfüllte Wünsche:",
+    "explain.respected": "  Eingehaltene Nicht-Wünsche:",
+    "explain.startanspruch": "  Startanspruch: alleine in der eigenen Rolle auf der Position.",
+    "explain.needs_coaching": "  Coachingbedarf: mit {names} in der eigenen Rolle.",
+    # -- CLI help (German, like all user-facing text) ------------------------------------
+    "help.app": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",
+    "help.check": "Prüft eine Teamdatei auf zählbare Hindernisse.",
+    "help.solve": "Berechnet eine optimale Verpartnerung.",
+    "help.explain": "Erklärt das Ergebnis für eine einzelne Tänzer:in.",
+    "help.team_file": "Pfad zur Teamdatei (YAML).",
+    "help.result_file": "Pfad zur Ergebnisdatei aus »solve --json«.",
+    "help.objective": "Zielfunktion.",
+    "help.weights": "Gewichtungsschema für die Tiers.",
+    "help.scope": "Ob nur rollenübergreifende oder alle Wünsche gewertet werden.",
+    "help.veto_tier": "Nicht-Wünsche bis zu diesem Tier werden harte Vetos (0 = keine).",
+    "help.top": "Wie viele Lösungen ausgegeben werden.",
+    "help.time_limit": "Zeitlimit des Solvers in Sekunden.",
+    "help.seed": "Zufalls-Startwert des Solvers.",
+    "help.normalize": "Punkte einer Doppelbesetzung halbieren.",
+    "help.prefer_coupled": "Vollständige Doppelbesetzungen bevorzugen (schwächste Stufe).",
+    "help.workers": "Anzahl paralleler Solver-Threads (1 = reproduzierbar).",
+    "help.json": "Ergebnis zusätzlich als JSON hierhin schreiben.",
+    "help.dancer": "ID der Tänzer:in, die erklärt werden soll.",
+    "help.verbose": "Solver-Fortschritt mitloggen.",
+}
+
+
+def de(key: str, **params: object) -> str:
+    """Return the German string for ``key``, formatted with ``params``.
+
+    Raises:
+        KeyError: The key is not defined. Failing loudly beats shipping a screen with a raw
+            key in it, and the test suite checks that every key used is present.
+    """
+    return STRINGS[key].format(**params)

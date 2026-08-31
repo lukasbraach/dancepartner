@@ -5,6 +5,7 @@ Public surface. The core is UI-agnostic on purpose: nothing under ``dancepartner
 """
 
 from .feasibility import FeasibilityIssue, check_feasibility, veto_pairs
+from .i18n import de
 from .model import (
     DEFAULT_N_POSITIONS,
     Dancer,
@@ -30,6 +31,7 @@ from .scoring import (
     scored_pairs,
 )
 from .solver import InfeasibleInstanceError, SolveResult, solve
+from .storage import StorageError, dump_team, load_team, parse_team, save_team
 
 __all__ = [
     "DEFAULT_N_POSITIONS",
@@ -45,6 +47,7 @@ __all__ = [
     "SolveResult",
     "Solution",
     "SolverConfig",
+    "StorageError",
     "Survey",
     "Team",
     "Tier",
@@ -53,8 +56,13 @@ __all__ = [
     "build_solution",
     "build_weights",
     "check_feasibility",
+    "de",
+    "dump_team",
+    "load_team",
+    "parse_team",
     "position_label",
     "position_labels",
+    "save_team",
     "scored_pairs",
     "solve",
     "veto_pairs",
