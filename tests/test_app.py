@@ -17,7 +17,7 @@ from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import Multiselect
 
 from dancepartner.i18n import TABLES, Language, t
-from dancepartner.model import Objective, Role, Team
+from dancepartner.model import Objective, Role, ScoreAggregation, Team
 from dancepartner.storage import dump_team, load_team
 
 from .builders import roster
@@ -264,6 +264,29 @@ def test_solution_page_passes_the_chosen_objective_to_the_solver() -> None:
     assert at.session_state["config"].objective is Objective.WEIGHTED_SUM
 
 
+def test_solution_page_passes_the_chosen_aggregation_to_the_solver() -> None:
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
+    default_config = at.session_state["config"]
+    assert default_config.aggregation is ScoreAggregation.BEST
+    at.selectbox[2].set_value(ScoreAggregation.SUM).run()
+    chosen_config = at.session_state["config"]
+    assert chosen_config.aggregation is ScoreAggregation.SUM
+
+
+def test_solution_page_renders_a_neutral_dancer_grey_not_red() -> None:
+    team = load_team(EXAMPLE)
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=team)
+    at.run()
+    at.button[0].click().run()
+    assert not at.exception
+
+    # marie-g submitted no survey: neutral gets the colourless marker, never a red one.
+    neutral_name = team.dancers_by_id["marie-g"].name
+    lines = texts(at).splitlines()
+    marker = next(line for line in lines if neutral_name in line and line[0] in "⬜🟥🟨🟩")
+    assert marker.startswith("⬜")
+
+
 def test_solution_page_spells_no_vetoes_as_zero() -> None:
     at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
     at.number_input[0].set_value(0).run()
@@ -298,6 +321,20 @@ def test_analysis_lists_the_unhappiest_dancer_first() -> None:
     assert scores == sorted(scores), "the table must ascend -- unhappiest first"
     assert scores[0] == result.best.min_score
     assert len(scores) == len(at.session_state["team"].dancers)
+
+
+def test_analysis_shows_absolute_satisfaction_percentages() -> None:
+    at = solved_analysis()
+    assert not at.exception
+
+    table = at.dataframe[0].value
+    column = list(table[t("ui.analysis.col_satisfaction")])
+    numbers = [v for v in column if v is not None and v == v]  # NaN != NaN
+    assert numbers, "somebody stated preferences"
+    assert all(0 <= v <= 100 for v in numbers)
+    assert 100 in numbers, "a fulfilled top-tier wish is exactly 100 %"
+    # marie-g is neutral: her cell stays blank instead of claiming 0 %.
+    assert len(numbers) < len(column)
 
 
 def test_analysis_diffs_two_shortlist_entries_by_position_label() -> None:
@@ -336,7 +373,7 @@ def test_the_ui_inlines_no_german_literal() -> None:
 def test_every_ui_key_is_actually_used() -> None:
     source = "\n".join(p.read_text(encoding="utf-8") for p in (REPO_ROOT / "app").rglob("*.py"))
     # The pages quote keys both ways: t("x") normally, t('x') inside an f-string.
-    dynamic = ("ui.objective.", "ui.weights.", "ui.scope.")
+    dynamic = ("ui.objective.", "ui.weights.", "ui.aggregation.", "ui.scope.")
     unused = [
         key
         for key in TABLES[Language.EN]

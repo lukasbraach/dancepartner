@@ -15,6 +15,7 @@ from .model import (
     Direction,
     PreferenceScope,
     Role,
+    ScoreAggregation,
     SolverConfig,
     Team,
     WeightScheme,
@@ -60,6 +61,8 @@ class DancerSatisfaction(BaseModel):
         score: The dancer's objective contribution, on the solver's integer scale. With
             ``SolverConfig.normalize_double`` that scale is x2, so a value of 6 with a
             LINEAR tier weight of 3 means one fulfilled top wish, not six of anything.
+            Under ``ScoreAggregation.BEST`` the positive part is the single best fulfilled
+            wish; under ``SUM`` it is the sum over all of them.
         fulfilled_desired: Tier rank -> the wished-for partner ids actually granted.
         violated_not_desired: Tier rank -> the un-wished partner ids co-positioned anyway.
         neutral_partners: In-scope co-positioned dancers this dancer named in no tier.
@@ -198,6 +201,7 @@ def build_satisfaction(
             n_cross = sum(1 for other in group if by_id[other].role is not dancer.role)
 
             score = 0
+            best_fulfilled = 0
             fulfilled: dict[int, list[str]] = {}
             violated: dict[int, list[str]] = {}
             neutral: list[str] = []
@@ -205,10 +209,14 @@ def build_satisfaction(
             for other in partners:
                 weight = weights.get((dancer_id, other), 0)
                 cross_role = by_id[other].role is not dancer.role
+                if config.aggregation is ScoreAggregation.BEST and weight > 0:
+                    # Satisfaction saturates: only the best fulfilled wish counts. A maximum
+                    # cannot double-collect, so normalisation never halves it.
+                    best_fulfilled = max(best_fulfilled, weight * scale)
                 # A dancer on a Doppelbesetzung of the opposite role has two cross-role
                 # partners and would otherwise collect twice the contributions. Halve those,
                 # working on the x2 scale so nothing rounds.
-                if config.normalize_double and cross_role and n_cross == 2:
+                elif config.normalize_double and cross_role and n_cross == 2:
                     score += weight
                 else:
                     score += weight * scale
@@ -224,7 +232,7 @@ def build_satisfaction(
                     neutral.append(other)
 
             result[dancer_id] = DancerSatisfaction(
-                score=score,
+                score=score + best_fulfilled,
                 fulfilled_desired={rank: sorted(ids) for rank, ids in sorted(fulfilled.items())},
                 violated_not_desired={rank: sorted(ids) for rank, ids in sorted(violated.items())},
                 neutral_partners=neutral,

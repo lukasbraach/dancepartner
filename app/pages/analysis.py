@@ -12,10 +12,12 @@ import streamlit as st
 
 import common
 from dancepartner.i18n import t
+from dancepartner.model import ScoreAggregation
 from dancepartner.reporting import (
     moved_dancers,
     positions_by_dancer,
     respected_not_desired,
+    satisfaction_ratio,
     satisfaction_rows,
     unfulfilled_desired,
 )
@@ -44,7 +46,8 @@ else:
 selected = solutions[index]
 
 st.markdown(t("solve.solution_scores", total=selected.total_score, minimum=selected.min_score))
-st.caption(t("solve.scale_note"))
+best_mode = config.aggregation is ScoreAggregation.BEST
+st.caption(t("solve.scale_note_best" if best_mode else "solve.scale_note"))
 
 # -- the satisfaction table ----------------------------------------------------------------
 
@@ -56,8 +59,39 @@ scores = [sat.score for _, _, sat in rows]
 worst, best_score = min(scores), max(scores)
 places = positions_by_dancer(selected)
 
-st.dataframe(
-    [
+
+def _percent(ratio: float | None) -> int | None:
+    """Clamp a satisfaction ratio into a 0-100 progress value; ``None`` stays blank."""
+    return None if ratio is None else max(min(round(ratio * 100), 100), 0)
+
+
+if best_mode:
+    # The scale is absolute: 100 % is "top wish fulfilled, nothing violated" for everyone.
+    ratios = {
+        dancer_id: satisfaction_ratio(team, config, dancer_id, sat) for dancer_id, _, sat in rows
+    }
+    table_rows = [
+        {
+            "": common.ratio_badge(ratios[dancer_id]),
+            t("table.col_name"): name,
+            t("ui.analysis.col_position"): places[dancer_id],
+            t("ui.analysis.col_satisfaction"): _percent(ratios[dancer_id]),
+            t("table.col_score"): sat.score,
+            t("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
+            t("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
+        }
+        for dancer_id, name, sat in rows
+    ]
+    column_config = {
+        t("ui.analysis.col_satisfaction"): st.column_config.ProgressColumn(
+            t("ui.analysis.col_satisfaction"),
+            min_value=0,
+            max_value=100,
+            format="%d%%",
+        )
+    }
+else:
+    table_rows = [
         {
             "": common.score_badge(sat.score, worst, best_score),
             t("table.col_name"): name,
@@ -67,17 +101,21 @@ st.dataframe(
             t("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
         }
         for dancer_id, name, sat in rows
-    ],
-    hide_index=True,
-    use_container_width=True,
-    column_config={
+    ]
+    column_config = {
         t("table.col_score"): st.column_config.ProgressColumn(
             t("table.col_score"),
             min_value=min(worst, 0),
             max_value=max(best_score, 1),
             format="%d",
         )
-    },
+    }
+
+st.dataframe(
+    table_rows,
+    hide_index=True,
+    use_container_width=True,
+    column_config=column_config,
 )
 
 # -- the shortlist browser -----------------------------------------------------------------

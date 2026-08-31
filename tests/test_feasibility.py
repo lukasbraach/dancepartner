@@ -88,14 +88,13 @@ def test_pole_position_is_checked_per_role() -> None:
 @pytest.mark.parametrize(
     ("n_leaders", "n_coaching", "expected"),
     [
-        # 10 Herren over 8 positions => 2 doubled positions, seating 4 coaching dancers.
-        pytest.param(10, 4, [], id="even-exactly-full"),
-        pytest.param(10, 3, [], id="odd-fits"),
-        pytest.param(10, 5, ["TOO_MANY_COACHING"], id="odd-one-too-many"),
-        pytest.param(10, 6, ["TOO_MANY_COACHING"], id="even-two-too-many"),
-        # 9 Herren over 8 positions => a single doubled position, seating 2.
-        pytest.param(9, 2, [], id="one-double-even"),
-        pytest.param(9, 3, ["TOO_MANY_COACHING"], id="one-double-odd-overflow"),
+        # 10 Herren over 8 positions => 2 doubled positions. Each coaching dancer needs
+        # their own doubled position with an experienced partner, so at most 2 fit.
+        pytest.param(10, 2, [], id="exactly-as-many-as-doubles"),
+        pytest.param(10, 3, ["TOO_MANY_COACHING"], id="one-too-many"),
+        # 9 Herren over 8 positions => a single doubled position, seating one coaching dancer.
+        pytest.param(9, 1, [], id="one-double-fits-one"),
+        pytest.param(9, 2, ["TOO_MANY_COACHING"], id="one-double-overflow"),
         # 8 Herren over 8 positions => no doubled position exists.
         pytest.param(8, 1, ["TOO_MANY_COACHING"], id="no-doubles-at-all"),
     ],
@@ -107,9 +106,9 @@ def test_coaching_count(n_leaders: int, n_coaching: int, expected: list[str]) ->
 
 def test_pole_position_and_coaching_are_reported_together() -> None:
     flags: dict[str, dict[str, bool]] = {f"led{i}": {"is_pole_position": True} for i in range(7)}
-    flags |= {f"led{i}": {"needs_coaching": True} for i in range(7, 10)}
+    flags |= {f"led{i}": {"needs_coaching": True} for i in range(7, 9)}
     # 10 Herren: 6 single positions (7 Startanspruch is one too many) and 2 doubled
-    # positions seating 4 (3 coaching fits), so only the Startanspruch check fires.
+    # positions (2 coaching fits), so only the Startanspruch check fires.
     assert codes(team(10, 8, 8, **flags)) == ["TOO_MANY_POLE_POSITION"]
 
 
@@ -152,6 +151,20 @@ def test_veto_coaching_isolated() -> None:
         3,
         not_desired("led0", tier(1, "led1", "led2", "led3")),
         **{"led0": {"needs_coaching": True}},
+    )
+    config = SolverConfig(scope=PreferenceScope.ALL)
+    assert "VETO_COACHING_ISOLATED" in codes(instance, config)
+
+
+def test_veto_coaching_isolated_when_the_only_free_partner_needs_coaching_too() -> None:
+    # 5 Herren over 3 positions => 2 doubled. led0 vetoes led2..led4; the only Herr left,
+    # led1, needs coaching himself and is no experienced partner, so led0 is isolated.
+    instance = team(
+        5,
+        4,
+        3,
+        not_desired("led0", tier(1, "led2", "led3", "led4")),
+        **{"led0": {"needs_coaching": True}, "led1": {"needs_coaching": True}},
     )
     config = SolverConfig(scope=PreferenceScope.ALL)
     assert "VETO_COACHING_ISOLATED" in codes(instance, config)

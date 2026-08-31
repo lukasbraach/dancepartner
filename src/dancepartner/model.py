@@ -9,7 +9,6 @@ output is bilingual and lives in :mod:`dancepartner.i18n`.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterator
 from enum import StrEnum
 from typing import Literal
@@ -24,6 +23,7 @@ __all__ = [
     "PreferenceScope",
     "PreferenceEntry",
     "Role",
+    "ScoreAggregation",
     "SolverConfig",
     "Survey",
     "Team",
@@ -77,6 +77,22 @@ class WeightScheme(StrEnum):
     GEOMETRIC = "geometric"
 
 
+class ScoreAggregation(StrEnum):
+    """How one dancer's fulfilled wishes combine into their score.
+
+    ``BEST``: the positive part is the weight of the single best fulfilled wish — satisfaction
+    saturates once the strongest wish is granted, a second fulfilled wish adds nothing.
+    Violated not-desired entries still subtract as a sum. This is the default because it
+    matches how the team reads the result: a dancer with their tier-1 partner and no violated
+    veto is fully happy, regardless of how many alternatives they listed.
+
+    ``SUM``: the positive part is the sum over all fulfilled wishes, the original semantics.
+    """
+
+    BEST = "best"
+    SUM = "sum"
+
+
 class Objective(StrEnum):
     """Objective staging strategy. See ``solver.solve``."""
 
@@ -122,9 +138,10 @@ class Dancer(BaseModel):
         is_pole_position: The dancer is the sole driver of their position and must not share
             it with another dancer of the same role. Hard constraint. Formerly
             *Startanspruch* -- note that this is a claim on the starting slot, not a ranking.
-        needs_coaching: The dancer must not be the only one of their role on a position; they
-            need a same-role dancer alongside them. Hard constraint. Formerly
-            *Coachingbedarf*.
+        needs_coaching: The dancer must not be the only one of their role on a position, and
+            the same-role dancer alongside them must not need coaching themselves — every
+            coaching dancer is paired with an experienced dancer of their role. Hard
+            constraints. Formerly *Coachingbedarf*.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -361,6 +378,10 @@ class SolverConfig(BaseModel):
 
     objective: Objective = Objective.MAXIMIN_THEN_SUM
     weights: WeightScheme = WeightScheme.LINEAR
+    aggregation: ScoreAggregation = ScoreAggregation.BEST
+    """See :class:`ScoreAggregation`. Under ``BEST`` the positive part of a score is never
+    halved by ``normalize_double``: halving corrects double-*collection* of summed
+    contributions, and a maximum cannot double-collect. Violations keep the halving."""
     scope: PreferenceScope = PreferenceScope.CROSS_ROLE_ONLY
 
     veto_tier: int | None = 1
@@ -411,8 +432,3 @@ class SolverConfig(BaseModel):
     def score_scale(self) -> int:
         """Integer factor every score is multiplied by, so halving needs no rounding."""
         return 2 if self.normalize_double else 1
-
-
-def ceil_div(numerator: int, denominator: int) -> int:
-    """Integer ceiling division, used by the feasibility counting checks."""
-    return math.ceil(numerator / denominator)

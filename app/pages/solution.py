@@ -11,7 +11,15 @@ import streamlit as st
 
 import common
 from dancepartner.i18n import t
-from dancepartner.model import Objective, PreferenceScope, Role, SolverConfig, WeightScheme
+from dancepartner.model import (
+    Objective,
+    PreferenceScope,
+    Role,
+    ScoreAggregation,
+    SolverConfig,
+    WeightScheme,
+)
+from dancepartner.reporting import satisfaction_ratio
 from dancepartner.solver import InfeasibleInstanceError
 
 common.page_header("ui.solve.header")
@@ -36,6 +44,13 @@ with left:
         index=list(WeightScheme).index(current.weights),
         format_func=common.weights_label,
         help=t("help.weights"),
+    )
+    aggregation = st.selectbox(
+        t("ui.solve.aggregation"),
+        options=list(ScoreAggregation),
+        index=list(ScoreAggregation).index(current.aggregation),
+        format_func=common.aggregation_label,
+        help=t("help.aggregation"),
     )
 
 with middle:
@@ -103,6 +118,7 @@ with st.expander(t("ui.solve.advanced")):
 config = SolverConfig(
     objective=objective,
     weights=weights,
+    aggregation=aggregation,
     scope=scope,
     veto_tier=int(veto_tier) if veto_tier else None,
     max_solutions=int(top),
@@ -147,7 +163,8 @@ st.caption(
     )
 )
 st.markdown(t("solve.scores", total=best.total_score, minimum=best.min_score))
-st.caption(t("solve.scale_note"))
+best_mode = config.aggregation is ScoreAggregation.BEST
+st.caption(t("solve.scale_note_best" if best_mode else "solve.scale_note"))
 
 if result.truncated:
     st.info(t("solve.solution_count_truncated", count=len(result.solutions)))
@@ -179,7 +196,12 @@ for row_start in range(0, len(best.positions), 4):
                 st.caption(common.role_plural(role))
                 for dancer_id in ids:
                     satisfaction = best.per_dancer[dancer_id]
-                    badge = common.score_badge(satisfaction.score, worst, top_score)
+                    if best_mode:
+                        badge = common.ratio_badge(
+                            satisfaction_ratio(team, config, dancer_id, satisfaction)
+                        )
+                    else:
+                        badge = common.score_badge(satisfaction.score, worst, top_score)
                     st.markdown(f"{badge} {team.dancers_by_id[dancer_id].name}")
                     detail = common.satisfaction_badges(satisfaction)
                     if detail:

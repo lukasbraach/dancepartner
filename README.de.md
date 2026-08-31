@@ -28,7 +28,7 @@ nur eine Dame tragen.
 | Position | Index `p`, Label A–H | Einer von 8 Plätzen, ungeordnet. |
 | Doppelbesetzung | `is_doubled` | Zwei Herren und zwei Damen auf einer Position. |
 | Startanspruch | `is_pole_position` | Muss allein in der eigenen Rolle stehen. |
-| Coachingbedarf | `needs_coaching` | Darf nicht allein in der eigenen Rolle stehen. |
+| Coachingbedarf | `needs_coaching` | Darf nicht allein in der eigenen Rolle stehen, und die zweite Person derselben Rolle muss erfahren sein — zwei Coachingbedarfe teilen sich nie eine Position. |
 | Wunschpartner | `desired_tiers` | Gestufte Wunschlisten, Tier 1 am stärksten. |
 | Nicht-Wunschpartner | `not_desired_tiers` | Dasselbe, umgekehrt. |
 | Teambefragung | `Survey` | Die Antworten einer Person. |
@@ -127,16 +127,16 @@ INFEASIBLE sagt gar nichts.
 
 ```console
 $ dancepartner solve data/team.example.yaml --top 3
-Status: OPTIMAL — 0.08 s, 8127 Verzweigungen.
+Status: OPTIMAL — 0.02 s, 1113 Verzweigungen.
 Zielfunktion in Stufen:
   maximin: 0 (maximiert)
-  sum: 55 (maximiert)
-  coupled: 4 (minimiert)
+  sum: 60 (maximiert)
+  coupled: 2 (minimiert)
 
-3 gleichwertige Lösung(en) gefunden.
+2 gleichwertige Lösung(en) gefunden.
 
-── Lösung 1 von 3 (beste)
-   Gesamtpunkte 55, niedrigste Einzelpunktzahl 0
+── Lösung 1 von 2 (beste)
+   Gesamtpunkte 60, niedrigste Einzelpunktzahl 0
 Positionen:
   Position A
      Herren: Lukas Brandt
@@ -145,9 +145,9 @@ Positionen:
      Herren: Tim Rothe
      Damen:  Lena Fricke, Mia Thalmann
   …
-  Position H
+  Position H  (Doppelbesetzung)
      Herren: Jan Hübner, Paul Mertens
-     Damen:  Hanna Zeller
+     Damen:  Emma Köhler, Hanna Zeller
 ```
 
 Drei Dinge sind hier wichtig.
@@ -156,24 +156,28 @@ Drei Dinge sind hier wichtig.
 abgegeben, also ist ihre Punktzahl 0 und das erreichbare Minimum ebenfalls. Die Stufe hat ihr
 Bestes getan; der Boden liegt eben dort.
 
-**Die Punkte stehen auf der ×2-Skala des Solvers.** Bei linearer Gewichtung ist ein Wunsch in
-Tier *k* zunächst `K − k + 1` wert, wobei `K` das höchste Tier der Instanz ist; das Ergebnis wird
-verdoppelt, damit es sich auf einer Doppelbesetzung ohne Rundung halbieren lässt. In diesem Team
-geht Tier 2 am weitesten, ein erfüllter Tier-1-Wunsch bringt also 4 Punkte. Deshalb steht bei
-Lukas Brandt unten eine 4.
+**Die Punkte zählen den besten erfüllten Wunsch, auf der ×2-Skala des Solvers.** Bei linearer
+Gewichtung ist ein Wunsch in Tier *k* `K − k + 1` wert, wobei `K` das höchste Tier der Instanz
+ist; das Ergebnis wird verdoppelt, damit die Normalisierung der Doppelbesetzung ohne Rundung
+halbieren kann. In diesem Team geht Tier 2 am weitesten, ein erfüllter Tier-1-Wunsch bringt also
+4 Punkte — und das ist in der Voreinstellung zugleich das Maximum: Die Zufriedenheit sättigt,
+sobald der stärkste Wunsch erfüllt ist (`--aggregation best`). Wer seinen Top-Wunsch hat und
+keinen verletzten Nicht-Wunsch, ist zu 100 % zufrieden, egal wie viele Alternativen er genannt
+hat. `--aggregation sum` stellt die ältere Summen-Wertung wieder her.
 
-**„3 gleichwertige Lösungen“ heißt genau das.** Alle drei erreichen 55 Punkte. Sie sind nicht
-Platz 1 bis 3, sondern drei gleich gute Antworten, zwischen denen die Zahlen nicht entscheiden
+**„2 gleichwertige Lösungen“ heißt genau das.** Beide erreichen 60 Punkte. Sie sind nicht
+Platz 1 und 2, sondern zwei gleich gute Antworten, zwischen denen die Zahlen nicht entscheiden
 können. Der Trainer schon.
 
 ### Nachfragen
 
 ```console
 $ dancepartner explain data/team.example.yaml out.json --dancer lukas-b
-(aus Lösung 1 von 3)
+(aus Lösung 1 von 2)
 
 Lukas Brandt (Herr) — Position A
   Punkte: 4
+  Zufriedenheit: 100 %
   Auf derselben Position: Anna Brenner
   Erfüllte Wünsche:
     Tier 1: Anna Brenner
@@ -182,14 +186,14 @@ Lukas Brandt (Herr) — Position A
   Eingehaltene Nicht-Wünsche:
     Tier 1: Emma Köhler
 
-  Diese Besetzung ist in allen 3 Lösungen gleich — hier gibt es nichts zu wählen.
+  Diese Besetzung ist in allen 2 Lösungen gleich — hier gibt es nichts zu wählen.
 ```
 
 Der letzte Satz ist der Grund, warum das Programm überhaupt mehrere Lösungen aufzählt. Eine
 Partnerin, die in jeder optimalen Lösung dieselbe ist, ist keine Entscheidung, die der Trainer
-treffen muss. Eine, die in 3 von 20 Lösungen vorkommt, schon. Bei diesem Team bleibt wenig zu
-wählen: Emma Köhler wechselt zwischen Position D und E, Lena Fricke zwischen C und D. Mehr
-Unterschiede gibt es nicht.
+treffen muss. Eine, die in 3 von 20 Lösungen vorkommt, schon. Bei diesem Team bleibt genau eine
+Wahl: Leah Dorn tanzt entweder als zweite Dame bei David Lorenz auf Position F oder neben Marie
+Günther auf Position G. Mehr Unterschiede gibt es nicht.
 
 ## Die vier Zielfunktionen
 
@@ -208,10 +212,11 @@ Harte Nebenbedingungen gelten immer.
 `leximin` arbeitet sich weiter nach oben und gibt dafür notfalls Gesamtpunkte auf. Den Fall, in
 dem sich beide messbar unterscheiden, hält `tests/test_objectives.py::divergent_instance` fest.
 
-Weitere Stellschrauben: `--weights` (linear oder geometrisch), `--scope` (nur rollenübergreifende
-Wünsche oder alle), `--veto-tier N` (Nicht-Wünsche bis Tier N werden harte Bedingungen, `0`
-schaltet sie ab), `--top N`, `--near-optimal` und `--tier-slack`. `dancepartner solve --help`
-erklärt alle.
+Weitere Stellschrauben: `--aggregation` (bester erfüllter Wunsch — die Voreinstellung — oder
+Summe aller erfüllten Wünsche), `--weights` (linear oder geometrisch), `--scope` (nur
+rollenübergreifende Wünsche oder alle), `--veto-tier N` (Nicht-Wünsche bis Tier N werden harte
+Bedingungen, `0` schaltet sie ab), `--top N`, `--near-optimal` und `--tier-slack`.
+`dancepartner solve --help` erklärt alle.
 
 ## Performance
 
@@ -221,28 +226,43 @@ Gemessen auf einem Apple-Silicon-Laptop (arm64, macOS), Python 3.11.9, OR-Tools 
 Repository: `data/team.example.yaml` (20 Tänzer:innen, Tiers bis 2) und
 `data/team.large.example.yaml` (24 Tänzer:innen, Tiers bis 3).
 
+Mit der voreingestellten Bester-Wunsch-Wertung ist jede Zielfunktion auf beiden Instanzen
+schnell:
+
 | Zielfunktion | 20 Tänzer:innen | Verzweigungen | 24 Tänzer:innen | Verzweigungen |
 |---|---:|---:|---:|---:|
-| `weighted-sum` | 0,04 s | 5 811 | **12,5 s** | 988 656 |
-| `maximin-then-sum` | 0,05 s | 6 230 | **12,3 s** | 992 787 |
-| `leximin` | 0,04 s | 887 | 0,17 s | 15 961 |
-| `lexicographic-tiers` | 0,02 s | 565 | 0,05 s | 4 564 |
+| `weighted-sum` | 0,01 s | 826 | 0,03 s | 3 037 |
+| `maximin-then-sum` | 0,01 s | 1 108 | 0,04 s | 3 751 |
+| `leximin` | 0,03 s | 929 | 0,05 s | 3 710 |
+| `lexicographic-tiers` | 0,01 s | 814 | 0,04 s | 2 452 |
 
-Alle vier finden auf der großen Instanz dieselbe Gesamtpunktzahl (101), brauchen dafür aber sehr
-unterschiedlich lange. Und zwar entgegen der naheliegenden Vermutung: `leximin` läuft zwei Stufen
-je Runde und wirkt teuer, ist hier aber rund 70-mal schneller als die simple Summe.
+Der harte Fall ist die Summen-Wertung (`--aggregation sum`) auf der großen Instanz:
 
-Der Grund ist die Beweislast. `weighted-sum` muss zeigen, dass es keine Aufstellung mit 102
-Punkten gibt, und dafür bleibt ein riesiger Suchraum übrig. `leximin` legt dagegen Runde für
-Runde den kompletten sortierten Punktevektor fest; jede dieser Bedingungen schneidet den
-Suchraum drastisch zusammen, sodass am Ende kaum noch etwas zu beweisen ist.
+| Zielfunktion, `--aggregation sum` | 24 Tänzer:innen | Verzweigungen |
+|---|---:|---:|
+| `weighted-sum` | **11,8 s** | 1 007 227 |
+| `maximin-then-sum` | **11,9 s** | 1 011 225 |
+| `leximin` | 0,16 s | 15 380 |
+| `lexicographic-tiers` | 0,05 s | 4 306 |
+
+Alle vier finden dort dieselbe Gesamtsumme (101), brauchen dafür aber sehr unterschiedlich
+lange. Und zwar entgegen der naheliegenden Vermutung: `leximin` läuft zwei Stufen je Runde und
+wirkt teuer, ist hier aber rund 70-mal schneller als die simple Summe.
+
+Der Grund ist die Beweislast. Unter `sum` muss `weighted-sum` zeigen, dass es keine Aufstellung
+mit 102 Punkten gibt, und dafür bleibt ein riesiger Suchraum übrig. `leximin` legt dagegen Runde
+für Runde den kompletten sortierten Punktevektor fest; jede dieser Bedingungen schneidet den
+Suchraum drastisch zusammen, sodass am Ende kaum noch etwas zu beweisen ist. Die
+Bester-Wunsch-Wertung ist aus demselben Grund von der anderen Seite her schnell: Die Punkte
+nehmen viel weniger verschiedene Werte an, also schließen sich die Schranken zügig.
 
 Praktisch heißt das:
 
-* Bis etwa 20 Tänzer:innen ist jede Zielfunktion unter einer Zehntelsekunde fertig.
-  **Entscheide nach Inhalt, nicht nach Geschwindigkeit.**
-* Braucht `maximin-then-sum` darüber zu lange, liefert `leximin` auf diesen Daten dasselbe
-  Ergebnis in einem Bruchteil der Zeit, und ist inhaltlich sogar die strengere Aussage.
+* Mit der voreingestellten Wertung ist jede Zielfunktion auf beiden Instanzen deutlich unter
+  einer Zehntelsekunde fertig. **Entscheide nach Inhalt, nicht nach Geschwindigkeit.**
+* Braucht `maximin-then-sum` unter `--aggregation sum` zu lange, liefert `leximin` auf diesen
+  Daten dieselbe Summe in einem Bruchteil der Zeit, und ist inhaltlich sogar die strengere
+  Aussage.
 * Das Aufzählen kostet fast nichts: `--top 50` statt `--top 1` schlägt mit unter 0,2 s zu Buche,
   weil der zweite Durchgang auf einem Modell arbeitet, dessen Optima bereits feststehen.
 * `--time-limit` ist die Notbremse, nicht der Normalfall. Läuft der Solver hinein, meldet er

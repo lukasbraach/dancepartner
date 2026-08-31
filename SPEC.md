@@ -79,7 +79,7 @@ The German column records what the team calls each thing. It keeps the vocabular
 | position index `p`, label A–H | Position | One of the 8 slots on the floor. Unordered and interchangeable in the model. |
 | `is_doubled` | Doppelbesetzung | A position holding two leaders *and* two followers. |
 | `is_pole_position` | Startanspruch | Dancer must **not** share their position with another dancer of the same role. Hard constraint. A claim on the starting slot, **not** a ranking — read as "ranked first" it means the opposite of the constraint it encodes. |
-| `needs_coaching` | Coachingbedarf | Dancer must **not** be the only one of their role on a position. Hard constraint. |
+| `needs_coaching` | Coachingbedarf | Dancer must **not** be the only one of their role on a position, and the same-role dancer alongside them must not need coaching themselves — every coaching dancer is paired with an experienced dancer of their role. Hard constraints. |
 | `desired_tiers` | Wunschpartner | Ranked list of sets of desired partners. Tier 1 = strongest wish. Sets within a tier are equivalent. |
 | `not_desired_tiers` | Nicht-Wunschpartner | Same structure, for undesired partners. |
 | `Survey` | Teambefragung | One dancer's complete set of answers. |
@@ -165,7 +165,7 @@ class Dancer(BaseModel):
     name: str
     role: Role
     is_pole_position: bool = False    # must be alone in their role on the position
-    needs_coaching: bool = False      # must NOT be alone in their role on the position
+    needs_coaching: bool = False      # must share their role's slot with an experienced dancer
 
 class Tier(BaseModel):
     rank: int                    # 1 = strongest preference
@@ -214,7 +214,8 @@ With `n = len(leaders)` and 8 positions:
 
 * Exactly `n - 8` positions carry two leaders, exactly `16 - n` carry a single leader.
 * Therefore: `count(is_pole_position ∧ LEADER) ≤ 16 - n`
-* And: `n - 8 ≥ ceil(count(needs_coaching ∧ LEADER) / 2)`
+* And: `count(needs_coaching ∧ LEADER) ≤ n - 8` — two coaching dancers never share a
+  position (§8), so each needs their own doubled position.
 * And: `8 ≤ n ≤ 16`
 
 Identical checks for followers, plus a check for hard vetoes (§8) making a role infeasible. Each
@@ -243,7 +244,9 @@ pre-check to catch it; that needs general matching, which is the solver's job.
    a hard constraint.
 3. Pole position: `add(role_count == 1).only_enforce_if(x[d, p])`.
 4. Coaching need: `add(role_count >= 2).only_enforce_if(x[d, p])`.
-5. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `not_desired` entries
+5. Per position and per role, at most one dancer with `needs_coaching` — combined with 4.,
+   every coaching dancer is paired with an experienced same-role dancer.
+6. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `not_desired` entries
    at that tier or stronger get `together[d, e] == 0`.
 
 ### Reification — both directions are mandatory
@@ -272,7 +275,20 @@ This is also why dancer input order is significant: it defines the canonical pos
 
 ### Scoring (`scoring.py`)
 
-`score[d] = Σ_e weight(d, e) * together[d, e]`, integer arithmetic only.
+Integer arithmetic only. How one dancer's fulfilled wishes combine is
+`SolverConfig.aggregation`:
+
+* `BEST` — **default.** `score[d] = max_e{ weight(d, e) * scale * together[d, e] over desired
+  entries, 0 if none } + Σ negative weights of violated dislikes`. Satisfaction saturates: a
+  dancer with their tier-1 partner and no violated dislike scores the instance-global top-tier
+  weight, and a second fulfilled wish adds nothing. This matches how the team reads the result
+  — one strong partnership per dancer is the goal — and it makes scores comparable across
+  dancers, which is what leximin levels.
+* `SUM` — `score[d] = Σ_e weight(d, e) * together[d, e]`, the original semantics, kept
+  selectable.
+
+The tier-count stages of `LEXICOGRAPHIC_TIERS` count `together` variables and are
+aggregation-independent.
 
 Weight schemes, selectable via `SolverConfig.weights`:
 
@@ -289,6 +305,19 @@ number of dancers of the **other** role on their position, not their own role's 
 (`SolverConfig.score_scale`) so the doubled case halves without rounding. The halving uses two
 linear equalities under `only_enforce_if` rather than `add_multiplication_equality`: the factor is
 binary, so they are exactly equivalent, stay linear, and propagate far better.
+
+Under `BEST` the halving applies to the **negative side only**: it corrects double-*collection*
+of summed contributions, and a maximum cannot double-collect. Halving the max would make a
+doubled dancer with a fulfilled tier-1 wish look half as happy as a single one for no semantic
+reason, and it would break the fixed 100 %-denominator below. The positive part is encoded with
+`add_max_equality` over the affine terms `weight * scale * together` — each is 0 or the scaled
+weight, so an empty fulfilment maxes to 0 without an explicit operand.
+
+**Satisfaction ratio** (`reporting.satisfaction_ratio`, BEST only). Per dancer,
+`score / (top-tier weight × scale)` — so "tier-1 wish fulfilled, nothing violated" is exactly
+100 % for everyone, single or doubled. A dancer whose survey holds only dislikes starts at
+100 % and loses per violation. A dancer with no in-scope entries at all is `None`: neutral,
+not unhappy, and rendered without a colour.
 
 Normalisation also interacts with `prefer_coupled`: a granted wish is worth more when the position
 holds a single dancer of the opposite role, so `abs(n_leaders - n_followers)` is only a lower
@@ -347,7 +376,7 @@ Details that are easy to get wrong:
 
 * The collector asks for `max_solutions + 1` and reports `truncated` only if it actually got the
   extra one. Setting `truncated` on merely reaching the cap is wrong — the cap and the true count
-  can coincide, and the example team's three optima are exactly that case.
+  can coincide, and the example team's two optima are exactly that case.
 * Dedup is by `Solution.signature`, the frozenset of frozensets of dancer ids per position. With
   symmetry breaking on it catches nothing; with it off, the same partition arrives once per
   labelling (`test_dedup_survives_symmetry_breaking_being_off`).
@@ -440,8 +469,11 @@ Implementation rules:
 * Empty and orphaned tiers are renumbered, not rejected — browser editing breaks the "contiguous
   from 1" rule constantly, and the coach did not cause it. See `common.renumber_tiers` /
   `tiers_from_selections`.
-* Colour encodes satisfaction only, never name or role. `common.score_badge` scales against the
-  achieved range of the solution being shown, not an absolute.
+* Colour encodes satisfaction only, never name or role. Under `ScoreAggregation.BEST` the scale
+  is **absolute**: `common.ratio_badge` over `reporting.satisfaction_ratio`, the analysis table
+  shows a 0–100 % progress column, and a dancer with no stated preference renders grey (⬜),
+  never red. Under `SUM`, `common.score_badge` keeps scaling against the achieved range of the
+  solution being shown.
 * `st.data_editor` is fed `list[dict]`, not a DataFrame (§4 keeps pandas out).
 
 `streamlit` being an extra is what makes "delete `app/` and the CLI still works" enforceable
@@ -461,8 +493,13 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
 ```
 
 * Enum options are spelled with hyphens (`--objective maximin-then-sum`) via the
-  `ObjectiveChoice`/`WeightChoice`/`ScopeChoice` enums, mapped to the domain enums by member name.
-  The domain enums keep snake_case values because YAML and JSON carry those.
+  `ObjectiveChoice`/`WeightChoice`/`AggregationChoice`/`ScopeChoice` enums, mapped to the domain
+  enums by member name. The domain enums keep snake_case values because YAML and JSON carry
+  those. `--aggregation best|sum` selects the score aggregation (§8); under `best`, `explain
+  --dancer` adds a satisfaction percentage line for dancers with in-scope preferences.
+  A result file written before the field existed reads back as `best` (the pydantic default) —
+  accepted, consistent with §2.1's no-backward-compatibility stance; the stored scores
+  themselves are never recomputed by `explain`.
 * `--veto-tier 0` is the CLI spelling of `SolverConfig.veto_tier=None`.
 * `--top N` sets `max_solutions` **and** prints all N, each alternative diffed against the best.
   `--near-optimal` and `--tier-slack` expose the other two enumeration knobs.
@@ -488,12 +525,14 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
   value**. `tests/builders.py` has the terse constructors; synthetic dancers are `led0..`/`fol0..`,
   and their roster order doubles as the canonical position ordering (§8).
 * The load-bearing constraints are verified by mutation — each of these must turn the suite red:
-  the `add_bool_or` half of the reification, the symmetry-breaking constraint, the signature
-  dedup, the `_lock_in` tie-break guard.
+  the `add_bool_or` half of the reification, the at-most-one-coaching-dancer constraint, the
+  symmetry-breaking constraint, the signature dedup, the `_lock_in` tie-break guard.
 * `tests/test_objectives.py::divergent_instance` is the instance where maximising the total and
   levelling up genuinely disagree (`MAXIMIN_THEN_SUM` reaches `[0, 0, 2, 6, 6, 6, 6]`, `LEXIMIN`
   gives up five points of total for `[0, 2, 2, 3, 4, 4, 6]`). Without it the two objectives look
-  identical on every instance in the repo.
+  identical on every instance in the repo. The divergence test pins
+  `ScoreAggregation.SUM` — the hand-derived vectors are summed arithmetic; the SUM-vs-BEST
+  disagreement has its own instance in `test_sum_and_best_optima_genuinely_differ`.
 * `assert_leximin_vector` reconstructs the score multiset from the reported rounds alone; if the
   rounds and the assignment disagree, one of them is lying.
 * A determinism test: same input plus fixed `random_seed` yields the same solution.

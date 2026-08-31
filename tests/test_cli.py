@@ -133,8 +133,8 @@ def test_solve_prints_positions_and_the_satisfaction_table() -> None:
     assert "Status: OPTIMAL" in result.stdout
     assert "Objective in stages:" in result.stdout
     assert "maximin: 0 (maximized)" in result.stdout
-    assert "coupled: 4 (minimized)" in result.stdout
-    assert "Total score: 55" in result.stdout
+    assert "coupled: 2 (minimized)" in result.stdout
+    assert "Total score: 60" in result.stdout
     for label in "ABCDEFGH":
         assert f"Position {label}" in result.stdout
     assert "Satisfaction (least satisfied first):" in result.stdout
@@ -148,6 +148,16 @@ def test_solve_table_is_sorted_unhappiest_first() -> None:
     scores = [int(m.group(1)) for m in re.finditer(r"^\S.{19}\s*(-?\d+)\s\s", body, re.M)]
     assert len(scores) == 20
     assert scores == sorted(scores)
+
+
+def test_solve_maps_the_aggregation_option_into_the_config(tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    assert run("solve", EXAMPLE, "--aggregation", "sum", "--json", str(out)).exit_code == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["config"]["aggregation"] == "sum"
+    default = tmp_path / "default.json"
+    assert run("solve", EXAMPLE, "--json", str(default)).exit_code == 0
+    assert json.loads(default.read_text(encoding="utf-8"))["config"]["aggregation"] == "best"
 
 
 def test_solve_respects_objective_and_weight_options() -> None:
@@ -222,16 +232,16 @@ def test_solve_top_one_prints_a_single_solution() -> None:
     assert "Solution 1 of" not in stdout
 
 
-def test_solve_top_three_prints_all_three_with_diffs() -> None:
+def test_solve_top_three_prints_both_optima_with_diffs() -> None:
     result = run("solve", EXAMPLE, "--top", "3")
     assert result.exit_code == 0
-    # The example team has exactly three optima, so nothing may be reported as cut off.
-    assert "3 equally good solution(s) found." in result.stdout
+    # The example team has exactly two optima, so nothing may be reported as cut off.
+    assert "2 equally good solution(s) found." in result.stdout
     assert "cut off" not in result.stdout
-    for index in (1, 2, 3):
-        assert f"Solution {index} of 3" in result.stdout
+    for index in (1, 2):
+        assert f"Solution {index} of 2" in result.stdout
     assert "(best)" in result.stdout
-    assert result.stdout.count("Difference to solution 1:") == 2
+    assert result.stdout.count("Difference to solution 1:") == 1
 
 
 def test_solve_reports_a_truncated_shortlist(tmp_path: Path) -> None:
@@ -264,7 +274,7 @@ def test_solve_json_carries_the_whole_shortlist(tmp_path: Path) -> None:
     out = tmp_path / "out.json"
     assert run("solve", EXAMPLE, "--top", "3", "--json", str(out)).exit_code == 0
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert len(payload["result"]["solutions"]) == 3
+    assert len(payload["result"]["solutions"]) == 2
     assert payload["config"]["max_solutions"] == 3
     assert payload["result"]["truncated"] is False
 
@@ -319,6 +329,16 @@ def test_explain_a_single_dancer(solved: Path) -> None:
     assert "Tier 1: Anna Brenner" in result.stdout
     assert "Unfulfilled wishes:" in result.stdout
     assert "Respected not-desired wishes:" in result.stdout
+    # BEST is the default: a fulfilled top-tier wish is full satisfaction.
+    assert "Satisfaction: 100 %" in result.stdout
+
+
+def test_explain_prints_no_satisfaction_percent_under_sum(tmp_path: Path) -> None:
+    out = tmp_path / "sum.json"
+    assert run("solve", EXAMPLE, "--aggregation", "sum", "--json", str(out)).exit_code == 0
+    result = run("explain", EXAMPLE, str(out), "--dancer", "lukas-b")
+    assert result.exit_code == 0
+    assert "Satisfaction:" not in result.stdout
 
 
 def test_explain_reports_coaching_need(solved: Path) -> None:
@@ -338,6 +358,8 @@ def test_explain_a_dancer_without_a_survey(solved: Path) -> None:
     assert result.exit_code == 0
     assert "No team survey submitted" in result.stdout
     assert "Score: 0" in result.stdout
+    # Neutral is not unhappy: no percentage is claimed for a dancer who stated nothing.
+    assert "Satisfaction:" not in result.stdout
 
 
 def test_explain_without_a_dancer_prints_the_whole_solution(solved: Path) -> None:
@@ -376,34 +398,34 @@ def test_explain_json_of_the_wrong_shape_exits_one(tmp_path: Path) -> None:
 
 
 def test_explain_picks_a_solution_by_index(shortlisted: Path) -> None:
-    first = run("explain", EXAMPLE, str(shortlisted), "--dancer", "emma-k", "--solution", "1")
-    third = run("explain", EXAMPLE, str(shortlisted), "--dancer", "emma-k", "--solution", "3")
-    assert first.exit_code == third.exit_code == 0
-    assert "(from solution 1 of 3)" in first.stdout
-    assert "(from solution 3 of 3)" in third.stdout
-    # Emma Köhler is exactly the dancer the three optima disagree about.
-    assert first.stdout != third.stdout
+    first = run("explain", EXAMPLE, str(shortlisted), "--dancer", "david-l", "--solution", "1")
+    second = run("explain", EXAMPLE, str(shortlisted), "--dancer", "david-l", "--solution", "2")
+    assert first.exit_code == second.exit_code == 0
+    assert "(from solution 1 of 2)" in first.stdout
+    assert "(from solution 2 of 2)" in second.stdout
+    # David Lorenz' second partner is exactly what the two optima disagree about.
+    assert first.stdout != second.stdout
 
 
 def test_explain_rejects_a_solution_index_out_of_range(shortlisted: Path) -> None:
     result = run("explain", EXAMPLE, str(shortlisted), "--solution", "9")
     assert result.exit_code == 1
-    assert "only 3 solution(s)" in result.stderr
+    assert "only 2 solution(s)" in result.stderr
 
 
 def test_explain_summarises_a_dancer_across_the_shortlist(shortlisted: Path) -> None:
-    result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "clara-w")
+    result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "david-l")
     assert result.exit_code == 0
-    assert "Across all 3 solutions:" in result.stdout
-    # Moritz is fixed; Emma is the actual open question.
-    assert "Moritz Sander: in 3 of 3 solutions" in result.stdout
-    assert "Emma Köhler: in 2 of 3 solutions" in result.stdout
+    assert "Across all 2 solutions:" in result.stdout
+    # Nina is fixed; Leah is the actual open question.
+    assert "Nina Steinbach: in 2 of 2 solutions" in result.stdout
+    assert "Leah Dorn: in 1 of 2 solutions" in result.stdout
 
 
 def test_explain_says_when_a_dancer_has_no_open_choice(shortlisted: Path) -> None:
     result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "lukas-b")
     assert result.exit_code == 0
-    assert "the same in all 3 solutions" in result.stdout
+    assert "the same in all 2 solutions" in result.stdout
 
 
 def test_explain_adds_no_cross_solution_note_for_a_single_solution(solved: Path) -> None:
@@ -476,6 +498,7 @@ def test_no_string_key_is_missing_from_i18n() -> None:
         "solve.sense.",
         "ui.objective.",
         "ui.weights.",
+        "ui.aggregation.",
         "ui.scope.",
     )
     unused = [

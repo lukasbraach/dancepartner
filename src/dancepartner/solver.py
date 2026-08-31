@@ -25,7 +25,7 @@ from ortools.sat.python import cp_model
 from pydantic import BaseModel, ConfigDict
 
 from .feasibility import FeasibilityIssue, check_feasibility, veto_pairs
-from .model import Objective, Role, SolverConfig, Team
+from .model import Objective, Role, ScoreAggregation, SolverConfig, Team
 from .scoring import Solution, build_solution, build_weights, scored_pairs
 
 __all__ = ["InfeasibleInstanceError", "Sense", "SolveResult", "Stage", "StageResult", "solve"]
@@ -375,9 +375,17 @@ def _build_model(
             elif dancer.needs_coaching:
                 model.add(own >= 2).only_enforce_if(x[(dancer.id, p)])
 
+    # 5. At most one dancer with a coaching need per role per position. Together with 4.,
+    #    every coaching dancer shares their position with an *experienced* same-role dancer.
+    for role in Role:
+        coaching = [dancer for dancer in team.by_role(role) if dancer.needs_coaching]
+        if len(coaching) > 1:
+            for p in team.positions:
+                model.add_at_most_one(x[(dancer.id, p)] for dancer in coaching)
+
     together = {pair: _reify_together(model, x, team, pair) for pair in scored_pairs(team, config)}
 
-    # 5. Hard vetoes.
+    # 6. Hard vetoes.
     for pair in veto_pairs(team, config):
         model.add(together[pair] == 0)
 
@@ -475,7 +483,11 @@ def _build_scores(
     """One integer score variable per dancer, on ``config.score_scale``.
 
     ``score[d] = sum_e weight(d, e) * together[d, e]``, with the cross-role part halved when
-    the dancer's position holds two dancers of the opposite role.
+    the dancer's position holds two dancers of the opposite role. Under
+    ``ScoreAggregation.BEST`` the positive weights leave that sum and enter as
+    ``max_e weight(d, e) * scale * together[d, e]`` instead — never halved, because a maximum
+    cannot double-collect (see ``SolverConfig.aggregation``); the negative weights keep the
+    summed, halved semantics.
 
     Returns the score variables and the absolute bound their domain was given, which the
     maximin stage reuses for ``lo``.
@@ -495,12 +507,27 @@ def _build_scores(
     bound = sum(abs(weight) for weight in weights.values()) * scale + 1
     score: dict[str, cp_model.IntVar] = {}
     for dancer in team.dancers:
-        raw_cross = sum(weight * variable for weight, variable in cross_terms[dancer.id])
-        raw_same = sum(weight * variable for weight, variable in same_terms[dancer.id])
+        cross = cross_terms[dancer.id]
+        same = same_terms[dancer.id]
 
-        if not config.normalize_double or not cross_terms[dancer.id]:
+        best_fulfilled: cp_model.IntVar | int = 0
+        if config.aggregation is ScoreAggregation.BEST:
+            positive = [(w, v) for w, v in (*cross, *same) if w > 0]
+            cross = [(w, v) for w, v in cross if w < 0]
+            same = [(w, v) for w, v in same if w < 0]
+            if positive:
+                top = max(w for w, _ in positive) * scale
+                best = model.new_int_var(0, top, f"best[{dancer.id}]")
+                # Every operand is 0 or w * scale, so the max is 0 when nothing is fulfilled.
+                model.add_max_equality(best, [w * scale * v for w, v in positive])
+                best_fulfilled = best
+
+        raw_cross = sum(weight * variable for weight, variable in cross)
+        raw_same = sum(weight * variable for weight, variable in same)
+
+        if not config.normalize_double or not cross:
             total = model.new_int_var(-bound, bound, f"score[{dancer.id}]")
-            model.add(total == scale * raw_cross + scale * raw_same)
+            model.add(total == best_fulfilled + scale * raw_cross + scale * raw_same)
             score[dancer.id] = total
             continue
 
@@ -511,7 +538,7 @@ def _build_scores(
         model.add(scaled_cross == scale * raw_cross).only_enforce_if(partner_doubled.negated())
         model.add(scaled_cross == raw_cross).only_enforce_if(partner_doubled)
         total = model.new_int_var(-bound, bound, f"score[{dancer.id}]")
-        model.add(total == scaled_cross + scale * raw_same)
+        model.add(total == best_fulfilled + scaled_cross + scale * raw_same)
         score[dancer.id] = total
     return score, bound
 

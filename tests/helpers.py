@@ -176,7 +176,13 @@ def assert_valid(solution: Solution, team: Team, config: SolverConfig | None = N
                 if dancer.needs_coaching:
                     assert count == 2, f"{dancer_id} needs coaching but is alone in their role"
 
-    # 5. No vetoed pair shares a position.
+            # 5. At most one coaching dancer per role per position.
+            coaching_here = [i for i in position.role_ids(role) if by_id[i].needs_coaching]
+            assert len(coaching_here) <= 1, (
+                f"position {position.label}: {coaching_here} all need coaching"
+            )
+
+    # 6. No vetoed pair shares a position.
     for pair in veto_pairs(team, config):
         for position in solution.positions:
             here = {*position.leaders, *position.followers}

@@ -17,7 +17,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from .i18n import t
-from .model import Role, SolverConfig, Team, ceil_div
+from .model import Role, SolverConfig, Team
 
 __all__ = ["FeasibilityIssue", "check_feasibility", "veto_pairs"]
 
@@ -121,15 +121,15 @@ def _check_role_counts(team: Team) -> list[FeasibilityIssue]:
 
         doubled = team.n_doubled_positions(role)
         coaching = [d for d in dancers if d.needs_coaching]
-        needed = ceil_div(len(coaching), 2) if coaching else 0
-        if needed > doubled:
+        # Two coaching dancers must never share a position, so each needs their own doubled
+        # position with an experienced same-role partner.
+        if len(coaching) > doubled:
             issues.append(
                 _issue(
                     "TOO_MANY_COACHING",
                     tuple(d.id for d in coaching),
                     role_label=role_label,
                     count=len(coaching),
-                    needed=needed,
                     available=doubled,
                     n=n,
                     p=p,
@@ -167,6 +167,9 @@ def _check_vetoes(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
         for dancer in dancers:
             same_role_others = [other for other in dancers if other.id != dancer.id]
             admissible = [other for other in same_role_others if not is_vetoed(dancer.id, other.id)]
+            if dancer.needs_coaching:
+                # The same-role partner of a coaching dancer must be experienced.
+                admissible = [other for other in admissible if not other.needs_coaching]
             if dancer.is_pole_position:
                 forced_single.append(dancer.id)
             elif not admissible:

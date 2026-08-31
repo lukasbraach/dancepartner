@@ -35,17 +35,17 @@ def test_max_solutions_one_skips_enumeration(tiny: Team) -> None:
     assert_result_valid(result, tiny, config)
 
 
-def test_the_example_team_has_exactly_three_optima() -> None:
+def test_the_example_team_has_exactly_two_optima() -> None:
     instance = load_team(EXAMPLE)
     config = SolverConfig(max_solutions=200)
     result = solve(instance, config)
     assert_result_valid(result, instance, config)
-    assert len(result.solutions) == 3
+    assert len(result.solutions) == 2
     assert not result.truncated, "200 is enough room, so nothing may be cut"
     # Equal optima means exactly that: identical scores, different assignments.
-    assert {s.total_score for s in result.solutions} == {55}
+    assert {s.total_score for s in result.solutions} == {60}
     assert {s.min_score for s in result.solutions} == {0}
-    assert len({s.signature for s in result.solutions}) == 3
+    assert len({s.signature for s in result.solutions}) == 2
 
 
 def test_every_enumerated_solution_satisfies_every_hard_constraint() -> None:
@@ -103,15 +103,16 @@ def test_the_first_solution_is_the_best_one() -> None:
 def test_ratio_one_admits_only_exact_optima() -> None:
     instance = load_team(EXAMPLE)
     result = solve(instance, SolverConfig(max_solutions=200, near_optimal_ratio=1.0))
-    assert {s.total_score for s in result.solutions} == {55}
+    assert {s.total_score for s in result.solutions} == {60}
 
 
 @pytest.mark.parametrize(
     ("ratio", "expected_totals"),
     [
-        pytest.param(1.0, {55}, id="exact"),
-        pytest.param(0.98, {54, 55}, id="one-off"),
-        pytest.param(0.95, {53, 54, 55}, id="two-off"),
+        # BEST scores live on the x2 scale, so the near-optimal totals step down in twos.
+        pytest.param(1.0, {60}, id="exact"),
+        pytest.param(0.96, {58, 60}, id="one-step"),
+        pytest.param(0.93, {56, 58, 60}, id="two-steps"),
     ],
 )
 def test_a_looser_ratio_widens_the_shortlist(ratio: float, expected_totals: set[int]) -> None:
@@ -132,15 +133,21 @@ def test_a_looser_ratio_never_shrinks_the_shortlist() -> None:
 
 
 def test_the_slack_widens_a_negative_optimum_instead_of_tightening_it() -> None:
-    # A forced, mutually disliked pair drives the total negative. Taking 0.9 * optimum
-    # literally would demand a *better* score than the optimum and return nothing.
+    # A forced, mutually disliked pair drives the total negative (led2 and led3 hold pole
+    # positions, so the single Herren-Doppelbesetzung must be {led0, led1}). Taking
+    # 0.9 * optimum literally would demand a *better* score than the optimum and return
+    # nothing.
     instance = team(
         4,
         4,
         3,
         not_desired("led0", tier(1, "led1")),
         not_desired("led1", tier(1, "led0")),
-        **{"led0": {"needs_coaching": True}, "led1": {"needs_coaching": True}},
+        **{
+            "led0": {"needs_coaching": True},
+            "led2": {"is_pole_position": True},
+            "led3": {"is_pole_position": True},
+        },
     )
     config = SolverConfig(
         scope=PreferenceScope.ALL,

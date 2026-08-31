@@ -12,6 +12,7 @@ from dancepartner.model import (
     Objective,
     PreferenceScope,
     Role,
+    ScoreAggregation,
     SolverConfig,
     Team,
     WeightScheme,
@@ -111,6 +112,25 @@ def test_coachingbedarf_forces_a_shared_role_position() -> None:
     assert len(position.leaders) == 2
 
 
+def test_two_coaching_dancers_never_share_a_position() -> None:
+    # 5 Herren over 3 positions => 2 Herren-Doppelbesetzungen, so led0 and led1 *could*
+    # share one, and their mutual wish would make that strictly better. The constraint
+    # must keep them apart anyway, each with an experienced Herr.
+    instance = team(
+        5,
+        4,
+        3,
+        desired("led0", tier(1, "led1")),
+        desired("led1", tier(1, "led0")),
+        **{"led0": {"needs_coaching": True}, "led1": {"needs_coaching": True}},
+    )
+    config = SolverConfig(scope=PreferenceScope.ALL, max_solutions=50)
+    result = solve(instance, config)
+    assert_result_valid(result, instance, config)
+    for solution in result.solutions:
+        assert not share_position(solution, "led0", "led1")
+
+
 def test_pole_position_beats_a_wish() -> None:
     # led0 wishes for fol0, but fol0's position would have to hold two Herren for the counts to
     # work out; Startanspruch is a hard constraint and the wish must lose.
@@ -180,10 +200,10 @@ def test_skip_precheck_hands_the_instance_to_cp_sat() -> None:
 def test_reification_cannot_erase_dislike() -> None:
     """With only the forward implication, ``together`` could be 0 for a co-positioned pair.
 
-    The instance forces led0 and led1 onto the same position (both need coaching and there is
-    exactly one Herren-Doppelbesetzung available), and they dislike each other. If the
-    ``AddBoolOr`` half of the reification is deleted, the solver is free to claim
-    ``together == 0`` and report a score of 0 instead of the penalty.
+    The instance forces led0 and led1 onto the same position (led2 and led3 hold pole
+    positions, so the single Herren-Doppelbesetzung must be {led0, led1}), and they dislike
+    each other. If the ``AddBoolOr`` half of the reification is deleted, the solver is free
+    to claim ``together == 0`` and report a score of 0 instead of the penalty.
     """
     instance = team(
         4,
@@ -191,7 +211,11 @@ def test_reification_cannot_erase_dislike() -> None:
         3,
         not_desired("led0", tier(1, "led1")),
         not_desired("led1", tier(1, "led0")),
-        **{"led0": {"needs_coaching": True}, "led1": {"needs_coaching": True}},
+        **{
+            "led0": {"needs_coaching": True},
+            "led2": {"is_pole_position": True},
+            "led3": {"is_pole_position": True},
+        },
     )
     # Vetoes off: the pair must be co-positioned, so a hard veto would make it infeasible.
     config = SolverConfig(scope=PreferenceScope.ALL, veto_tier=None)
@@ -303,16 +327,17 @@ def test_both_weight_schemes_find_the_same_assignment(scheme: WeightScheme) -> N
 
 def test_normalisation_removes_the_incentive_to_double_a_well_liked_dancer() -> None:
     # led0 wants both fol0 and fol1 at tier 1. Without normalisation the solver puts all three on
-    # one position to collect two contributions; with it, one is worth as much as two.
+    # one position to collect two contributions; with it, one is worth as much as two. The point
+    # is summed arithmetic, so the test pins SUM -- under BEST the incentive does not exist.
     instance = team(4, 4, 3, desired("led0", tier(1, "fol0", "fol1")))
 
-    unnormalised = SolverConfig(normalize_double=False)
+    unnormalised = SolverConfig(aggregation=ScoreAggregation.SUM, normalize_double=False)
     greedy = solve(instance, unnormalised)
     assert_result_valid(greedy, instance, unnormalised)
     assert share_position(greedy.best, "led0", "fol0", "fol1")
     assert greedy.best.per_dancer["led0"].score == 2
 
-    normalised = SolverConfig(normalize_double=True)
+    normalised = SolverConfig(aggregation=ScoreAggregation.SUM, normalize_double=True)
     fair = solve(instance, normalised)
     assert_result_valid(fair, instance, normalised)
     assert fair.best.per_dancer["led0"].score == 2  # the same score either way now
@@ -321,9 +346,10 @@ def test_normalisation_removes_the_incentive_to_double_a_well_liked_dancer() -> 
 
 def test_normalisation_is_driven_by_the_opposite_role_count() -> None:
     # led0 sits with two Damen it likes; doubling the Herren on that position must not change
-    # led0's cross-role score, only the Damen count does.
+    # led0's cross-role score, only the Damen count does. Halving is a summed-arithmetic
+    # concept, so the test pins SUM.
     instance = team(4, 5, 3, desired("led0", tier(1, "fol0", "fol1")))
-    config = SolverConfig()
+    config = SolverConfig(aggregation=ScoreAggregation.SUM)
     result = solve(instance, config)
     assert_result_valid(result, instance, config)
     label = position_of(result.best, "led0")
@@ -331,6 +357,44 @@ def test_normalisation_is_driven_by_the_opposite_role_count() -> None:
     granted = set(result.best.per_dancer["led0"].fulfilled_desired.get(1, []))
     expected = 1 if len(position.followers) == 2 else 2
     assert result.best.per_dancer["led0"].score == expected * len(granted)
+
+
+def test_sum_and_best_optima_genuinely_differ() -> None:
+    # led0 wants fol0 and fol1 at tier 1 (weight 2 each). led1's tier-1 wish fol0 is dead --
+    # fol0 vetoes him -- so his reachable wish is fol1 at tier 2 (weight 1). Summing
+    # (unnormalised) parks both Damen with led0 for 4 > 3; saturating at the best wish makes
+    # the second Dame worthless (2 < 3), so BEST hands fol1 to led1 instead. This is the
+    # lockstep test for the CP-SAT max encoding: assert_scores_consistent compares it against
+    # the Python recompute.
+    instance = team(
+        4,
+        4,
+        3,
+        desired("led0", tier(1, "fol0", "fol1")),
+        desired("led1", tier(1, "fol0"), tier(2, "fol1")),
+        not_desired("fol0", tier(1, "led1")),
+    )
+    summed_config = SolverConfig(
+        objective=Objective.WEIGHTED_SUM,
+        aggregation=ScoreAggregation.SUM,
+        normalize_double=False,
+        max_solutions=1,
+    )
+    summed = solve(instance, summed_config)
+    assert_result_valid(summed, instance, summed_config)
+    assert share_position(summed.best, "led0", "fol0", "fol1")
+    assert summed.best.per_dancer["led0"].score == 4
+    assert summed.best.total_score == 4
+
+    best_config = SolverConfig(
+        objective=Objective.WEIGHTED_SUM, normalize_double=False, max_solutions=1
+    )
+    best = solve(instance, best_config)
+    assert_result_valid(best, instance, best_config)
+    assert share_position(best.best, "led1", "fol1")
+    assert best.best.per_dancer["led0"].score == 2
+    assert best.best.per_dancer["led1"].score == 1
+    assert best.best.total_score == 3
 
 
 # -- the soft coupled-position preference -------------------------------------------------

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from dancepartner.model import PreferenceScope, SolverConfig, Team, WeightScheme
+from dancepartner.model import (
+    PreferenceScope,
+    ScoreAggregation,
+    SolverConfig,
+    Team,
+    WeightScheme,
+)
 from dancepartner.scoring import (
     build_satisfaction,
     build_solution,
@@ -122,15 +128,17 @@ def test_satisfaction_splits_fulfilled_violated_and_neutral() -> None:
 
 
 def test_normalisation_halves_a_doubled_cross_role_score() -> None:
+    # Halving corrects double-collection of *summed* contributions, so the test pins SUM.
     instance = team(4, 4, 3, desired("led0", tier(1, "fol0", "fol1")))
+    config = SolverConfig(aggregation=ScoreAggregation.SUM)
     single = build_satisfaction(
         instance,
-        SolverConfig(),
+        config,
         [["led0", "fol0"], ["led1", "fol1"], ["led2", "led3", "fol2", "fol3"]],
     )
     doubled = build_satisfaction(
         instance,
-        SolverConfig(),
+        config,
         [["led0", "led1", "fol0", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
     )
     # One wish granted on the x2 scale is 2; two wishes on a Doppelbesetzung are also 2, so
@@ -142,7 +150,7 @@ def test_normalisation_halves_a_doubled_cross_role_score() -> None:
 
 def test_without_normalisation_a_doubled_score_is_twice_as_large() -> None:
     instance = team(4, 4, 3, desired("led0", tier(1, "fol0", "fol1")))
-    config = SolverConfig(normalize_double=False)
+    config = SolverConfig(aggregation=ScoreAggregation.SUM, normalize_double=False)
     single = build_satisfaction(
         instance,
         config,
@@ -169,6 +177,87 @@ def test_same_role_scores_are_not_halved_by_cross_role_doubling() -> None:
     # simply on the x2 scale.
     assert result["led0"].score == 2
     assert result["led0"].fulfilled_desired == {1: ["led1"]}
+
+
+# -- ScoreAggregation.BEST ------------------------------------------------------------------
+
+
+def test_best_counts_only_the_single_best_fulfilled_wish() -> None:
+    # Normalisation off isolates the aggregation: under SUM the doubled position would score
+    # 2, under BEST a second fulfilled wish adds nothing.
+    instance = team(4, 4, 3, desired("led0", tier(1, "fol0", "fol1")))
+    config = SolverConfig(normalize_double=False)
+    single = build_satisfaction(
+        instance,
+        config,
+        [["led0", "fol0"], ["led1", "fol1"], ["led2", "led3", "fol2", "fol3"]],
+    )
+    doubled = build_satisfaction(
+        instance,
+        config,
+        [["led0", "led1", "fol0", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
+    )
+    assert single["led0"].score == 1
+    assert doubled["led0"].score == 1
+    assert doubled["led0"].fulfilled_desired == {1: ["fol0", "fol1"]}
+
+
+def test_best_takes_the_strongest_fulfilled_tier() -> None:
+    # K = 2: tier 1 is worth 2, tier 2 is worth 1. With both granted the max is the tier-1
+    # weight, on the x2 scale.
+    instance = team(4, 4, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
+    result = build_satisfaction(
+        instance,
+        SolverConfig(),
+        [["led0", "led1", "fol0", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
+    )
+    assert result["led0"].score == 4
+
+
+def test_best_never_halves_the_positive_part_but_still_halves_a_violation() -> None:
+    # led0 sits with two Damen: the granted wish counts fully (a max cannot double-collect),
+    # the co-positioned dislike is halved exactly as under SUM.
+    instance = team(
+        4,
+        4,
+        3,
+        desired("led0", tier(1, "fol0")),
+        not_desired("led1", tier(1, "fol1")),
+    )
+    config = SolverConfig(veto_tier=None)
+    result = build_satisfaction(
+        instance,
+        config,
+        [["led0", "led1", "fol0", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
+    )
+    assert result["led0"].score == 2  # weight 1 x2 scale, unhalved despite two Damen
+    assert result["led1"].score == -1  # weight -1 x2 scale, halved on the double
+
+
+def test_best_with_only_dislikes_never_goes_above_zero() -> None:
+    instance = team(3, 3, 3, not_desired("led0", tier(1, "fol0")))
+    config = SolverConfig(veto_tier=None)
+    apart = build_satisfaction(
+        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
+    )
+    together = build_satisfaction(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    assert apart["led0"].score == 0
+    assert together["led0"].score == -2
+
+
+def test_best_same_role_wish_joins_the_max_pool_under_scope_all() -> None:
+    # led0's strongest granted wish is the same-role one; the max picks it over the weaker
+    # cross-role fulfilment.
+    instance = team(4, 4, 3, desired("led0", tier(1, "led1"), tier(2, "fol0")))
+    config = SolverConfig(scope=PreferenceScope.ALL)
+    result = build_satisfaction(
+        instance,
+        config,
+        [["led0", "led1", "fol0", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
+    )
+    assert result["led0"].score == 4  # tier-1 weight 2 on the x2 scale
 
 
 def test_build_solution_labels_positions_a_to_c(tiny: Team) -> None:

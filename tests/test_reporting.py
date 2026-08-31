@@ -7,15 +7,16 @@ here, once, by value.
 
 from __future__ import annotations
 
-from dancepartner.model import PreferenceScope, SolverConfig
+from dancepartner.model import PreferenceScope, SolverConfig, WeightScheme
 from dancepartner.reporting import (
     moved_dancers,
     positions_by_dancer,
     respected_not_desired,
+    satisfaction_ratio,
     satisfaction_rows,
     unfulfilled_desired,
 )
-from dancepartner.scoring import build_solution
+from dancepartner.scoring import build_solution, geometric_base
 from dancepartner.solver import solve
 
 from .builders import desired, not_desired, team, tier
@@ -148,6 +149,73 @@ def test_respected_not_desired_is_empty_without_a_survey() -> None:
         instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
     )
     assert respected_not_desired(instance, config, "led0", solution.per_dancer["led0"]) == {}
+
+
+# -- satisfaction_ratio -------------------------------------------------------------------
+
+
+def test_satisfaction_ratio_is_one_when_the_top_wish_is_fulfilled() -> None:
+    instance = team(3, 3, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    assert satisfaction_ratio(instance, config, "led0", solution.per_dancer["led0"]) == 1.0
+
+
+def test_satisfaction_ratio_is_below_one_for_a_weaker_fulfilled_tier() -> None:
+    instance = team(3, 3, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
+    )
+    # K = 2: the granted tier-2 wish is worth half the tier-1 denominator.
+    assert satisfaction_ratio(instance, config, "led0", solution.per_dancer["led0"]) == 0.5
+
+
+def test_satisfaction_ratio_is_none_for_a_neutral_dancer() -> None:
+    instance = team(3, 3, 3, desired("led0", tier(1, "fol0")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    # led1 submitted nothing: neutral, not unhappy.
+    assert satisfaction_ratio(instance, config, "led1", solution.per_dancer["led1"]) is None
+
+
+def test_satisfaction_ratio_is_none_when_every_entry_is_out_of_scope() -> None:
+    # A same-role wish under CROSS_ROLE_ONLY is data the model does not use.
+    instance = team(3, 3, 3, desired("led0", tier(1, "led1")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    assert satisfaction_ratio(instance, config, "led0", solution.per_dancer["led0"]) is None
+
+
+def test_satisfaction_ratio_of_an_anti_only_survey_starts_at_one() -> None:
+    instance = team(3, 3, 3, not_desired("led0", tier(1, "fol0")))
+    config = SolverConfig(veto_tier=None)
+    respected = build_solution(
+        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
+    )
+    violated = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    assert satisfaction_ratio(instance, config, "led0", respected.per_dancer["led0"]) == 1.0
+    # The one violated dislike wipes out the whole baseline: -2 on a denominator of 2.
+    assert satisfaction_ratio(instance, config, "led0", violated.per_dancer["led0"]) == 0.0
+
+
+def test_satisfaction_ratio_uses_the_geometric_denominator() -> None:
+    instance = team(3, 3, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
+    config = SolverConfig(weights=WeightScheme.GEOMETRIC)
+    solution = build_solution(
+        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
+    )
+    base = geometric_base(instance, config)
+    ratio = satisfaction_ratio(instance, config, "led0", solution.per_dancer["led0"])
+    assert ratio == 1 / base
 
 
 # -- moved_dancers ------------------------------------------------------------------------

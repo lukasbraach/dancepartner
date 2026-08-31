@@ -21,10 +21,19 @@ from pydantic import ValidationError
 
 from .feasibility import FeasibilityIssue, check_feasibility
 from .i18n import t
-from .model import Objective, PreferenceScope, Role, SolverConfig, Team, WeightScheme
+from .model import (
+    Objective,
+    PreferenceScope,
+    Role,
+    ScoreAggregation,
+    SolverConfig,
+    Team,
+    WeightScheme,
+)
 from .reporting import (
     moved_dancers,
     respected_not_desired,
+    satisfaction_ratio,
     satisfaction_rows,
     unfulfilled_desired,
 )
@@ -60,6 +69,13 @@ class WeightChoice(StrEnum):
 
     LINEAR = "linear"
     GEOMETRIC = "geometric"
+
+
+class AggregationChoice(StrEnum):
+    """``ScoreAggregation`` as spelled on the command line."""
+
+    BEST = "best"
+    SUM = "sum"
 
 
 class ScopeChoice(StrEnum):
@@ -135,9 +151,10 @@ def _format_wishes(satisfaction: DancerSatisfaction, team: Team) -> str:
     return "; ".join(parts) if parts else t("table.nothing")
 
 
-def _print_scores(solution: Solution) -> None:
+def _print_scores(solution: Solution, config: SolverConfig) -> None:
     _echo(t("solve.scores", total=solution.total_score, minimum=solution.min_score))
-    _echo(t("solve.scale_note"))
+    best_mode = config.aggregation is ScoreAggregation.BEST
+    _echo(t("solve.scale_note_best" if best_mode else "solve.scale_note"))
 
 
 def _print_solution(solution: Solution, team: Team) -> None:
@@ -200,6 +217,9 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
     weights: Annotated[
         WeightChoice, typer.Option("--weights", help=t("help.weights"))
     ] = WeightChoice.LINEAR,
+    aggregation: Annotated[
+        AggregationChoice, typer.Option("--aggregation", help=t("help.aggregation"))
+    ] = AggregationChoice.BEST,
     scope: Annotated[
         ScopeChoice, typer.Option("--scope", help=t("help.scope"))
     ] = ScopeChoice.CROSS_ROLE_ONLY,
@@ -232,6 +252,7 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
     config = SolverConfig(
         objective=Objective[objective.name],
         weights=WeightScheme[weights.name],
+        aggregation=ScoreAggregation[aggregation.name],
         scope=PreferenceScope[scope.name],
         # 0 is the CLI's spelling of "no hard vetoes"; SolverConfig rejects it as an int.
         veto_tier=veto_tier if veto_tier > 0 else None,
@@ -309,7 +330,7 @@ def explain(
         _echo("")
 
     if dancer is None:
-        _print_scores(solution)
+        _print_scores(solution, config)
         _echo("")
         _print_solution(solution, team)
         _print_table(solution, team)
@@ -381,6 +402,10 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
         )
     )
     _echo(t("explain.score", score=satisfaction.score))
+    if config.aggregation is ScoreAggregation.BEST:
+        ratio = satisfaction_ratio(team, config, dancer_id, satisfaction)
+        if ratio is not None:
+            _echo(t("explain.satisfaction", percent=round(ratio * 100)))
     _echo(t("explain.partners", names=_names(team, partners)))
     if dancer.is_pole_position:
         _echo(t("explain.pole_position"))
@@ -455,7 +480,7 @@ def _print_shortlist(result: SolveResult, team: Team, config: SolverConfig) -> N
     _echo("")
 
     if count == 1:
-        _print_scores(result.best)
+        _print_scores(result.best, config)
         _echo("")
         _print_solution(result.best, team)
         return

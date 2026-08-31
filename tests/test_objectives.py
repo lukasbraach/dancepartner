@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dancepartner.model import Objective, SolverConfig, Team, WeightScheme
+from dancepartner.model import Objective, ScoreAggregation, SolverConfig, Team, WeightScheme
 from dancepartner.scoring import DancerSatisfaction
 from dancepartner.solver import Sense, SolveResult, solve
 from dancepartner.storage import load_team
@@ -33,10 +33,12 @@ def _score_vector(per_dancer: dict[str, DancerSatisfaction]) -> list[int]:
 def divergent_instance() -> Team:
     """An instance where maximising the total and levelling up disagree.
 
-    3 Herren, 4 Damen, 3 positions. ``MAXIMIN_THEN_SUM`` reaches a total of 26 with the score
-    vector ``[0, 0, 2, 6, 6, 6, 6]`` -- two dancers with nothing. ``LEXIMIN`` gives up five
-    points of total to reach ``[0, 2, 2, 3, 4, 4, 6]``, which is lexicographically better from
-    the bottom: same worst score, but the second-worst rises from 0 to 2.
+    3 Herren, 4 Damen, 3 positions. Under ``ScoreAggregation.SUM`` (the divergence test pins
+    it -- the hand-derived vectors are summed arithmetic), ``MAXIMIN_THEN_SUM`` reaches a
+    total of 26 with the score vector ``[0, 0, 2, 6, 6, 6, 6]`` -- two dancers with nothing.
+    ``LEXIMIN`` gives up five points of total to reach ``[0, 2, 2, 3, 4, 4, 6]``, which is
+    lexicographically better from the bottom: same worst score, but the second-worst rises
+    from 0 to 2.
     """
     return team(
         3,
@@ -53,8 +55,14 @@ def divergent_instance() -> Team:
 
 def test_leximin_levels_up_where_maximin_then_sum_concentrates() -> None:
     instance = divergent_instance()
-    sum_config = SolverConfig(objective=Objective.MAXIMIN_THEN_SUM, max_solutions=1)
-    lex_config = SolverConfig(objective=Objective.LEXIMIN, max_solutions=1)
+    sum_config = SolverConfig(
+        objective=Objective.MAXIMIN_THEN_SUM,
+        aggregation=ScoreAggregation.SUM,
+        max_solutions=1,
+    )
+    lex_config = SolverConfig(
+        objective=Objective.LEXIMIN, aggregation=ScoreAggregation.SUM, max_solutions=1
+    )
 
     greedy = solve(instance, sum_config)
     levelled = solve(instance, lex_config)
@@ -312,8 +320,11 @@ def test_tier_objective_on_the_example_beats_the_weighted_one_on_tier_one() -> N
     assert counts[Objective.MAXIMIN_THEN_SUM][1] == 14
 
 
+@pytest.mark.parametrize("aggregation", list(ScoreAggregation))
 @pytest.mark.parametrize("objective", list(Objective))
-def test_every_objective_verifies_on_a_realistic_instance(full: Team, objective: Objective) -> None:
+def test_every_objective_verifies_on_a_realistic_instance(
+    full: Team, objective: Objective, aggregation: ScoreAggregation
+) -> None:
     instance = Team(
         dancers=full.dancers,
         surveys=[
@@ -327,7 +338,7 @@ def test_every_objective_verifies_on_a_realistic_instance(full: Team, objective:
         ],
         n_positions=8,
     )
-    config = SolverConfig(objective=objective, max_solutions=5)
+    config = SolverConfig(objective=objective, aggregation=aggregation, max_solutions=5)
     result = solve(instance, config)
     assert result.status == "OPTIMAL"
     assert_result_valid(result, instance, config)

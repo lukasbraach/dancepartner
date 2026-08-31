@@ -22,6 +22,7 @@ from dancepartner.model import (
     Objective,
     PreferenceScope,
     Role,
+    ScoreAggregation,
     SolverConfig,
     Survey,
     Team,
@@ -206,6 +207,20 @@ def score_badge(score: int, worst: int, best: int) -> str:
     return "🟨" if position < 2 / 3 else "🟩"
 
 
+def ratio_badge(ratio: float | None) -> str:
+    """A three-step colour cue for one dancer's absolute satisfaction ratio (BEST mode).
+
+    The scale is absolute -- 1.0 is "top wish fulfilled, nothing violated" -- unlike
+    :func:`score_badge`, which is relative to the solution shown. ``None`` means the dancer
+    stated no in-scope preference at all: neutral gets a colourless marker, never a red one.
+    """
+    if ratio is None:
+        return "⬜"
+    if ratio < 1 / 3:
+        return "🟥"
+    return "🟨" if ratio < 2 / 3 else "🟩"
+
+
 def satisfaction_badges(satisfaction: DancerSatisfaction) -> str:
     """Inline markdown badges counting fulfilled wishes and violated dislikes."""
     parts = []
@@ -226,6 +241,11 @@ def objective_label(objective: Objective) -> str:
 def weights_label(scheme: WeightScheme) -> str:
     """Localized label for a tier weight scheme."""
     return t(f"ui.weights.{scheme.value}")
+
+
+def aggregation_label(aggregation: ScoreAggregation) -> str:
+    """Localized label for a score aggregation."""
+    return t(f"ui.aggregation.{aggregation.value}")
 
 
 def scope_label(scope: PreferenceScope) -> str:

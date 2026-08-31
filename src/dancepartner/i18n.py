@@ -43,16 +43,17 @@ _STRINGS_EN: dict[str, str] = {
         "with single occupancy ({n} {role_label} for {p} positions)."
     ),
     "feasibility.TOO_MANY_COACHING": (
-        "{role_label}: {count} with a coaching need require at least {needed} doubled "
-        "position(s), but there are only {available} ({n} {role_label} for {p} positions)."
+        "{role_label}: {count} with a coaching need each require their own doubled position "
+        "with an experienced partner, but there are only {available} ({n} {role_label} for "
+        "{p} positions)."
     ),
     "feasibility.VETO_ALL_CROSS_ROLE": (
         "{name} lists all {opposite_label} as not-desired partners (veto) — but every "
         "position is staffed with both roles."
     ),
     "feasibility.VETO_COACHING_ISOLATED": (
-        "{name} has a coaching need, but there is a veto against every other one of the "
-        "{role_label} — no doubled position is possible."
+        "{name} has a coaching need, but none of the other {role_label} is an experienced "
+        "partner without a veto — no doubled position is possible."
     ),
     "feasibility.VETO_FORCES_SINGLES": (
         "{role_label}: {count} dancers cannot form a doubled position because of "
@@ -96,6 +97,10 @@ _STRINGS_EN: dict[str, str] = {
     "solve.sense.minimize": "minimized",
     "solve.scores": "Total score: {total}   lowest individual score: {minimum}",
     "solve.scale_note": "Scores are on the solver's ×2 scale (doubled-position normalization).",
+    "solve.scale_note_best": (
+        "Scores count the best fulfilled wish per dancer, on the solver's ×2 scale; "
+        "100 % satisfaction = top-tier wish fulfilled, nothing violated."
+    ),
     "solve.positions": "Positions:",
     "solve.position": "  Position {label}{doubled}",
     "solve.doubled": "  (doubled)",
@@ -137,6 +142,7 @@ _STRINGS_EN: dict[str, str] = {
     ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Score: {score}",
+    "explain.satisfaction": "  Satisfaction: {percent} %",
     "explain.partners": "  On the same position: {names}",
     "explain.fulfilled": "  Fulfilled wishes:",
     "explain.violated": "  Violated not-desired wishes:",
@@ -239,6 +245,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.solve.run": "Compute partner assignment",
     "ui.solve.objective": "Objective",
     "ui.solve.weights": "Tier weighting",
+    "ui.solve.aggregation": "Score aggregation",
     "ui.solve.scope": "Counted wishes",
     "ui.solve.veto_tier": "Vetoes up to tier",
     "ui.solve.veto_none": "none",
@@ -265,12 +272,15 @@ _STRINGS_EN: dict[str, str] = {
     "ui.objective.lexicographic_tiers": "Tiers in order",
     "ui.weights.linear": "linear",
     "ui.weights.geometric": "geometric",
+    "ui.aggregation.best": "best fulfilled wish",
+    "ui.aggregation.sum": "sum of fulfilled wishes",
     "ui.scope.cross_role_only": "cross-role only",
     "ui.scope.all": "all",
     # -- UI: Analysis --------------------------------------------------------------------
     "ui.analysis.header": "Satisfaction",
     "ui.analysis.hint": "Least satisfied first — that is the row you need.",
     "ui.analysis.col_position": "Position",
+    "ui.analysis.col_satisfaction": "Satisfaction",
     "ui.analysis.col_fulfilled": "Fulfilled wishes",
     "ui.analysis.col_violated": "Violated not-desired wishes",
     "ui.analysis.shortlist_header": "Equally good solutions",
@@ -293,6 +303,11 @@ _STRINGS_EN: dict[str, str] = {
     "help.result_file": "Path to the result file from “solve --json”.",
     "help.objective": "Objective function.",
     "help.weights": "Weighting scheme for the tiers.",
+    "help.aggregation": (
+        "How a dancer's fulfilled wishes combine into their score. 'Best fulfilled wish' "
+        "saturates: the top wish granted means fully satisfied, further fulfilled wishes add "
+        "nothing. 'Sum' adds every fulfilled wish up."
+    ),
     "help.scope": "Whether only cross-role wishes or all wishes are counted.",
     "help.veto_tier": "Not-desired wishes up to this tier become hard vetoes (0 = none).",
     "help.top": "How many equally good solutions to search for and print.",
@@ -325,8 +340,8 @@ _STRINGS_DE: dict[str, str] = {
         "einfacher Besetzung ({n} {role_label} auf {p} Positionen)."
     ),
     "feasibility.TOO_MANY_COACHING": (
-        "{role_label}: {count} mit Coachingbedarf brauchen mindestens {needed} "
-        "Doppelbesetzung(en), es gibt aber nur {available} ({n} {role_label} auf {p} "
+        "{role_label}: {count} mit Coachingbedarf brauchen je eine eigene Doppelbesetzung "
+        "mit erfahrener Begleitung, es gibt aber nur {available} ({n} {role_label} auf {p} "
         "Positionen)."
     ),
     "feasibility.VETO_ALL_CROSS_ROLE": (
@@ -334,8 +349,8 @@ _STRINGS_DE: dict[str, str] = {
         "aber mit beiden Rollen besetzt."
     ),
     "feasibility.VETO_COACHING_ISOLATED": (
-        "{name} hat Coachingbedarf, aber zu allen anderen {role_label} besteht ein Veto — "
-        "es gibt keine mögliche Doppelbesetzung."
+        "{name} hat Coachingbedarf, aber keine:r der anderen {role_label} ist eine erfahrene "
+        "Begleitung ohne Veto — es gibt keine mögliche Doppelbesetzung."
     ),
     "feasibility.VETO_FORCES_SINGLES": (
         "{role_label}: {count} Tänzer:innen können durch Startanspruch oder Vetos keine "
@@ -381,6 +396,10 @@ _STRINGS_DE: dict[str, str] = {
     "solve.scale_note": (
         "Punkte sind auf der ×2-Skala des Solvers (Normalisierung der Doppelbesetzung)."
     ),
+    "solve.scale_note_best": (
+        "Punkte zählen den besten erfüllten Wunsch pro Tänzer:in, auf der ×2-Skala des "
+        "Solvers; 100 % Zufriedenheit = Tier-1-Wunsch erfüllt, nichts verletzt."
+    ),
     "solve.positions": "Positionen:",
     "solve.position": "  Position {label}{doubled}",
     "solve.doubled": "  (Doppelbesetzung)",
@@ -422,6 +441,7 @@ _STRINGS_DE: dict[str, str] = {
     ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Punkte: {score}",
+    "explain.satisfaction": "  Zufriedenheit: {percent} %",
     "explain.partners": "  Auf derselben Position: {names}",
     "explain.fulfilled": "  Erfüllte Wünsche:",
     "explain.violated": "  Verletzte Nicht-Wünsche:",
@@ -527,6 +547,7 @@ _STRINGS_DE: dict[str, str] = {
     "ui.solve.run": "Verpartnerung berechnen",
     "ui.solve.objective": "Zielfunktion",
     "ui.solve.weights": "Gewichtung der Tiers",
+    "ui.solve.aggregation": "Wertung",
     "ui.solve.scope": "Gewertete Wünsche",
     "ui.solve.veto_tier": "Vetos bis Tier",
     "ui.solve.veto_none": "keine",
@@ -553,12 +574,15 @@ _STRINGS_DE: dict[str, str] = {
     "ui.objective.lexicographic_tiers": "Tiers der Reihe nach",
     "ui.weights.linear": "linear",
     "ui.weights.geometric": "geometrisch",
+    "ui.aggregation.best": "bester erfüllter Wunsch",
+    "ui.aggregation.sum": "Summe der erfüllten Wünsche",
     "ui.scope.cross_role_only": "nur rollenübergreifend",
     "ui.scope.all": "alle",
     # -- UI: Analyse ---------------------------------------------------------------------
     "ui.analysis.header": "Zufriedenheit",
     "ui.analysis.hint": "Unzufriedenste zuerst — das ist die Zeile, die Sie brauchen.",
     "ui.analysis.col_position": "Position",
+    "ui.analysis.col_satisfaction": "Zufriedenheit",
     "ui.analysis.col_fulfilled": "Erfüllte Wünsche",
     "ui.analysis.col_violated": "Verletzte Nicht-Wünsche",
     "ui.analysis.shortlist_header": "Gleichwertige Lösungen",
@@ -581,6 +605,11 @@ _STRINGS_DE: dict[str, str] = {
     "help.result_file": "Pfad zur Ergebnisdatei aus »solve --json«.",
     "help.objective": "Zielfunktion.",
     "help.weights": "Gewichtungsschema für die Tiers.",
+    "help.aggregation": (
+        "Wie die erfüllten Wünsche einer Tänzer:in in ihre Punktzahl eingehen. »Bester "
+        "erfüllter Wunsch« sättigt: Top-Wunsch erfüllt heißt voll zufrieden, weitere "
+        "erfüllte Wünsche zählen nicht extra. »Summe« addiert jeden erfüllten Wunsch."
+    ),
     "help.scope": "Ob nur rollenübergreifende oder alle Wünsche gewertet werden.",
     "help.veto_tier": "Nicht-Wünsche bis zu diesem Tier werden harte Vetos (0 = keine).",
     "help.top": "Wie viele gleichwertige Lösungen gesucht und ausgegeben werden.",

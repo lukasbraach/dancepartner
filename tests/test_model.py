@@ -9,6 +9,7 @@ from dancepartner.model import (
     Dancer,
     PreferenceScope,
     Role,
+    ScoreAggregation,
     SolverConfig,
     Survey,
     Team,
@@ -189,3 +190,16 @@ def test_solver_config_vetoed_ranks() -> None:
 def test_score_scale_follows_normalisation() -> None:
     assert SolverConfig(normalize_double=True).score_scale == 2
     assert SolverConfig(normalize_double=False).score_scale == 1
+
+
+def test_score_aggregation_defaults_to_best() -> None:
+    assert SolverConfig().aggregation is ScoreAggregation.BEST
+    assert ScoreAggregation.BEST.value == "best"
+    assert ScoreAggregation.SUM.value == "sum"
+
+
+def test_config_without_an_aggregation_key_parses_to_the_default() -> None:
+    # An old `solve --json` file predates the field; it must still validate (to BEST).
+    config = SolverConfig.model_validate({"objective": "leximin"})
+    assert config.aggregation is ScoreAggregation.BEST
+    assert SolverConfig.model_validate({"aggregation": "sum"}).aggregation is ScoreAggregation.SUM

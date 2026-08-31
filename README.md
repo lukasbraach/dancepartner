@@ -27,7 +27,7 @@ follower.
 | Position | index `p`, label A–H | One of 8 slots, unordered. |
 | Doubled position | `is_doubled` | Two leaders and two followers on one position. |
 | Pole position | `is_pole_position` | Must stand alone in their role. |
-| Coaching need | `needs_coaching` | Must not stand alone in their role. |
+| Coaching need | `needs_coaching` | Must not stand alone in their role, and the same-role partner alongside must be experienced — two coaching needs never share a position. |
 | Desired partners | `desired_tiers` | Tiered wish lists, tier 1 the strongest. |
 | Not-desired partners | `not_desired_tiers` | The same, inverted. |
 | Team survey | `Survey` | One person's answers. |
@@ -122,16 +122,16 @@ INFEASIBLE says nothing.
 
 ```console
 $ dancepartner solve data/team.example.yaml --top 3
-Status: OPTIMAL — 0.06 s, 8127 branches.
+Status: OPTIMAL — 0.02 s, 1113 branches.
 Objective in stages:
   maximin: 0 (maximized)
-  sum: 55 (maximized)
-  coupled: 4 (minimized)
+  sum: 60 (maximized)
+  coupled: 2 (minimized)
 
-3 equally good solution(s) found.
+2 equally good solution(s) found.
 
-── Solution 1 of 3 (best)
-   Total score 55, lowest individual score 0
+── Solution 1 of 2 (best)
+   Total score 60, lowest individual score 0
 Positions:
   Position A
      Leaders:   Lukas Brandt
@@ -140,9 +140,9 @@ Positions:
      Leaders:   Tim Rothe
      Followers: Lena Fricke, Mia Thalmann
   …
-  Position H
+  Position H  (doubled)
      Leaders:   Jan Hübner, Paul Mertens
-     Followers: Hanna Zeller
+     Followers: Emma Köhler, Hanna Zeller
 ```
 
 Three things matter here.
@@ -151,23 +151,26 @@ Three things matter here.
 survey, so her score is 0 and so is the achievable minimum. The stage did its best; the floor
 simply lies there.
 
-**Scores are on the solver's ×2 scale.** With linear weighting a wish in tier *k* is initially
-worth `K − k + 1`, where `K` is the instance's highest tier; the result is doubled so it can be
-halved on a doubled position without rounding. In this team tier 2 is the deepest, so a
-fulfilled tier-1 wish earns 4 points. That is why Lukas Brandt shows a 4 below.
+**Scores count the best fulfilled wish, on the solver's ×2 scale.** With linear weighting a
+wish in tier *k* is worth `K − k + 1`, where `K` is the instance's highest tier; the result is
+doubled so the doubled-position normalization can halve without rounding. In this team tier 2
+is the deepest, so a fulfilled tier-1 wish earns 4 points — and by default that is also the
+maximum: satisfaction saturates once the strongest wish is granted (`--aggregation best`).
+Whoever has their top wish and no violated not-desired wish is 100 % satisfied, however many
+alternatives they listed. `--aggregation sum` restores the older adding-up semantics.
 
-**"3 equally good solutions" means exactly that.** All three reach 55 points. They are not
-ranks 1 through 3, but three equally good answers the numbers cannot decide between. The coach
-can.
+**"2 equally good solutions" means exactly that.** Both reach 60 points. They are not ranks
+1 and 2, but two equally good answers the numbers cannot decide between. The coach can.
 
 ### Asking why
 
 ```console
 $ dancepartner explain data/team.example.yaml out.json --dancer lukas-b
-(from solution 1 of 3)
+(from solution 1 of 2)
 
 Lukas Brandt (Leader) — Position A
   Score: 4
+  Satisfaction: 100 %
   On the same position: Anna Brenner
   Fulfilled wishes:
     Tier 1: Anna Brenner
@@ -176,13 +179,14 @@ Lukas Brandt (Leader) — Position A
   Respected not-desired wishes:
     Tier 1: Emma Köhler
 
-  This placement is the same in all 3 solutions — there is nothing to choose here.
+  This placement is the same in all 2 solutions — there is nothing to choose here.
 ```
 
 The last sentence is the reason the program enumerates several solutions at all. A partner who
 is the same in every optimal solution is not a decision the coach has to make. One who appears
-in 3 of 20 solutions is. For this team, little remains to choose: Emma Köhler moves between
-positions D and E, Lena Fricke between C and D. There are no further differences.
+in 3 of 20 solutions is. For this team, exactly one choice remains: Leah Dorn dances either as
+David Lorenz' second follower on position F or beside Marie Günther on position G. There are no
+further differences.
 
 ## The four objectives
 
@@ -201,7 +205,8 @@ always hold.
 `leximin` keeps working its way up and gives up total points for it if necessary. The case where
 they measurably differ is pinned down in `tests/test_objectives.py::divergent_instance`.
 
-Further knobs: `--weights` (linear or geometric), `--scope` (cross-role wishes only, or all),
+Further knobs: `--aggregation` (best fulfilled wish — the default — or sum of all fulfilled
+wishes), `--weights` (linear or geometric), `--scope` (cross-role wishes only, or all),
 `--veto-tier N` (not-desired wishes up to tier N become hard constraints, `0` turns them off),
 `--top N`, `--near-optimal` and `--tier-slack`. `dancepartner solve --help` explains them all.
 
@@ -213,28 +218,41 @@ Measured on an Apple Silicon laptop (arm64, macOS), Python 3.11.9, OR-Tools 9.15
 repository: `data/team.example.yaml` (20 dancers, tiers up to 2) and
 `data/team.large.example.yaml` (24 dancers, tiers up to 3).
 
+With the default best-wish aggregation, every objective is fast on both instances:
+
 | Objective | 20 dancers | Branches | 24 dancers | Branches |
 |---|---:|---:|---:|---:|
-| `weighted-sum` | 0.04 s | 5,811 | **12.5 s** | 988,656 |
-| `maximin-then-sum` | 0.05 s | 6,230 | **12.3 s** | 992,787 |
-| `leximin` | 0.04 s | 887 | 0.17 s | 15,961 |
-| `lexicographic-tiers` | 0.02 s | 565 | 0.05 s | 4,564 |
+| `weighted-sum` | 0.01 s | 826 | 0.03 s | 3,037 |
+| `maximin-then-sum` | 0.01 s | 1,108 | 0.04 s | 3,751 |
+| `leximin` | 0.03 s | 929 | 0.05 s | 3,710 |
+| `lexicographic-tiers` | 0.01 s | 814 | 0.04 s | 2,452 |
 
-All four find the same total score on the large instance (101), but need very different amounts
-of time to do so. And contrary to the obvious guess: `leximin` runs two stages per round and
-looks expensive, yet is roughly 70 times faster here than the plain sum.
+The hard case is the summed aggregation (`--aggregation sum`) on the large instance:
 
-The reason is the burden of proof. `weighted-sum` has to show that no line-up with 102 points
-exists, and a huge search space remains for that. `leximin`, by contrast, fixes the complete
-sorted score vector round by round; each of those constraints cuts the search space down
-drastically, so that in the end there is barely anything left to prove.
+| Objective, `--aggregation sum` | 24 dancers | Branches |
+|---|---:|---:|
+| `weighted-sum` | **11.8 s** | 1,007,227 |
+| `maximin-then-sum` | **11.9 s** | 1,011,225 |
+| `leximin` | 0.16 s | 15,380 |
+| `lexicographic-tiers` | 0.05 s | 4,306 |
+
+All four find the same summed total there (101), but need very different amounts of time to do
+so. And contrary to the obvious guess: `leximin` runs two stages per round and looks expensive,
+yet is roughly 70 times faster here than the plain sum.
+
+The reason is the burden of proof. Under `sum`, `weighted-sum` has to show that no line-up with
+102 points exists, and a huge search space remains for that. `leximin`, by contrast, fixes the
+complete sorted score vector round by round; each of those constraints cuts the search space
+down drastically, so that in the end there is barely anything left to prove. The best-wish
+aggregation is fast for the same reason from the other side: scores take far fewer distinct
+values, so the bounds close quickly.
 
 In practice:
 
-* Up to about 20 dancers every objective finishes in under a tenth of a second.
-  **Decide by content, not by speed.**
-* If `maximin-then-sum` takes too long beyond that, `leximin` delivers the same result on this
-  data in a fraction of the time — and is even the stronger statement.
+* With the default aggregation every objective finishes in well under a tenth of a second on
+  both instances. **Decide by content, not by speed.**
+* Under `--aggregation sum`, if `maximin-then-sum` takes too long, `leximin` delivers the same
+  total on this data in a fraction of the time — and is even the stronger statement.
 * Enumeration costs almost nothing: `--top 50` instead of `--top 1` adds less than 0.2 s,
   because the second pass works on a model whose optima are already fixed.
 * `--time-limit` is the emergency brake, not the normal case. If the solver runs into it, it

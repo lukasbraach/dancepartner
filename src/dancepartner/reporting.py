@@ -10,13 +10,14 @@ No ``streamlit``, no ``typer``: this module sits between ``scoring`` and ``cli``
 
 from __future__ import annotations
 
-from .model import SolverConfig, Team
-from .scoring import DancerSatisfaction, Solution
+from .model import SolverConfig, Team, WeightScheme
+from .scoring import DancerSatisfaction, Solution, build_weights, geometric_base, tier_weight
 
 __all__ = [
     "moved_dancers",
     "positions_by_dancer",
     "respected_not_desired",
+    "satisfaction_ratio",
     "satisfaction_rows",
     "unfulfilled_desired",
 ]
@@ -83,6 +84,29 @@ def respected_not_desired(
         for tier in survey.not_desired_tiers
     }
     return {rank: ids for rank, ids in respected.items() if ids}
+
+
+def satisfaction_ratio(
+    team: Team, config: SolverConfig, dancer_id: str, satisfaction: DancerSatisfaction
+) -> float | None:
+    """One dancer's satisfaction as a fraction of their attainable maximum, or ``None``.
+
+    Only meaningful under ``ScoreAggregation.BEST``, where the positive part of a score
+    saturates at the instance-global top-tier weight: a fulfilled tier-1 wish with no violated
+    dislike is exactly ``1.0`` for every dancer, single or doubled. Violations pull the value
+    below that, possibly under zero. A dancer whose survey holds only dislikes starts at
+    ``1.0`` and loses from there. ``None`` means the dancer stated no in-scope preference at
+    all -- neutral, not unhappy -- and the UI shows them without a colour.
+    """
+    weights = build_weights(team, config)
+    own = [weight for (source, _), weight in weights.items() if source == dancer_id]
+    if not own:
+        return None
+    base = geometric_base(team, config) if config.weights is WeightScheme.GEOMETRIC else None
+    top = tier_weight(1, "desired", team.max_rank, base) * config.score_scale
+    if any(weight > 0 for weight in own):
+        return satisfaction.score / top
+    return 1.0 + satisfaction.score / top
 
 
 def moved_dancers(
