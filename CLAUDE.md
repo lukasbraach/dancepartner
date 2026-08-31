@@ -13,7 +13,8 @@ start the next milestone without explicit confirmation.
   `.github/workflows/ci.yml`.
 * **M3 — Remaining objectives** ✅ `LEXIMIN`, `LEXICOGRAPHIC_TIERS`, solution enumeration and
   deduplication, cross-solution `explain` output.
-* **M4 — Streamlit UI** all four pages (`i18n.py` already exists; add the UI keys).
+* **M4 — Streamlit UI** ✅ `app/` with all four pages, the `ui.`/`nav.` i18n keys,
+  `reporting.py`, `tests/test_app.py`.
 * **M5 — Polish** German README with a worked example, screenshots, performance notes.
 
 ## Language policy (§2)
@@ -129,6 +130,67 @@ the parts the team has actually agreed on. The vocabulary rename was agreed that
   whole shortlist: `_ranking_key` imposes an order of its own and will otherwise mask a missing
   symmetry-breaking constraint.
 
+## The UI (M4)
+
+* `app/` is **not** on the SPEC.md §5 filenames. Two agreed deviations, both recorded in
+  `app/Home.py`'s docstring: the page modules are English (`team.py`, `survey.py`,
+  `solution.py`, `analysis.py`) with German sidebar titles supplied by `st.navigation` /
+  `st.Page(title=de(...))`, and the numeric prefixes are gone. Streamlit derives a file-based
+  page's label from its filename, so SPEC's names would have put untranslated German — and an
+  umlaut-less "Loesung" — outside `i18n.py`; and `1_Team` is not a valid module name under
+  `mypy --strict`. Ordering now comes from the page list, which is the only thing the prefixes
+  ever did.
+* **`streamlit` is an extra (`ui`), never a runtime dependency.** That is what makes "delete
+  `app/` and the CLI still works" enforceable rather than aspirational; CI proves it by moving
+  `app/` aside, uninstalling streamlit and running `solve`.
+* `app/common.py` holds session state, the cached solve and the formatting. Pages are thin.
+* **`st.cache_data` cannot hash a pydantic model.** `cached_solve` passes explicit
+  `hash_funcs`: `dump_team` for the `Team`, `model_dump_json()` for the `SolverConfig`. Both
+  are the core's own canonical serialisations, so two teams that save identically share an
+  entry — which is the intended meaning of "keyed on a hash of `(Team, SolverConfig)`".
+* **Never `Team.model_copy` to edit.** It skips validation on a frozen model, which is exactly
+  the check being relied on. `common.with_survey` goes through the constructor and returns the
+  surveys in roster order so the saved YAML stays stable.
+* The feasibility panel passes the **current** `SolverConfig`, not a default one: `veto_tier`
+  and `scope` change the verdict. (`cli.py::check` still passes a default — that is a
+  pre-existing CLI limitation, not a pattern to copy.)
+* Editing pages validate SPEC §6 rules 3 and 4 **themselves** so the conflict reads in German.
+  Pydantic stays the final gate, but its message is English and must never reach the coach.
+* Empty and orphaned tiers are renumbered, not rejected: browser editing breaks the
+  "contiguous from 1" rule constantly, and the coach did not cause it. See
+  `common.renumber_tiers` / `tiers_from_selections`.
+* Colour encodes satisfaction only — never name, never role. `common.score_badge` scales
+  against the achieved range of the solution being shown, not an absolute.
+* `st.data_editor` is fed `list[dict]`, not a DataFrame: SPEC §4 keeps pandas out unless a
+  milestone needs it, and dicts round-trip fine.
+
+## `reporting.py`
+
+`unfulfilled_desired` / `respected_not_desired` were extracted from `cli.py::_explain_dancer`
+because the UI needs the same numbers and duplicating them would put scope-dependent logic
+outside the covered core. Note the asymmetry, which is deliberate: **`respected_not_desired`
+filters by `config.scope`, `unfulfilled_desired` does not.** Claiming credit for keeping two
+leaders apart under `CROSS_ROLE_ONLY` would be claiming credit for a constraint nothing
+enforced; a wish the coach wrote down, by contrast, stays visibly missed whether or not the
+objective ever scored it.
+
+The extraction must leave CLI output **byte-identical** — `test_explain_matches_the_solve_table`
+and the determinism tests are the guard.
+
+## Testing the UI
+
+* `tests/test_app.py` drives `streamlit.testing.v1.AppTest` in-process; the coverage gate stays
+  on `src/` only.
+* `tests/conftest.py` puts `app/` on `sys.path`, reproducing what `streamlit run app/Home.py`
+  does. Without it, a page test passes only when a `Home.py` test happened to run first.
+* Address widgets by **key**, not index (`_tier_widgets`): an index is wrong the moment a
+  dancer has a second stored tier.
+* `st.dataframe(...).value` comes back as a DataFrame, not the list that was passed in.
+* Widget state is read-only in place — assign a whole new dict to the session-state key.
+* `test_the_ui_inlines_no_german_literal` scans `app/` for umlauts outside docstrings, and
+  `test_no_string_key_is_missing_from_i18n` now globs `app/` too, so a UI-only key is not
+  reported unused. Keys looked up dynamically need a prefix in `dynamic_prefixes`.
+
 ## Storage and CLI
 
 * `storage.py` writes canonical YAML with `sort_keys=False` and a fixed key order; **never**
@@ -197,7 +259,25 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/dancepartner check   data/team.example.yaml
 .venv/bin/dancepartner solve   data/team.example.yaml --objective maximin-then-sum --json out.json
 .venv/bin/dancepartner explain data/team.example.yaml out.json --dancer lukas-b
+
+# The UI. Run it from the repository root -- the pages import `common` from app/, which
+# Streamlit puts on sys.path because Home.py is the entry script.
+.venv/bin/pip install -e '.[dev]'      # or '.[ui]' for the UI alone
+.venv/bin/streamlit run app/Home.py
 ```
+
+The `Makefile` wraps all of the above; `make` on its own lists the targets.
+
+```bash
+make install      # venv + '.[dev]' + pre-commit hooks
+make ui           # the Streamlit UI      (make ui PORT=8600)
+make check        # everything CI runs: lint, typecheck, cov, cli
+make cli          # check/solve/explain   (make cli TEAM=data/team.yaml)
+```
+
+`.streamlit/config.toml` is committed and sets `server.headless`. Without it Streamlit's first
+run stops at an interactive `Email:` prompt, which hangs `make ui` on a fresh clone; it also
+turns off `gatherUsageStats`, because this app handles a team's survey answers.
 
 CI (`.github/workflows/ci.yml`) installs from `requirements-dev.txt`, then runs ruff, mypy,
 pytest with the coverage gate, and the three CLI commands above as a smoke test.

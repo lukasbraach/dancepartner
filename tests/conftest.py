@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
 from dancepartner.model import Team
 
 from .builders import roster
+
+# `streamlit run app/Home.py` puts the entry script's directory on sys.path, which is how the
+# pages import `common`. AppTest loading a page file directly does not, so the UI tests would
+# depend on a Home test having run first. Reproduce the runtime's own path here instead.
+_APP = Path(__file__).resolve().parents[1] / "app"
+if str(_APP) not in sys.path:
+    sys.path.insert(0, str(_APP))
 
 
 @pytest.fixture

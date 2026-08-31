@@ -48,3 +48,12 @@ jobs:
           dancepartner check data/team.example.yaml
           dancepartner solve data/team.example.yaml --json /tmp/out.json
           dancepartner explain data/team.example.yaml /tmp/out.json --dancer lukas-b
+
+      - name: The core runs without the UI
+        # SPEC.md 5: a reviewer must be able to delete app/ and still run everything from the
+        # CLI. Prove it rather than trusting the import graph.
+        run: |
+          mv app /tmp/app-moved
+          pip uninstall -y streamlit
+          dancepartner solve data/team.example.yaml
+          mv /tmp/app-moved app

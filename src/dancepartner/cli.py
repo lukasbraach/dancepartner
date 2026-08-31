@@ -21,6 +21,12 @@ from pydantic import ValidationError
 from .feasibility import FeasibilityIssue, check_feasibility
 from .i18n import de
 from .model import Objective, PreferenceScope, Role, SolverConfig, Team, WeightScheme
+from .reporting import (
+    moved_dancers,
+    respected_not_desired,
+    satisfaction_rows,
+    unfulfilled_desired,
+)
 from .scoring import DancerSatisfaction, Solution
 from .solver import InfeasibleInstanceError, SolveResult, solve
 from .storage import MalformedYamlError, StorageError, load_team
@@ -153,14 +159,12 @@ def _print_table(solution: Solution, team: Team) -> None:
             wishes=de("table.col_wishes"),
         )
     )
-    by_id = team.dancers_by_id
-    # Ascending: the unhappiest first, which is the row the coach actually needs.
-    ordered = sorted(solution.per_dancer.items(), key=lambda item: (item[1].score, item[0]))
-    for dancer_id, satisfaction in ordered:
+    # Ascending -- the unhappiest first, which is the row the coach actually needs.
+    for _, name, satisfaction in satisfaction_rows(solution, team):
         _echo(
             de(
                 "table.columns",
-                name=by_id[dancer_id].name,
+                name=name,
                 score=satisfaction.score,
                 wishes=_format_wishes(satisfaction, team),
             )
@@ -394,12 +398,7 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
     else:
         _echo(de("explain.no_wishes"))
 
-    granted = {i for ids in satisfaction.fulfilled_desired.values() for i in ids}
-    missed = {
-        tier.rank: sorted(i for i in tier.dancer_ids if i not in granted)
-        for tier in survey.desired_tiers
-    }
-    missed = {rank: ids for rank, ids in missed.items() if ids}
+    missed = unfulfilled_desired(team, dancer_id, satisfaction)
     if missed:
         _echo(de("explain.unfulfilled"))
         for rank, ids in sorted(missed.items()):
@@ -410,16 +409,7 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
         for rank, ids in sorted(satisfaction.violated_not_desired.items()):
             _echo(de("explain.entry", rank=rank, names=_names(team, ids)))
 
-    violated = {i for ids in satisfaction.violated_not_desired.values() for i in ids}
-    respected = {
-        tier.rank: sorted(
-            i
-            for i in tier.dancer_ids
-            if i not in violated and team.in_scope(dancer_id, i, config.scope)
-        )
-        for tier in survey.not_desired_tiers
-    }
-    respected = {rank: ids for rank, ids in respected.items() if ids}
+    respected = respected_not_desired(team, config, dancer_id, satisfaction)
     if respected:
         _echo(de("explain.respected"))
         for rank, ids in sorted(respected.items()):
@@ -485,26 +475,11 @@ def _print_shortlist(result: SolveResult, team: Team, config: SolverConfig) -> N
         _echo("")
 
 
-def _positions_by_dancer(solution: Solution) -> dict[str, str]:
-    return {
-        dancer_id: position.label
-        for position in solution.positions
-        for dancer_id in (*position.leaders, *position.followers)
-    }
-
-
 def _print_diff(reference: Solution, solution: Solution, team: Team) -> None:
     """Show which dancers sit somewhere else than in the reference solution."""
-    before = _positions_by_dancer(reference)
-    after = _positions_by_dancer(solution)
-    by_id = team.dancers_by_id
-    moved = [
-        (by_id[dancer_id].name, before[dancer_id], after[dancer_id])
-        for dancer_id in sorted(after, key=lambda i: by_id[i].name)
-        if before[dancer_id] != after[dancer_id]
-    ]
     # `moved` is never empty: the shortlist is deduplicated by signature, so two entries always
     # differ in who sits with whom, not merely in which label a group carries.
+    moved = moved_dancers(reference, solution, team)
     _echo(de("solve.diff_header"))
     for name, from_label, to_label in moved:
         _echo(de("solve.diff_entry", name=name, from_label=from_label, to_label=to_label))

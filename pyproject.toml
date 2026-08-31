@@ -17,6 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The UI is an extra, not a runtime dependency: the core must stay installable -- and the CLI
+# runnable -- with app/ deleted (SPEC.md 5). st.navigation/st.Page need >= 1.36.
+ui = ["streamlit>=1.40"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -24,6 +27,7 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.7",
     "types-pyyaml>=6.0",
+    "streamlit>=1.40",  # tests/test_app.py drives the UI through streamlit.testing.
 ]
 
 [project.scripts]
@@ -35,7 +39,7 @@ packages = ["src/dancepartner"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "app"]
 # SPEC.md contains illustrative Python blocks; ruff reformats fenced code in Markdown and
 # the spec is not ours to reformat.
 extend-exclude = ["*.md"]
@@ -56,7 +60,7 @@ convention = "google"
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]

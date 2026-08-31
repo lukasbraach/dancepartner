@@ -130,6 +130,141 @@ STRINGS: dict[str, str] = {
     "explain.respected": "  Eingehaltene Nicht-Wünsche:",
     "explain.pole_position": "  Startanspruch: alleine in der eigenen Rolle auf der Position.",
     "explain.needs_coaching": "  Coachingbedarf: mit {names} in der eigenen Rolle.",
+    # -- UI: navigation ------------------------------------------------------------------
+    "nav.home": "Start",
+    "nav.team": "Team",
+    "nav.survey": "Umfrage",
+    "nav.solution": "Lösung",
+    "nav.analysis": "Analyse",
+    "nav.section": "Verpartnerung",
+    # -- UI: shared ----------------------------------------------------------------------
+    "ui.title": "dancepartner",
+    "ui.subtitle": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",
+    "ui.no_team": "Noch kein Team geladen — bitte zuerst auf »Start« ein Team laden oder anlegen.",
+    "ui.no_solution_yet": "Noch keine Lösung berechnet — bitte zuerst auf »Lösung« rechnen lassen.",
+    "ui.unsaved": "Ungespeicherte Änderungen. Sie gehen verloren, wenn Sie nicht speichern.",
+    "ui.saved_at": "Gespeichert nach {path}.",
+    # -- UI: Start (load / create / feasibility) -----------------------------------------
+    "ui.load.header": "Team laden",
+    "ui.load.from_path": "Aus Datei laden",
+    "ui.load.path": "Pfad zur Teamdatei (YAML)",
+    "ui.load.button": "Laden",
+    "ui.load.upload": "Datei hochladen",
+    "ui.load.uploader": "Teamdatei (YAML) hierher ziehen",
+    "ui.load.example": "Beispielteam",
+    "ui.load.example_button": "Beispielteam laden",
+    "ui.load.example_hint": "20 erfundene Tänzer:innen auf 8 Positionen — zum Ausprobieren.",
+    "ui.load.create": "Neues Team",
+    "ui.load.create_button": "Leeres Team anlegen",
+    "ui.load.n_positions": "Positionen",
+    "ui.load.loaded": "Team geladen: {path}",
+    "ui.save.header": "Speichern",
+    "ui.save.path": "Speichern nach",
+    "ui.save.button": "Team speichern",
+    "ui.save.comment_warning": (
+        "Beim Speichern gehen Kommentare in der YAML-Datei verloren — PyYAML kann sie nicht "
+        "erhalten. Echte Daten gehören nach data/team.yaml, nicht in die Beispieldatei."
+    ),
+    "ui.feasibility.header": "Vorprüfung",
+    "ui.feasibility.involved": "betroffen: {names}",
+    # -- UI: Team ------------------------------------------------------------------------
+    "ui.team.header": "Tänzer:innen",
+    "ui.team.hint": (
+        "Die Reihenfolge ist bedeutsam: die Symmetriebrechung des Solvers numeriert die "
+        "Positionen nach dem Index der Herren in dieser Liste."
+    ),
+    "ui.team.col_id": "ID",
+    "ui.team.col_name": "Name",
+    "ui.team.col_role": "Rolle",
+    "ui.team.col_pole_position": "Startanspruch",
+    "ui.team.col_coaching": "Coachingbedarf",
+    "ui.team.help_pole_position": (
+        "Muss allein in der eigenen Rolle auf der Position sein (keine Doppelbesetzung)."
+    ),
+    "ui.team.help_coaching": "Darf NICHT allein in der eigenen Rolle auf der Position sein.",
+    "ui.team.apply": "Änderungen übernehmen",
+    "ui.team.applied": "{n} Tänzer:innen übernommen.",
+    "ui.team.flags_exclusive": (
+        "{name}: Startanspruch und Coachingbedarf schließen sich gegenseitig aus."
+    ),
+    "ui.team.duplicate_id": "Die ID »{dancer_id}» kommt mehrfach vor.",
+    "ui.team.empty_field": "Zeile {row}: ID und Name dürfen nicht leer sein.",
+    "ui.team.orphan_survey": (
+        "{n} Teambefragung(en) wurden entfernt, weil es die Tänzer:in nicht mehr gibt."
+    ),
+    # -- UI: Umfrage ---------------------------------------------------------------------
+    "ui.survey.header": "Teambefragung",
+    "ui.survey.pick": "Tänzer:in",
+    "ui.survey.desired": "Wunschpartner:innen",
+    "ui.survey.not_desired": "Nicht-Wunschpartner:innen",
+    "ui.survey.tier": "Tier {rank}",
+    "ui.survey.tier_help": "Tier 1 ist der stärkste Wunsch.",
+    "ui.survey.add_tier": "Tier hinzufügen",
+    "ui.survey.remove_tier": "Tier entfernen",
+    "ui.survey.apply": "Teambefragung übernehmen",
+    "ui.survey.applied": "Teambefragung für {name} übernommen.",
+    "ui.survey.cleared": "Teambefragung für {name} entfernt.",
+    "ui.survey.empty_tier": (
+        "Tier {rank} ist leer. Leere Tiers werden beim Übernehmen verworfen; die übrigen "
+        "rücken auf."
+    ),
+    "ui.survey.duplicate_in_direction": (
+        "{names}: steht in mehreren Tiers derselben Richtung. Pro Richtung ist nur ein Tier "
+        "je Tänzer:in erlaubt."
+    ),
+    "ui.survey.in_both_directions": (
+        "{names}: steht gleichzeitig unter Wunsch- und Nicht-Wunschpartner:innen."
+    ),
+    "ui.survey.count": "{n} von {total} haben geantwortet.",
+    "ui.survey.answered": "beantwortet",
+    "ui.survey.unanswered": "offen",
+    # -- UI: Lösung ----------------------------------------------------------------------
+    "ui.solve.header": "Zielfunktion und Solver",
+    "ui.solve.run": "Verpartnerung berechnen",
+    "ui.solve.objective": "Zielfunktion",
+    "ui.solve.weights": "Gewichtung der Tiers",
+    "ui.solve.scope": "Gewertete Wünsche",
+    "ui.solve.veto_tier": "Vetos bis Tier",
+    "ui.solve.veto_none": "keine",
+    "ui.solve.top": "Gleichwertige Lösungen suchen",
+    "ui.solve.time_limit": "Zeitlimit (Sekunden)",
+    "ui.solve.near_optimal": "Fast-optimal ab Anteil",
+    "ui.solve.tier_slack": "Tier-Spielraum",
+    "ui.solve.normalize": "Punkte bei Doppelbesetzung halbieren",
+    "ui.solve.prefer_coupled": "Vollständige Doppelbesetzungen bevorzugen",
+    "ui.solve.advanced": "Weitere Einstellungen",
+    "ui.solve.cards_header": "Positionen",
+    "ui.solve.doubled_badge": "Doppelbesetzung",
+    "ui.solve.fulfilled_badge": "erfüllt",
+    "ui.solve.violated_badge": "verletzt",
+    "ui.solve.stages_header": "Zielfunktion in Stufen",
+    "ui.solve.col_stage": "Stufe",
+    "ui.solve.col_value": "Wert",
+    "ui.solve.col_sense": "Richtung",
+    "ui.solve.col_locked": "zugesichert",
+    # -- UI: objective / enum labels ------------------------------------------------------
+    "ui.objective.weighted_sum": "Summe der Punkte",
+    "ui.objective.maximin_then_sum": "Erst die Unzufriedensten, dann die Summe",
+    "ui.objective.leximin": "Leximin (Punktevektor der Reihe nach)",
+    "ui.objective.lexicographic_tiers": "Tiers der Reihe nach",
+    "ui.weights.linear": "linear",
+    "ui.weights.geometric": "geometrisch",
+    "ui.scope.cross_role_only": "nur rollenübergreifend",
+    "ui.scope.all": "alle",
+    # -- UI: Analyse ---------------------------------------------------------------------
+    "ui.analysis.header": "Zufriedenheit",
+    "ui.analysis.hint": "Unzufriedenste zuerst — das ist die Zeile, die Sie brauchen.",
+    "ui.analysis.col_position": "Position",
+    "ui.analysis.col_fulfilled": "Erfüllte Wünsche",
+    "ui.analysis.col_violated": "Verletzte Nicht-Wünsche",
+    "ui.analysis.shortlist_header": "Gleichwertige Lösungen",
+    "ui.analysis.pick": "Lösung",
+    "ui.analysis.only_one": "Es gibt nur eine Lösung — hier gibt es nichts zu vergleichen.",
+    "ui.analysis.diff_header": "Unterschied zu Lösung {index}",
+    "ui.analysis.diff_none": "Kein Unterschied.",
+    "ui.analysis.col_from": "von",
+    "ui.analysis.col_to": "nach",
+    "ui.analysis.detail_header": "Einzelne Tänzer:in",
     # -- CLI help (German, like all user-facing text) ------------------------------------
     "help.app": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",
     "help.check": "Prüft eine Teamdatei auf zählbare Hindernisse.",

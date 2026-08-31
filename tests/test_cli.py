@@ -438,12 +438,19 @@ def test_help_is_german() -> None:
 
 def test_no_string_key_is_missing_from_i18n() -> None:
     # Every de() call resolves; a missing key raises KeyError and would fail above. This
-    # guards the reverse: keys defined but never referenced anywhere in src/.
-    source = "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in (Path(__file__).resolve().parents[1] / "src" / "dancepartner").glob("*.py")
+    # guards the reverse: keys defined but never referenced. The UI is a second consumer of
+    # STRINGS, so app/ counts as a reference site too -- otherwise every ui. key looks unused.
+    root = Path(__file__).resolve().parents[1]
+    sources = [*(root / "src" / "dancepartner").glob("*.py"), *(root / "app").rglob("*.py")]
+    source = "\n".join(p.read_text(encoding="utf-8") for p in sources)
+    dynamic_prefixes = (
+        "feasibility.",
+        "role.",
+        "solve.sense.",
+        "ui.objective.",
+        "ui.weights.",
+        "ui.scope.",
     )
-    dynamic_prefixes = ("feasibility.", "role.", "solve.sense.")
     unused = [
         key for key in STRINGS if f'"{key}"' not in source and not key.startswith(dynamic_prefixes)
     ]
