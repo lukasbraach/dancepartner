@@ -14,6 +14,9 @@ import common
 from dancepartner.i18n import t
 from dancepartner.model import ScoreAggregation
 from dancepartner.reporting import (
+    MAX_LISTED_VARIANTS,
+    exchange_groups,
+    group_numbers,
     moved_dancers,
     positions_by_dancer,
     respected_not_desired,
@@ -58,6 +61,9 @@ rows = satisfaction_rows(selected, team)
 scores = [sat.score for _, _, sat in rows]
 worst, best_score = min(scores), max(scores)
 places = positions_by_dancer(selected)
+# A property of the whole shortlist, not of the selected solution.
+groups = exchange_groups(solutions)
+numbers = group_numbers(groups)
 
 
 def _percent(ratio: float | None) -> int | None:
@@ -75,6 +81,9 @@ if best_mode:
             "": common.ratio_badge(ratios[dancer_id]),
             t("table.col_name"): name,
             t("ui.analysis.col_position"): places[dancer_id],
+            t("ui.analysis.col_group"): (
+                common.group_marker(numbers[dancer_id]) if dancer_id in numbers else ""
+            ),
             t("ui.analysis.col_satisfaction"): _percent(ratios[dancer_id]),
             t("table.col_score"): sat.score,
             t("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
@@ -96,6 +105,9 @@ else:
             "": common.score_badge(sat.score, worst, best_score),
             t("table.col_name"): name,
             t("ui.analysis.col_position"): places[dancer_id],
+            t("ui.analysis.col_group"): (
+                common.group_marker(numbers[dancer_id]) if dancer_id in numbers else ""
+            ),
             t("table.col_score"): sat.score,
             t("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
             t("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
@@ -117,6 +129,40 @@ st.dataframe(
     use_container_width=True,
     column_config=column_config,
 )
+
+# -- the exchange groups -------------------------------------------------------------------
+#
+# The question the coach asks the diagram: whom can I swap through without making the team
+# unhappier? One block per group, each constellation with the solutions that realise it.
+# Rendered as markdown, never as a dataframe -- the tests address the satisfaction and diff
+# tables by dataframe index.
+
+if len(solutions) > 1:
+    st.subheader(t("ui.analysis.groups_header"))
+    if not groups:
+        st.caption(t("ui.analysis.groups_none"))
+    by_id = team.dancers_by_id
+    for group in groups:
+        group_names = ", ".join(sorted(by_id[i].name for i in group.dancer_ids))
+        st.markdown(f"{common.group_marker(group.number)} **{group_names}**")
+        if len(group.variants) > MAX_LISTED_VARIANTS:
+            # Fifty constellation lines answer nothing; the per-dancer options do.
+            st.caption(t("solve.group_variants_note", count=len(group.variants)).strip())
+            for dancer_id in sorted(group.dancer_ids, key=lambda i: by_id[i].name):
+                options = ", ".join(sorted({v.labels[dancer_id] for v in group.variants}))
+                st.caption(
+                    t("solve.group_option", name=by_id[dancer_id].name, labels=options).strip()
+                )
+            continue
+        for variant in group.variants:
+            placements = "; ".join(
+                t("solve.group_placement", name=by_id[i].name, label=label)
+                for i, label in sorted(variant.labels.items(), key=lambda item: by_id[item[0]].name)
+            )
+            in_solutions = ", ".join(str(index + 1) for index in variant.solution_indices)
+            st.caption(
+                t("solve.group_variant", placements=placements, solutions=in_solutions).strip()
+            )
 
 # -- the shortlist browser -----------------------------------------------------------------
 
@@ -201,6 +247,12 @@ else:
 # -- how stable is this dancer's position across the shortlist? ----------------------------
 
 if len(solutions) > 1:
+    if picked in numbers:
+        picked_group = groups[numbers[picked] - 1]
+        picked_names = ", ".join(
+            sorted(team.dancers_by_id[i].name for i in picked_group.dancer_ids)
+        )
+        st.markdown(t("explain.group", number=picked_group.number, names=picked_names).strip())
     counts: dict[str, int] = {}
     for solution in solutions:
         here = next(p for p in solution.positions if picked in (*p.leaders, *p.followers))

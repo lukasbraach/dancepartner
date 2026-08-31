@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dancepartner.model import PreferenceScope, SolverConfig, WeightScheme
 from dancepartner.reporting import (
+    exchange_groups,
+    group_numbers,
     moved_dancers,
     positions_by_dancer,
     respected_not_desired,
@@ -252,3 +254,108 @@ def test_moved_dancers_is_never_empty_for_two_shortlist_entries() -> None:
     assert len(result.solutions) > 1
     for other in result.solutions[1:]:
         assert moved_dancers(result.best, other, instance) != []
+
+
+# -- exchange_groups ------------------------------------------------------------------------
+
+
+def test_exchange_groups_needs_at_least_two_solutions() -> None:
+    instance = team(3, 3, 3)
+    solution = build_solution(
+        instance, SolverConfig(), [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    assert exchange_groups([solution]) == []
+
+
+def test_exchange_groups_finds_a_two_cycle() -> None:
+    instance = team(3, 3, 3)
+    config = SolverConfig()
+    reference = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    swapped = build_solution(
+        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
+    )
+    groups = exchange_groups([reference, swapped])
+
+    assert len(groups) == 1
+    group = groups[0]
+    assert group.number == 1
+    assert group.dancer_ids == ["fol0", "fol1"]
+    assert [v.solution_indices for v in group.variants] == [[0], [1]]
+    assert group.variants[0].labels == {"fol0": "A", "fol1": "B"}
+    assert group.variants[1].labels == {"fol0": "B", "fol1": "A"}
+    assert group_numbers(groups) == {"fol0": 1, "fol1": 1}
+
+
+def test_exchange_groups_splits_label_disjoint_swaps() -> None:
+    # One peer applies two independent swaps at once: A<->B and C<->D touch no common
+    # position, so they are two groups the coach can decide separately.
+    instance = team(4, 4, 4)
+    config = SolverConfig()
+    reference = build_solution(
+        instance,
+        config,
+        [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"], ["led3", "fol3"]],
+    )
+    peer = build_solution(
+        instance,
+        config,
+        [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol3"], ["led3", "fol2"]],
+    )
+    groups = exchange_groups([reference, peer])
+
+    assert [group.dancer_ids for group in groups] == [["fol0", "fol1"], ["fol2", "fol3"]]
+    assert [group.number for group in groups] == [1, 2]
+
+
+def test_exchange_groups_merges_label_overlapping_moves_in_one_peer() -> None:
+    # fol0/fol1 swap A<->B while led1/led2 swap B<->C: position B changes in both moves, so
+    # the constellations are one joint choice, never two independent ones.
+    instance = team(3, 3, 3)
+    config = SolverConfig()
+    reference = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    peer = build_solution(instance, config, [["led0", "fol1"], ["led2", "fol0"], ["led1", "fol2"]])
+    groups = exchange_groups([reference, peer])
+
+    assert len(groups) == 1
+    assert groups[0].dancer_ids == ["fol0", "fol1", "led1", "led2"]
+
+
+def test_exchange_groups_merges_groups_sharing_a_dancer_across_peers() -> None:
+    instance = team(3, 3, 3)
+    config = SolverConfig()
+    best = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
+    peer_one = build_solution(
+        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
+    )
+    peer_two = build_solution(
+        instance, config, [["led0", "fol2"], ["led1", "fol1"], ["led2", "fol0"]]
+    )
+    groups = exchange_groups([best, peer_one, peer_two])
+
+    assert len(groups) == 1
+    group = groups[0]
+    assert group.dancer_ids == ["fol0", "fol1", "fol2"]
+    assert [v.solution_indices for v in group.variants] == [[0], [1], [2]]
+
+
+def test_exchange_groups_excludes_a_worse_score_vector() -> None:
+    # led0's wish is fulfilled in the best solution and in one peer, but not in the middle
+    # entry -- that one is near-optimal, not equal, and must suggest no swap. The variant
+    # indices still count against the full shortlist, so "solution 3" stays solution 3.
+    instance = team(3, 3, 3, desired("led0", tier(1, "fol0")))
+    config = SolverConfig()
+    best = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
+    worse = build_solution(instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]])
+    peer = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol2"], ["led2", "fol1"]])
+    groups = exchange_groups([best, worse, peer])
+
+    assert len(groups) == 1
+    group = groups[0]
+    assert group.dancer_ids == ["fol1", "fol2"]
+    assert [v.solution_indices for v in group.variants] == [[0], [2]]
+
+    assert exchange_groups([best, worse]) == []

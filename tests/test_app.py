@@ -10,6 +10,7 @@ script raised, so asserting it is empty is a real check and not a formality.
 
 from __future__ import annotations
 
+from itertools import permutations
 from pathlib import Path
 
 import pytest
@@ -17,10 +18,13 @@ from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import Multiselect
 
 from dancepartner.i18n import TABLES, Language, t
-from dancepartner.model import Objective, Role, ScoreAggregation, Team
+from dancepartner.model import Objective, Role, ScoreAggregation, SolverConfig, Team
+from dancepartner.scoring import build_solution
+from dancepartner.solver import SolveResult
 from dancepartner.storage import dump_team, load_team
 
-from .builders import roster
+from .builders import desired, roster, tier
+from .builders import team as team_builder
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOME = str(REPO_ROOT / "app" / "Home.py")
@@ -287,6 +291,41 @@ def test_solution_page_renders_a_neutral_dancer_grey_not_red() -> None:
     assert marker.startswith("⬜")
 
 
+def test_group_marker_is_a_number_emoji_with_a_plain_fallback() -> None:
+    import common
+
+    assert common.group_marker(1) == "1️⃣"
+    assert common.group_marker(10) == "🔟"
+    assert common.group_marker(11) == "(11)"
+
+
+def test_solution_page_marks_exchangeable_dancers() -> None:
+    team = load_team(EXAMPLE)
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=team)
+    at.run()
+    at.number_input[1].set_value(3).run()
+    at.button[0].click().run()
+    assert not at.exception
+
+    rendered = texts(at)
+    assert t("ui.solve.groups_hint") in rendered
+    # Leah Dorn is the one open choice between the example team's two optima.
+    leah = team.dancers_by_id["leah-d"].name
+    line = next(line for line in rendered.splitlines() if leah in line and line[0] in "⬜🟥🟨🟩")
+    assert line.endswith("1️⃣")
+
+
+def test_solution_page_shows_no_marker_for_a_single_solution() -> None:
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
+    at.run()
+    at.number_input[1].set_value(1).run()
+    at.button[0].click().run()
+    assert not at.exception
+    rendered = texts(at)
+    assert "1️⃣" not in rendered
+    assert t("ui.solve.groups_hint") not in rendered
+
+
 def test_solution_page_spells_no_vetoes_as_zero() -> None:
     at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
     at.number_input[0].set_value(0).run()
@@ -335,6 +374,87 @@ def test_analysis_shows_absolute_satisfaction_percentages() -> None:
     assert 100 in numbers, "a fulfilled top-tier wish is exactly 100 %"
     # marie-g is neutral: her cell stays blank instead of claiming 0 %.
     assert len(numbers) < len(column)
+
+
+def test_analysis_table_has_the_group_column() -> None:
+    at = solved_analysis()
+    assert not at.exception
+
+    team = at.session_state["team"]
+    table = at.dataframe[0].value
+    markers = list(table[t("ui.analysis.col_group")])
+    names = list(table[t("table.col_name")])
+    filled = {name: marker for name, marker in zip(names, markers, strict=True) if marker}
+    # Leah Dorn is the example team's single open choice.
+    assert filled == {team.dancers_by_id["leah-d"].name: "1️⃣"}
+
+
+def test_analysis_renders_the_groups_block() -> None:
+    at = solved_analysis()
+    assert not at.exception
+
+    rendered = texts(at)
+    assert t("ui.analysis.groups_header") in rendered
+    assert "1️⃣ **Leah Dorn**" in rendered
+    assert "Leah Dorn → F" in rendered
+    assert "Leah Dorn → G" in rendered
+    # The block is markdown, so the diff table stays the last dataframe.
+    diff = at.dataframe[-1].value
+    assert t("ui.analysis.col_from") in diff.columns
+    assert t("ui.analysis.col_to") in diff.columns
+
+
+def test_analysis_lists_per_dancer_options_for_a_large_group() -> None:
+    # Six permutations of three neutral followers: more constellations than the listing cap,
+    # so the block shows one options line per dancer instead.
+    instance = team_builder(3, 3, 3)
+    config = SolverConfig()
+    followers = ["fol0", "fol1", "fol2"]
+    solutions = [
+        build_solution(
+            instance, config, [["led0", order[0]], ["led1", order[1]], ["led2", order[2]]]
+        )
+        for order in permutations(followers)
+    ]
+    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
+    at.session_state["team"] = instance
+    at.session_state["config"] = config
+    at.session_state["result"] = SolveResult(status="OPTIMAL", solutions=list(solutions))
+    at.run()
+    assert not at.exception
+    rendered = texts(at)
+    assert t("solve.group_variants_note", count=6).strip() in rendered
+    assert "FOL0: A, B, C" in rendered
+
+
+def test_analysis_says_nothing_to_swap_without_equal_solutions() -> None:
+    # Two solutions with different score vectors: browsable, but nothing to swap.
+    instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
+    config = SolverConfig()
+    best = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
+    worse = build_solution(instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]])
+    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
+    at.session_state["team"] = instance
+    at.session_state["config"] = config
+    at.session_state["result"] = SolveResult(status="OPTIMAL", solutions=[best, worse])
+    at.run()
+    assert not at.exception
+    assert t("ui.analysis.groups_none") in texts(at)
+
+
+def test_analysis_skips_the_groups_block_for_a_single_solution() -> None:
+    instance = team_builder(3, 3, 3)
+    config = SolverConfig()
+    only = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
+    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
+    at.session_state["team"] = instance
+    at.session_state["config"] = config
+    at.session_state["result"] = SolveResult(status="OPTIMAL", solutions=[only])
+    at.run()
+    assert not at.exception
+    rendered = texts(at)
+    assert t("ui.analysis.groups_header") not in rendered
+    assert t("ui.analysis.groups_none") not in rendered
 
 
 def test_analysis_diffs_two_shortlist_entries_by_position_label() -> None:

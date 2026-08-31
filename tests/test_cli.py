@@ -244,6 +244,32 @@ def test_solve_top_three_prints_both_optima_with_diffs() -> None:
     assert result.stdout.count("Difference to solution 1:") == 1
 
 
+def test_solve_top_three_prints_the_exchange_group() -> None:
+    result = run("solve", EXAMPLE, "--top", "3")
+    assert result.exit_code == 0
+    assert "Exchange groups" in result.stdout
+    assert "Group 1: Leah Dorn" in result.stdout
+    assert "Leah Dorn → F — in solution(s) 1" in result.stdout
+    assert "Leah Dorn → G — in solution(s) 2" in result.stdout
+
+
+def test_solve_lists_per_dancer_options_for_a_large_group(tmp_path: Path) -> None:
+    # No surveys: every assignment is optimal, so the group collects far more constellations
+    # than anyone can read -- the block must fall back to one options line per dancer.
+    path = tmp_path / "team.yaml"
+    path.write_text(dump_team(Team(dancers=roster(10, 12), n_positions=8)), encoding="utf-8")
+    result = run("solve", str(path), "--top", "8")
+    assert result.exit_code == 0
+    assert "constellations — see the individual solutions." in result.stdout
+    assert "→" not in result.stdout.split("Exchange groups")[1].split("── Solution")[0]
+
+
+def test_solve_top_one_prints_no_group_block() -> None:
+    result = run("solve", EXAMPLE)
+    assert result.exit_code == 0
+    assert "Exchange groups" not in result.stdout
+
+
 def test_solve_reports_a_truncated_shortlist(tmp_path: Path) -> None:
     # No surveys at all: every assignment is optimal, so the cap must bite and say so.
     path = tmp_path / "team.yaml"
@@ -422,10 +448,17 @@ def test_explain_summarises_a_dancer_across_the_shortlist(shortlisted: Path) -> 
     assert "Leah Dorn: in 1 of 2 solutions" in result.stdout
 
 
+def test_explain_names_the_exchange_group(shortlisted: Path) -> None:
+    result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "leah-d")
+    assert result.exit_code == 0
+    assert "Exchange group 1: Leah Dorn" in result.stdout
+
+
 def test_explain_says_when_a_dancer_has_no_open_choice(shortlisted: Path) -> None:
     result = run("explain", EXAMPLE, str(shortlisted), "--dancer", "lukas-b")
     assert result.exit_code == 0
     assert "the same in all 2 solutions" in result.stdout
+    assert "Exchange group" not in result.stdout
 
 
 def test_explain_adds_no_cross_solution_note_for_a_single_solution(solved: Path) -> None:
@@ -433,6 +466,7 @@ def test_explain_adds_no_cross_solution_note_for_a_single_solution(solved: Path)
     assert result.exit_code == 0
     assert "Across all" not in result.stdout
     assert "from solution" not in result.stdout
+    assert "Exchange group" not in result.stdout
 
 
 def test_explain_json_without_a_solution_exits_one(tmp_path: Path) -> None:

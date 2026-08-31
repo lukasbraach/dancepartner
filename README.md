@@ -129,6 +129,10 @@ Objective in stages:
   coupled: 2 (minimized)
 
 2 equally good solution(s) found.
+Exchange groups — interchangeable between the equally good solutions:
+  Group 1: Leah Dorn
+    Leah Dorn → F — in solution(s) 1
+    Leah Dorn → G — in solution(s) 2
 
 ── Solution 1 of 2 (best)
    Total score 60, lowest individual score 0
@@ -184,9 +188,11 @@ Lukas Brandt (Leader) — Position A
 
 The last sentence is the reason the program enumerates several solutions at all. A partner who
 is the same in every optimal solution is not a decision the coach has to make. One who appears
-in 3 of 20 solutions is. For this team, exactly one choice remains: Leah Dorn dances either as
-David Lorenz' second follower on position F or beside Marie Günther on position G. There are no
-further differences.
+in 3 of 20 solutions is. The **exchange groups** above the shortlist collect exactly those open
+choices: for this team, one group remains — Leah Dorn dances either as David Lorenz' second
+follower on position F or beside Marie Günther on position G. In the interface the dancers of
+each group carry its number (1️⃣, 2️⃣, …) right on the solution cards and in the analysis
+table, so the swaps that cost nothing are visible at a glance.
 
 ## The four objectives
 
@@ -272,9 +278,10 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 * **Home**: load, upload, or create a team file; pre-check; save.
 * **Team**: the dancers as a table with name, role, pole position, coaching need.
 * **Survey**: any number of tiers per person and direction; conflicts are reported immediately.
-* **Solution**: configure the objective, solve, the eight positions as cards.
-* **Analysis**: satisfaction sorted ascending, plus the comparison of the equally good
-  solutions.
+* **Solution**: configure the objective, solve, the eight positions as cards — dancers who can
+  be swapped between the equally good solutions are numbered 1️⃣, 2️⃣, …
+* **Analysis**: satisfaction sorted ascending, the exchange groups with every constellation
+  they can take, plus the comparison of the equally good solutions.
 
 Saving happens only at the press of a button. PyYAML cannot preserve comments; an autosave would
 silently strip them from a hand-maintained team file. Real data belongs in `data/team.yaml`: the

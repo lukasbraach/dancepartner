@@ -19,7 +19,7 @@ from dancepartner.model import (
     SolverConfig,
     WeightScheme,
 )
-from dancepartner.reporting import satisfaction_ratio
+from dancepartner.reporting import exchange_groups, group_numbers, satisfaction_ratio
 from dancepartner.solver import InfeasibleInstanceError
 
 common.page_header("ui.solve.header")
@@ -173,6 +173,11 @@ else:
 if config.near_optimal_ratio < 1.0:
     st.caption(t("solve.near_optimal", percent=config.near_optimal_ratio * 100))
 
+groups = exchange_groups(result.solutions)
+numbers = group_numbers(groups)
+if groups:
+    st.caption(t("ui.solve.groups_hint"))
+
 # -- the cards ---------------------------------------------------------------------------------
 
 st.subheader(t("ui.solve.cards_header"))
@@ -202,7 +207,9 @@ for row_start in range(0, len(best.positions), 4):
                         )
                     else:
                         badge = common.score_badge(satisfaction.score, worst, top_score)
-                    st.markdown(f"{badge} {team.dancers_by_id[dancer_id].name}")
+                    marker = common.group_marker(numbers[dancer_id]) if dancer_id in numbers else ""
+                    name = team.dancers_by_id[dancer_id].name
+                    st.markdown(f"{badge} {name} {marker}".rstrip())
                     detail = common.satisfaction_badges(satisfaction)
                     if detail:
                         st.markdown(detail)

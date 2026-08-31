@@ -221,6 +221,17 @@ def ratio_badge(ratio: float | None) -> str:
     return "🟨" if ratio < 2 / 3 else "🟩"
 
 
+_GROUP_MARKERS: Final = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟")
+
+
+def group_marker(number: int) -> str:
+    """The marker for one exchange group: a number emoji, plain text past ten.
+
+    A number, not a colour -- colour encodes satisfaction and nothing else (SPEC.md 10).
+    """
+    return _GROUP_MARKERS[number - 1] if 1 <= number <= len(_GROUP_MARKERS) else f"({number})"
+
+
 def satisfaction_badges(satisfaction: DancerSatisfaction) -> str:
     """Inline markdown badges counting fulfilled wishes and violated dislikes."""
     parts = []

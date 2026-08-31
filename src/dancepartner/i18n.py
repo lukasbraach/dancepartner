@@ -119,6 +119,12 @@ _STRINGS_EN: dict[str, str] = {
     "solve.solution_scores": "   Total score {total}, lowest individual score {minimum}",
     "solve.diff_header": "   Difference to solution 1:",
     "solve.diff_entry": "     {name}: {from_label} → {to_label}",
+    "solve.groups_header": "Exchange groups — interchangeable between the equally good solutions:",
+    "solve.group_heading": "  Group {number}: {names}",
+    "solve.group_variant": "    {placements} — in solution(s) {solutions}",
+    "solve.group_placement": "{name} → {label}",
+    "solve.group_variants_note": "    {count} constellations — see the individual solutions.",
+    "solve.group_option": "    {name}: {labels}",
     "solve.written": "Result written to {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Satisfaction (least satisfied first):",
@@ -139,6 +145,9 @@ _STRINGS_EN: dict[str, str] = {
     "explain.across_entry": "    {name}: in {hits} of {count} solutions",
     "explain.across_stable": (
         "  This placement is the same in all {count} solutions — there is nothing to choose here."
+    ),
+    "explain.group": (
+        "  Exchange group {number}: {names} — interchangeable between the equally good solutions."
     ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Score: {score}",
@@ -258,6 +267,10 @@ _STRINGS_EN: dict[str, str] = {
     "ui.solve.advanced": "More settings",
     "ui.solve.cards_header": "Positions",
     "ui.solve.doubled_badge": "doubled",
+    "ui.solve.groups_hint": (
+        "Marked dancers can be swapped between the equally good solutions — details on the "
+        "Analysis page."
+    ),
     "ui.solve.fulfilled_badge": "fulfilled",
     "ui.solve.violated_badge": "violated",
     "ui.solve.stages_header": "Objective in stages",
@@ -281,8 +294,13 @@ _STRINGS_EN: dict[str, str] = {
     "ui.analysis.hint": "Least satisfied first — that is the row you need.",
     "ui.analysis.col_position": "Position",
     "ui.analysis.col_satisfaction": "Satisfaction",
+    "ui.analysis.col_group": "Exchange group",
     "ui.analysis.col_fulfilled": "Fulfilled wishes",
     "ui.analysis.col_violated": "Violated not-desired wishes",
+    "ui.analysis.groups_header": "Exchange groups",
+    "ui.analysis.groups_none": (
+        "Nothing to swap — every placement is fixed across the equally good solutions."
+    ),
     "ui.analysis.shortlist_header": "Equally good solutions",
     "ui.analysis.pick": "Solution",
     "ui.analysis.only_one": "There is only one solution — nothing to compare here.",
@@ -418,6 +436,12 @@ _STRINGS_DE: dict[str, str] = {
     "solve.solution_scores": "   Gesamtpunkte {total}, niedrigste Einzelpunktzahl {minimum}",
     "solve.diff_header": "   Unterschied zu Lösung 1:",
     "solve.diff_entry": "     {name}: {from_label} → {to_label}",
+    "solve.groups_header": "Tauschgruppen — austauschbar zwischen den gleichwertigen Lösungen:",
+    "solve.group_heading": "  Gruppe {number}: {names}",
+    "solve.group_variant": "    {placements} — in Lösung(en) {solutions}",
+    "solve.group_placement": "{name} → {label}",
+    "solve.group_variants_note": "    {count} Konstellationen — siehe die einzelnen Lösungen.",
+    "solve.group_option": "    {name}: {labels}",
     "solve.written": "Ergebnis geschrieben nach {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Zufriedenheit (unzufriedenste zuerst):",
@@ -438,6 +462,9 @@ _STRINGS_DE: dict[str, str] = {
     "explain.across_entry": "    {name}: in {hits} von {count} Lösungen",
     "explain.across_stable": (
         "  Diese Besetzung ist in allen {count} Lösungen gleich — hier gibt es nichts zu wählen."
+    ),
+    "explain.group": (
+        "  Tauschgruppe {number}: {names} — austauschbar zwischen den gleichwertigen Lösungen."
     ),
     "explain.heading": "{name} ({role}) — Position {label}",
     "explain.score": "  Punkte: {score}",
@@ -560,6 +587,10 @@ _STRINGS_DE: dict[str, str] = {
     "ui.solve.advanced": "Weitere Einstellungen",
     "ui.solve.cards_header": "Positionen",
     "ui.solve.doubled_badge": "Doppelbesetzung",
+    "ui.solve.groups_hint": (
+        "Markierte Tänzer:innen lassen sich zwischen den gleichwertigen Lösungen tauschen — "
+        "Details auf der Analyse-Seite."
+    ),
     "ui.solve.fulfilled_badge": "erfüllt",
     "ui.solve.violated_badge": "verletzt",
     "ui.solve.stages_header": "Zielfunktion in Stufen",
@@ -583,8 +614,13 @@ _STRINGS_DE: dict[str, str] = {
     "ui.analysis.hint": "Unzufriedenste zuerst — das ist die Zeile, die Sie brauchen.",
     "ui.analysis.col_position": "Position",
     "ui.analysis.col_satisfaction": "Zufriedenheit",
+    "ui.analysis.col_group": "Tauschgruppe",
     "ui.analysis.col_fulfilled": "Erfüllte Wünsche",
     "ui.analysis.col_violated": "Verletzte Nicht-Wünsche",
+    "ui.analysis.groups_header": "Tauschgruppen",
+    "ui.analysis.groups_none": (
+        "Nichts zu tauschen — jede Besetzung ist über die gleichwertigen Lösungen hinweg fest."
+    ),
     "ui.analysis.shortlist_header": "Gleichwertige Lösungen",
     "ui.analysis.pick": "Lösung",
     "ui.analysis.only_one": "Es gibt nur eine Lösung — hier gibt es nichts zu vergleichen.",
