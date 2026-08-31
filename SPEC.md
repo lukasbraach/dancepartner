@@ -1,20 +1,22 @@
-# `dancepartner` — Build Specification for Claude Code
+# `dancepartner` — Specification
 
-> **How to use this file:** commit it to the repo root as `SPEC.md`, then start Claude Code with
-> *"Read SPEC.md and implement Milestone 1. Do not start Milestone 2 until I confirm."*
-> Work milestone by milestone; the solver core must be correct and tested before any UI exists.
+This is the contract for the shipped system: the domain vocabulary, the hard constraints, and the
+design decisions behind the solver, the CLI and the UI. It describes what exists. The working
+rules for contributors and agents live in `AGENTS.md`; section numbers here (§2, §6, §8, …) are
+referenced from docstrings throughout the codebase, so they stay stable.
 
 ---
 
 ## 1. Context
 
-We assign dancers of a Latin formation team (Lateinformation, VfL Pinneberg) to **8 unordered positions**.
-Each position is occupied by at least one leader and at least one follower, optionally two of each
-(*Doppelbesetzung* — two couples share a position and alternate across tournaments).
+We assign dancers of a Latin formation team (Lateinformation, VfL Pinneberg) to **8 unordered
+positions**. Each position is occupied by at least one leader and at least one follower,
+optionally two per role (*Doppelbesetzung* — two couples share a position and alternate across
+tournaments).
 
 The team runs an internal survey (*Teambefragung*) in which every dancer names desired and
-undesired partners in ranked tiers. We turn the assignment into a constraint optimisation
-problem and solve it exactly with OR-Tools CP-SAT.
+undesired partners in ranked tiers. The assignment is a constraint optimisation problem, solved
+exactly with OR-Tools CP-SAT.
 
 The final human decision stays with the coach — the tool produces a **shortlist of optimal and
 near-optimal assignments**, never a single mandated answer.
@@ -23,29 +25,26 @@ near-optimal assignments**, never a single mandated answer.
 
 ## 2. Language policy
 
-Read this carefully, it is a recurring source of inconsistency.
-
 * **All code identifiers, comments, docstrings, commit messages, tests and log output: English.**
-  No exceptions. This includes the domain terms of art — see §3 for the mapping and §2.1 for why
-  this rule changed.
+  No exceptions, including the domain terms of art — see §3 for the mapping.
 * **The on-disk YAML and JSON use the same English vocabulary as the code.** `role: leader`,
   `desired:`, `not_desired:`, `is_pole_position:`. There is one vocabulary, not two.
-* **All user-facing strings in the Streamlit UI and the CLI: German.** Route them through a single
-  module `dancepartner/i18n.py` holding a flat `dict[str, str]`; never inline German string
-  literals in widget calls. The *keys* of that dict are English, the *values* are German.
-* Where an English identifier replaces a German term the team actually says, its docstring names
-  the old term once, so a reader who knows the team's vocabulary can still find their way. Do not
-  reintroduce the German spelling as an identifier.
+* **All user-facing strings in the Streamlit UI and the CLI: German.** They route through
+  `dancepartner/i18n.py`, a flat `dict[str, str]` with English keys and German values. Never
+  inline a German string literal in a widget call or a `print`.
+* Where an English identifier replaced a German term the team actually says, its docstring names
+  the old term once (`is_pole_position` — formerly *Startanspruch*). That is a breadcrumb for
+  readers who know the team's vocabulary, not a licence to reintroduce the German spelling as an
+  identifier.
 
-### 2.1 History — this rule used to say the opposite
+### 2.1 History
 
 Until the end of Milestone 3 this section mandated the German nouns verbatim as identifiers
-(`has_startanspruch`, `wunsch_tiers`, `Role.HERR`) on the grounds that they have no precise
-English equivalent. That produced a codebase in two languages, and the seam ran straight through
-the data model, the storage format and the test suite.
-
-The team moved to English `leader`/`follower` vocabulary, which is also what the wider dance world
-uses, so the exception no longer paid for itself. The renames were:
+(`has_startanspruch`, `Role.HERR`). That produced a codebase in two languages, with the seam
+running through the data model, the storage format and the test suite, so the team agreed to move
+to the English `leader`/`follower` vocabulary the wider dance world uses. There is **no backwards
+compatibility**: a team file in the old vocabulary fails to load with a `StorageError` naming the
+offending key. The mapping, kept as the migration aid for private team files:
 
 | Was | Is now |
 |---|---|
@@ -59,45 +58,45 @@ uses, so the exception no longer paid for itself. The renames were:
 | `PositionAssignment.herren` / `.damen` | `.leaders` / `.followers` |
 | `TOO_MANY_STARTANSPRUCH` | `TOO_MANY_POLE_POSITION` |
 
-There is **no backwards compatibility**: a team file written in the old vocabulary fails to load
-with a `StorageError` naming the offending key. Only the example file was ever tracked, so this is
-a one-off manual edit for any private `data/team.yaml`.
-
 ---
 
 ## 3. Glossary (identifier → meaning)
 
-The German column records what the team used to call each thing. It is there so the vocabulary
-shift stays traceable — it is **not** a licence to use those spellings as identifiers.
+The German column records what the team calls each thing. It keeps the vocabulary shift traceable
+— it is **not** a licence to use those spellings as identifiers.
 
-| Identifier | Formerly (Deutsch) | Meaning |
+| Identifier | Deutsch | Meaning |
 |---|---|---|
 | `Role.LEADER`, `Role.FOLLOWER` | Herr / Dame | The two dance roles. Fixed per dancer, not a preference. |
 | position index `p`, label A–H | Position | One of the 8 slots on the floor. Unordered and interchangeable in the model. |
 | `is_doubled` | Doppelbesetzung | A position holding two leaders *and* two followers. |
-| `is_pole_position` | Startanspruch | Dancer is the sole driver of their position and must **not** share it with another dancer of the same role. Hard constraint. A claim on the starting slot, **not** a ranking. |
-| `needs_coaching` | Coachingbedarf | Dancer must **not** be the only one of their role on a position; they need a same-role dancer alongside them. Hard constraint. |
+| `is_pole_position` | Startanspruch | Dancer must **not** share their position with another dancer of the same role. Hard constraint. A claim on the starting slot, **not** a ranking — read as "ranked first" it means the opposite of the constraint it encodes. |
+| `needs_coaching` | Coachingbedarf | Dancer must **not** be the only one of their role on a position. Hard constraint. |
 | `desired_tiers` | Wunschpartner | Ranked list of sets of desired partners. Tier 1 = strongest wish. Sets within a tier are equivalent. |
 | `not_desired_tiers` | Nicht-Wunschpartner | Same structure, for undesired partners. |
 | `Survey` | Teambefragung | One dancer's complete set of answers. |
 | `Solution` | Verpartnerung | A complete mapping of dancers to positions. |
 
-Dancers not named in any tier are **neutral**: assignable, contributing zero to that dancer's score.
+Dancers not named in any tier are **neutral**: assignable, contributing zero to that dancer's
+score.
 
 ---
 
 ## 4. Tech stack
 
-* Python **3.12**, dependency management with **uv** (`pyproject.toml`, `uv.lock` committed).
-* `ortools` (CP-SAT) — solver.
+* Python **3.11**, `pip` + stdlib `venv` (`uv` is not installed on the dev machine).
+  `requirements-dev.txt` is the lock file.
+* `ortools` (CP-SAT) — solver. The **snake_case API** (`model.add_bool_and`, `.negated()`), not
+  the CamelCase aliases: those are absent from ortools' own type stubs and break `mypy --strict`.
 * `pydantic` v2 — data model and validation.
-* `streamlit` — UI (Milestone 4 only).
+* `streamlit` — UI, as the **`ui` extra**, never a runtime dependency.
 * `typer` — CLI.
 * `pyyaml` — persistence.
 * Dev: `pytest`, `pytest-cov`, `ruff` (lint + format), `mypy --strict`, `pre-commit`.
-* CI: GitHub Actions running ruff, mypy and pytest on push and PR.
+* CI: GitHub Actions running ruff, mypy, pytest with the coverage gate, and the three CLI commands
+  as a smoke test.
 
-No Jupyter notebooks. No pandas unless a milestone explicitly needs tabular output.
+No Jupyter notebooks. No pandas.
 
 ---
 
@@ -106,31 +105,43 @@ No Jupyter notebooks. No pandas unless a milestone explicitly needs tabular outp
 ```
 dancepartner/
 ├── pyproject.toml
+├── requirements-dev.txt
+├── Makefile
 ├── SPEC.md
-├── CLAUDE.md
+├── AGENTS.md            # CLAUDE.md is a symlink to it
 ├── data/
-│   └── team.example.yaml
+│   ├── team.example.yaml         # 20 dancers, tiers to 2
+│   └── team.large.example.yaml   # 24 dancers, tiers to 3
 ├── src/dancepartner/
 │   ├── __init__.py
 │   ├── model.py         # pydantic domain model
 │   ├── feasibility.py   # cheap counting pre-checks
-│   ├── solver.py        # CP-SAT model construction + staged optimisation
 │   ├── scoring.py       # weight schemes, per-dancer satisfaction reporting
+│   ├── solver.py        # CP-SAT model construction + staged optimisation
+│   ├── reporting.py     # scope-aware satisfaction numbers shared by CLI and UI
 │   ├── storage.py       # YAML load/save
 │   ├── i18n.py          # German UI strings
 │   └── cli.py
 ├── app/
 │   ├── Home.py
+│   ├── common.py        # session state, cached solve, formatting; pages are thin
 │   └── pages/
-│       ├── 1_Team.py
-│       ├── 2_Umfrage.py
-│       ├── 3_Loesung.py
-│       └── 4_Analyse.py
+│       ├── team.py
+│       ├── survey.py
+│       ├── solution.py
+│       └── analysis.py
 └── tests/
 ```
 
-`src/dancepartner` must have **zero** imports of `streamlit`. The UI depends on the core; never
-the reverse. A reviewer should be able to delete `app/` and still run everything from the CLI.
+`src/dancepartner` has **zero** imports of `streamlit`. The UI depends on the core, never the
+reverse — deleting `app/` leaves everything runnable from the CLI, and CI proves it (§10). Import
+direction inside the core: `i18n` ← `model` ← `feasibility` ← `scoring` ← `solver` ←
+`storage`/`cli`.
+
+The page modules are English with German sidebar titles supplied via `st.navigation` /
+`st.Page(title=de(...))`: Streamlit derives a file-based page's label from its filename, which
+would put untranslated German outside `i18n.py`, and a numeric prefix like `1_Team` is not a valid
+module name under `mypy --strict`. Ordering comes from the page list.
 
 ---
 
@@ -145,7 +156,7 @@ class Dancer(BaseModel):
     id: str                      # stable slug, e.g. "lukas-b"
     name: str
     role: Role
-    is_pole_position: bool = False     # must be alone in their role on the position
+    is_pole_position: bool = False    # must be alone in their role on the position
     needs_coaching: bool = False      # must NOT be alone in their role on the position
 
 class Tier(BaseModel):
@@ -163,7 +174,7 @@ class Team(BaseModel):
     n_positions: int = 8
 ```
 
-Validators, all of which must raise on violation:
+Validators, all of which raise on violation:
 
 1. `is_pole_position` and `needs_coaching` are mutually exclusive per dancer.
 2. Tier ranks are contiguous starting at 1, no duplicates.
@@ -175,20 +186,20 @@ Validators, all of which must raise on violation:
 7. Every dancer has at most one `Survey`.
 
 **Preferences are directed.** A wishing for B does not imply B wishing for A. Both directions are
-scored independently and must never be silently symmetrised.
+scored independently and are never silently symmetrised. (Hard *vetoes*, §8, are the one symmetric
+exception — a pair either shares a position or does not, by construction.)
 
-**Design question to model explicitly:** preferences are about *cross-role* partners by default
-(a leader names followers). Support same-role entries too — on a Doppelbesetzung two leaders
-share a position and their working relationship matters. Represent this with a `PreferenceScope` config
-flag: `CROSS_ROLE_ONLY` (default) or `ALL`. Same-role preferences are scored only when both are on
-the same position.
+Preferences are about *cross-role* partners by default (a leader names followers), but same-role
+entries matter too: on a Doppelbesetzung two leaders share a position and their working
+relationship counts. `PreferenceScope` selects `CROSS_ROLE_ONLY` (default) or `ALL`; same-role
+preferences are scored only when both dancers share a position.
 
 ---
 
 ## 7. Feasibility pre-check (`feasibility.py`)
 
-Run before building the CP-SAT model and return structured, German-readable diagnostics. Do not
-let the solver return a bare INFEASIBLE for causes that are decidable by counting.
+Runs before the CP-SAT model is built and returns structured, German-readable diagnostics, so the
+solver never returns a bare INFEASIBLE for a cause that is decidable by counting.
 
 With `n = len(leaders)` and 8 positions:
 
@@ -197,8 +208,13 @@ With `n = len(leaders)` and 8 positions:
 * And: `n - 8 ≥ ceil(count(needs_coaching ∧ LEADER) / 2)`
 * And: `8 ≤ n ≤ 16`
 
-Identical checks for followers. Report each failure as a `FeasibilityIssue(code, message_de, involved_ids)`
-so the UI can surface it. Include a check for hard vetoes (§8) making a role infeasible.
+Identical checks for followers, plus a check for hard vetoes (§8) making a role infeasible. Each
+failure is a `FeasibilityIssue(code, message_de, involved_ids)` the UI can surface.
+
+These checks are **necessary, not sufficient** — they find real obstacles but prove no
+solvability. `tests/test_cli.py::COUNTING_CLEAN_BUT_INFEASIBLE` is the executable form of that
+claim: an instance that passes every counting check and is still INFEASIBLE. Do not "fix" the
+pre-check to catch it; that needs general matching, which is the solver's job.
 
 ---
 
@@ -211,36 +227,39 @@ so the UI can surface it. Include a check for hard vetoes (§8) making a role in
 
 ### Hard constraints
 
-1. `AddExactlyOne(x[d, p] for p in positions)` for every dancer.
-2. Per position and per role: `1 ≤ Σ x ≤ 2`.
-3. Pole position: `Add(role_count == 1).OnlyEnforceIf(x[d, p])`.
-4. Coaching need: `Add(role_count >= 2).OnlyEnforceIf(x[d, p])`.
-5. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `not_desired`
-   entries at that tier or stronger get `together[d, e] == 0`.
+1. `add_exactly_one(x[d, p] for p in positions)` for every dancer.
+2. Per position and **per role**: `1 ≤ Σ x ≤ 2`. The bounds are independent per role — the roster
+   rarely has equal counts, so a position may hold 2 leaders and 1 follower. Coupling the two
+   (2 leaders ⇔ 2 followers, two full couples) is the **soft** `prefer_coupled` stage below, never
+   a hard constraint.
+3. Pole position: `add(role_count == 1).only_enforce_if(x[d, p])`.
+4. Coaching need: `add(role_count >= 2).only_enforce_if(x[d, p])`.
+5. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `not_desired` entries
+   at that tier or stronger get `together[d, e] == 0`.
 
-### Reification — get this exactly right
+### Reification — both directions are mandatory
 
 ```python
-b = model.NewBoolVar("")
-model.AddBoolAnd([x[d, p], x[e, p]]).OnlyEnforceIf(b)
-model.AddBoolOr([x[d, p].Not(), x[e, p].Not()]).OnlyEnforceIf(b.Not())
+b = model.new_bool_var("")
+model.add_bool_and([x[d, p], x[e, p]]).only_enforce_if(b)
+model.add_bool_or([x[d, p].negated(), x[e, p].negated()]).only_enforce_if(b.negated())
 ```
 
-**Both directions are mandatory.** With only the first implication and negative weights present,
-the solver will set `b = 0` for a pair that actually shares a position and thereby erase a dislike
-penalty. Add a regression test that specifically catches this.
+With only the first implication and negative weights present, the solver sets `b = 0` for a pair
+that actually shares a position and erases the dislike penalty.
+`test_reification_cannot_erase_dislike` pins this — on `result.stages`, not `per_dancer`, because
+recomputed scores stay correct even when CP-SAT optimised something else (§12).
 
 ### Symmetry breaking
 
 Positions are unordered — without symmetry breaking the search space is inflated by 8! = 40320.
-Enforce a canonical numbering over leaders, ordered by their index in the input list:
+A canonical numbering over leaders, ordered by their index in the input list:
 
 ```
 x[leader_i, p] <= Σ_{j<i} x[leader_j, p-1]     for p >= 1
 ```
 
-Add a test asserting that the solver finds the same objective value with and without symmetry
-breaking on a small instance, and that the constrained run is faster.
+This is also why dancer input order is significant: it defines the canonical position labels.
 
 ### Scoring (`scoring.py`)
 
@@ -249,38 +268,83 @@ breaking on a small instance, and that the constrained run is faster.
 Weight schemes, selectable via `SolverConfig.weights`:
 
 * `LINEAR` — tier *k* of *K* is worth `K - k + 1`, dislikes negative and symmetric.
-* `GEOMETRIC` — `B^(K-k)` with `B` large enough that one tier-*k* fulfilment outranks all possible
-  tier-*(k+1)* fulfilments. Compute `B` from the instance, do not hardcode it. Warn in the docstring
-  that this degrades CP-SAT's bound quality on larger instances.
+* `GEOMETRIC` — `B^(K-k)` with `B` computed from the instance so that one tier-*k* fulfilment
+  outranks all possible tier-*(k+1)* fulfilments. Degrades CP-SAT's bound quality on larger
+  instances; the docstring warns about it.
 
-**Normalisation.** A dancer on a Doppelbesetzung has two cross-role partners and thus twice the
-score contributions; unnormalised, the solver systematically favours Doppelbesetzungen for
-well-liked dancers. Implement `SolverConfig.normalize_double: bool = True`: introduce
-`is_doubled[d]` (bool) and use `AddMultiplicationEquality` to halve the doubled case, working on a
-×2-scaled integer score so no rounding is needed.
+**Normalisation** (`SolverConfig.normalize_double`, default on). A dancer with two cross-role
+partners has twice the score contributions; unnormalised, the solver systematically favours
+Doppelbesetzungen for well-liked dancers. What doubles a dancer's cross-role contributions is the
+number of dancers of the **other** role on their position, not their own role's count — see
+`solver._partner_doubled`. Scores live on a ×2-scaled integer scale
+(`SolverConfig.score_scale`) so the doubled case halves without rounding. The halving uses two
+linear equalities under `only_enforce_if` rather than `add_multiplication_equality`: the factor is
+binary, so they are exactly equivalent, stay linear, and propagate far better.
+
+Normalisation also interacts with `prefer_coupled`: a granted wish is worth more when the position
+holds a single dancer of the opposite role, so `abs(n_leaders - n_followers)` is only a lower
+bound on the lopsided count, not an attainable target. Wishes first is the intended trade.
 
 ### Objective staging
 
 `SolverConfig.objective` selects one of:
 
-* `WEIGHTED_SUM` — single-stage `Maximize(Σ score)`. Simplest, and reliably leaves one or two
-  people with nothing. Keep it for comparison only.
+* `WEIGHTED_SUM` — single-stage `maximize(Σ score)`. Simplest, and reliably leaves one or two
+  people with nothing. Kept for comparison.
 * `MAXIMIN_THEN_SUM` — **default.** Stage 1 maximises `lo` with `lo ≤ score[d]` for all `d`.
   Stage 2 pins `lo` to its optimum and maximises `Σ score`.
-* `LEXIMIN` — iteratively fix the current smallest score and re-solve on the remainder.
-* `LEXICOGRAPHIC_TIERS` — stage *k* maximises the count of fulfilled tier-*k* wishes across the
-  team, then constrains it (optionally with slack `ε`) before moving to tier *k+1*.
+* `LEXIMIN` — two stages per round: maximise the floor among the dancers still in play, then
+  maximise how many escape it. The "in play" indicators are reified from the scores, so the solver
+  picks *which* dancers escape while the stage fixes only *how many* — that is what makes it a
+  leximin instead of a maximin repeated on an arbitrary set. The rounds pin the entire sorted
+  score vector, so `LEXIMIN` needs no `sum` stage and every optimum has the same total.
+* `LEXICOGRAPHIC_TIERS` — counts fulfilled wishes per tier rather than scoring them, so
+  `SolverConfig.weights` does not apply. The mirror-image dislike stages (`not_desired.tierN`,
+  minimised) run too — without them every dislike weaker than `veto_tier` would be ignored
+  outright. `tier_slack` (ε) lets tier *k+1* buy from tier *k*.
 
-Implement staging as a reusable helper that takes a list of `(objective_expr, sense)` and threads
-constraints between stages. Log each stage's objective value.
+Stages come from a **generator**, not a list: `LEXIMIN` cannot know its later stages until it sees
+the earlier optima. The generator yields a `Stage` and receives the achieved value back via
+`send`, which makes it deterministic given that sequence — the only reason the enumeration pass
+can rebuild the identical stages on a fresh model. Each stage's objective value is logged.
+
+Two `Stage` flags matter for correctness:
+
+* **`Stage.surrogate`** marks an artificial bound variable (a maximin/leximin floor). Once the
+  objective is gone in the enumeration pass such a variable floats free, and CP-SAT would report
+  the same assignment once per admissible floor value. Surrogates are pinned to a single value;
+  real objectives get an inequality.
+* **`Stage.tie_break` + `solver._lock_in`** keep `prefer_coupled` honest: `tier_slack` is the only
+  thing allowed to spend the inter-tier epsilon — not the coupled tie-break, and not the
+  enumeration pass. `_lock_in` runs twice (before any tie-break stage, and once the stage sequence
+  ends) and records `StageResult.locked_at`. `locked_at` is a **floor, not a final figure**: the
+  enumeration pass may find something better than pass 1 settled for and is free to. Assertions on
+  it must be one-sided.
+
+`SolveResult.wall_time` accumulates over **all** stages (`_run_stages` sums per-stage times; a
+`CpSolver` only reports its most recent solve).
+`test_wall_time_counts_every_stage_not_just_the_last` pins the accumulation.
 
 ### Solution enumeration
 
-Preference problems have many equal optima. After the final stage, re-solve with the objective
-pinned to `optimum` (or `≥ 0.95 * optimum`, configurable) and collect solutions via
-`CpSolverSolutionCallback`, capped at `max_solutions` (default 50) and `max_time_in_seconds`
-(default 30). Deduplicate by a canonical signature: the frozenset of frozensets of dancer ids per
-position — symmetry breaking makes positions comparable but the signature is the honest key.
+Preference problems have many equal optima, and the differences between them are exactly the
+choices the coach still has. Two passes:
+
+1. Optimise the stages on a throwaway model.
+2. Build a fresh model, replay the same stages as *constraints*, drop the objective, and turn on
+   `enumerate_all_solutions` with a single worker. `max_solutions == 1` skips this pass entirely.
+
+Details that are easy to get wrong:
+
+* The collector asks for `max_solutions + 1` and reports `truncated` only if it actually got the
+  extra one. Setting `truncated` on merely reaching the cap is wrong — the cap and the true count
+  can coincide, and the example team's three optima are exactly that case.
+* Dedup is by `Solution.signature`, the frozenset of frozensets of dancer ids per position. With
+  symmetry breaking on it catches nothing; with it off, the same partition arrives once per
+  labelling (`test_dedup_survives_symmetry_breaking_being_off`).
+* `near_optimal_ratio` computes its slack from `abs(optimum)`, so 0.95 *widens* the band for a
+  negative optimum. Taking `0.95 * optimum` literally would tighten it there — the opposite of
+  what "near-optimal" means.
 
 ### Result type
 
@@ -302,50 +366,83 @@ class DancerSatisfaction(BaseModel):
     neutral_partners: list[str]
 ```
 
-Positions in the output are labelled A–H, not 1–8. The model treats them as interchangeable and
-numbering them invites the team to read a ranking into the result that does not exist.
+Positions in the output are labelled A–H, not 1–8: the model treats them as interchangeable, and
+numbering invites the team to read a ranking into the result that does not exist.
+
+`reporting.py` holds `unfulfilled_desired` / `respected_not_desired`, shared by CLI and UI. The
+asymmetry is deliberate: `respected_not_desired` filters by `config.scope`,
+`unfulfilled_desired` does not. Claiming credit for keeping two leaders apart under
+`CROSS_ROLE_ONLY` would be claiming credit for a constraint nothing enforced; a wish the coach
+wrote down stays visibly missed whether or not the objective ever scored it.
 
 ---
 
 ## 9. Persistence (`storage.py`)
 
-YAML in `data/`, human-editable and diffable — the coach will hand-edit it, so preserve key order
-and never rewrite the file with reordered content. `load_team(path) -> Team`,
-`save_team(team, path)`. Ship a realistic `data/team.example.yaml` with 20 dancers, mixed flags and
-a few tiers. No database.
+YAML in `data/`, human-editable and diffable. `load_team(path) -> Team`, `save_team(team, path)`.
+No database.
+
+* Canonical output: `sort_keys=False` with a fixed key order — PyYAML left to itself shuffles
+  `id`/`name`/`role` on every save. Dancer order is preserved (it defines the canonical position
+  labels, §8).
+* Tiers are stored as `rank: [ids]` mappings under `desired:` / `not_desired:`, emitted inline
+  (`1: [anna-b, lena-f]`). False flags and empty survey directions are omitted.
+* PyYAML cannot preserve comments, so `save_team` drops them. `load_team` never writes; writing
+  happens only on explicit request (CLI flag, UI save button — never autosave).
+* `StorageError` means the YAML *shape* is wrong; `ValidationError` means a §6 domain rule broke.
+  The CLI maps both to German messages and exit code 1.
+* Real survey data never enters the repo: `data/team.yaml` is gitignored, only the two example
+  files are tracked.
 
 ---
 
 ## 10. Streamlit UI (`app/`)
 
-Yes, a UI is worth it here: the survey data is fiddly, the coach is not going to edit YAML, and
-comparing near-optimal solutions is inherently interactive.
+A home page and four working pages, all thin over `app/common.py` (session state, the cached
+solve, formatting):
 
-* `Home.py` — load / create a team file, show a feasibility summary panel driven by §7.
-* `1_Team.py` — dancer table with `st.data_editor`: name, role, `is_pole_position`,
-  `needs_coaching`. The column headings the coach sees stay German ("Startanspruch",
-  "Coachingbedarf") like every other user-facing string.
-* `2_Umfrage.py` — pick a dancer, then per direction a dynamic list of tiers, each an
-  `st.multiselect` over eligible dancers. "Tier hinzufügen" / "Tier entfernen" buttons.
-  Live-validate rules 3 and 4 from §6 and show the conflict inline, in German.
-* `3_Loesung.py` — solver config widgets (objective, weight scheme, veto tier, time limit),
-  a run button, then the best solution as 8 cards, each showing the leaders and followers on the
-  position with badges for fulfilled wishes and violated dislikes. Card headings stay German
-  ("Herren" / "Damen").
-* `4_Analyse.py` — per-dancer satisfaction table sorted ascending (the unhappiest first, that is
-  the row the coach actually needs), plus a browser over the enumerated near-optimal solutions with
-  a diff against the currently selected one.
+* `Home.py` — load / upload / create a team file, feasibility summary panel (§7), explicit save.
+* `pages/team.py` — dancer table with `st.data_editor`: name, role, pole position, coaching need.
+* `pages/survey.py` — pick a dancer, then per direction a dynamic list of tiers, each an
+  `st.multiselect` over eligible dancers, with add/remove tier buttons.
+* `pages/solution.py` — solver config widgets, a run button, the best solution as 8 cards with
+  badges for fulfilled wishes and violated dislikes.
+* `pages/analysis.py` — per-dancer satisfaction sorted ascending (the unhappiest first — that is
+  the row the coach actually needs), plus a browser over the enumerated solutions with a diff
+  against the selected one.
 
-Implementation notes:
+Implementation rules:
 
-* Team state lives in `st.session_state`, persisted to YAML on explicit save. No autosave.
-* Wrap the solve call in `st.cache_data` keyed on a hash of `(Team, SolverConfig)`.
-* Run the solve inside `st.spinner`; enforce the configured time limit so the UI cannot hang.
-* Colour-code by satisfaction, but never by dancer name or role.
+* Team state lives in `st.session_state`, persisted to YAML **only on explicit save**.
+* The solve runs inside `st.spinner`, wrapped in `st.cache_data`. `st.cache_data` cannot hash a
+  pydantic model, so `cached_solve` passes explicit `hash_funcs`: `dump_team` for the `Team`,
+  `model_dump_json()` for the `SolverConfig` — the core's canonical serialisations, so two teams
+  that save identically share an entry. The configured time limit is passed to the solver so the
+  UI cannot hang.
+* **Never `Team.model_copy` to edit**: it skips validation on a frozen model, which is exactly the
+  check being relied on. `common.with_survey` goes through the constructor and returns surveys in
+  roster order so the saved YAML stays stable.
+* The feasibility panel passes the **current** `SolverConfig`, not a default one — `veto_tier`
+  and `scope` change the verdict. (`cli.py::check` still passes a default; that is a pre-existing
+  CLI limitation, not a pattern to copy.)
+* Editing pages validate §6 rules 3 and 4 **themselves** so the conflict reads in German. Pydantic
+  stays the final gate, but its English message must never reach the coach.
+* Empty and orphaned tiers are renumbered, not rejected — browser editing breaks the "contiguous
+  from 1" rule constantly, and the coach did not cause it. See `common.renumber_tiers` /
+  `tiers_from_selections`.
+* Colour encodes satisfaction only, never name or role. `common.score_badge` scales against the
+  achieved range of the solution being shown, not an absolute.
+* `st.data_editor` is fed `list[dict]`, not a DataFrame (§4 keeps pandas out).
+
+`streamlit` being an extra is what makes "delete `app/` and the CLI still works" enforceable
+rather than aspirational; CI proves it by moving `app/` aside, uninstalling streamlit and running
+`solve`.
 
 ---
 
 ## 11. CLI (`cli.py`)
+
+The CLI is the reference interface — everything the UI can do, it can do.
 
 ```
 dancepartner check   data/team.yaml
@@ -353,50 +450,66 @@ dancepartner solve   data/team.yaml --objective maximin-then-sum --top 10 --json
 dancepartner explain data/team.yaml out.json --dancer lukas-b
 ```
 
-The CLI is the reference interface and must reach full functionality at Milestone 2, before any UI
-work starts.
+* Enum options are spelled with hyphens (`--objective maximin-then-sum`) via the
+  `ObjectiveChoice`/`WeightChoice`/`ScopeChoice` enums, mapped to the domain enums by member name.
+  The domain enums keep snake_case values because YAML and JSON carry those.
+* `--veto-tier 0` is the CLI spelling of `SolverConfig.veto_tier=None`.
+* `--top N` sets `max_solutions` **and** prints all N, each alternative diffed against the best.
+  `--near-optimal` and `--tier-slack` expose the other two enumeration knobs.
+* `solve --json` writes `{"config": ..., "result": ...}`; `explain` reads that back. Keep both
+  ends in step — `test_explain_matches_the_solve_table` compares their rendered output.
+* `explain --solution N` picks a shortlist entry; with more than one solution in the file it also
+  summarises how stable the dancer's partners are across the whole shortlist. That is the question
+  enumeration exists to answer: a partner in every optimum is not a choice the coach has to make,
+  one in 3 of 20 is.
+* Exit codes: `0` success, `1` file or instance rejected, `2` bad invocation (typer's), `3` the
+  solver found no solution within its limits.
 
 ---
 
 ## 12. Testing
 
-* Unit tests per validator in §6, each asserting the specific error.
-* Feasibility counting tests including the exact boundary cases (`n = 8`, `n = 16`, coaching count
-  odd vs even).
-* Hand-constructed micro-instances (3 positions, 6–8 dancers) with a known optimum, asserted by value.
-* A constraint-verification helper `assert_valid(solution, team)` re-checking **every** hard
-  constraint from §8 against the returned solution; call it in every solver test. The solver must
-  never be trusted to have modelled what we think it modelled.
-* The reification regression test from §8.
+* `tests/helpers.py::assert_result_valid(result, team, config)` is called in **every** solver
+  test. It re-checks every hard constraint against the returned assignment *and* compares the
+  model's reported stage values against an independent recomputation. The second half is not
+  optional: recomputed scores stay correct even when CP-SAT optimised the wrong thing, so only the
+  stage values expose a mis-modelled objective.
+* Hand-constructed micro-instances (3 positions, 6–9 dancers) with a known optimum, asserted **by
+  value**. `tests/builders.py` has the terse constructors; synthetic dancers are `led0..`/`fol0..`,
+  and their roster order doubles as the canonical position ordering (§8).
+* The load-bearing constraints are verified by mutation — each of these must turn the suite red:
+  the `add_bool_or` half of the reification, the symmetry-breaking constraint, the signature
+  dedup, the `_lock_in` tie-break guard.
+* `tests/test_objectives.py::divergent_instance` is the instance where maximising the total and
+  levelling up genuinely disagree (`MAXIMIN_THEN_SUM` reaches `[0, 0, 2, 6, 6, 6, 6]`, `LEXIMIN`
+  gives up five points of total for `[0, 2, 2, 3, 4, 4, 6]`). Without it the two objectives look
+  identical on every instance in the repo.
+* `assert_leximin_vector` reconstructs the score multiset from the reported rounds alone; if the
+  rounds and the assignment disagree, one of them is lying.
 * A determinism test: same input plus fixed `random_seed` yields the same solution.
-* Target ≥ 90 % coverage on `src/dancepartner/`, excluding `i18n.py`.
+* Anything asserting the canonical position numbering must use `max_solutions=1` or check the
+  whole shortlist: `_ranking_key` imposes an order of its own and will otherwise mask a missing
+  symmetry-breaking constraint.
+* UI tests (`tests/test_app.py`) drive `streamlit.testing.v1.AppTest` in-process;
+  `tests/conftest.py` puts `app/` on `sys.path`, reproducing what `streamlit run app/Home.py`
+  does. Address widgets by key, not index. `test_the_ui_inlines_no_german_literal` scans `app/`
+  for umlauts outside docstrings; `test_no_string_key_is_missing_from_i18n` globs `app/` too, so a
+  UI-only key is not reported unused (dynamically looked-up keys need a prefix in
+  `dynamic_prefixes`).
+* Coverage gate: ≥ 90 % on `src/dancepartner/` (currently 100 %), with `i18n.py` omitted. The UI
+  has its own tests but no gate.
 
 ---
 
-## 13. Milestones
+## 13. Non-goals and constraints
 
-Stop after each one and wait for my review.
-
-1. **Core** — `model.py`, `feasibility.py`, `solver.py`, `scoring.py`, full test suite, `WEIGHTED_SUM`
-   and `MAXIMIN_THEN_SUM` objectives. No CLI, no UI.
-2. **CLI + storage** — `storage.py`, `cli.py`, `data/team.example.yaml`, CI workflow.
-3. **Remaining objectives** — `LEXIMIN`, `LEXICOGRAPHIC_TIERS`, solution enumeration and
-   deduplication, `explain` output.
-4. **Streamlit UI** — all four pages, `i18n.py`.
-5. **Polish** — README in German with a worked example, screenshots, performance notes on a
-   realistic 24-dancer instance.
-
----
-
-## 14. Non-goals and constraints
-
-* Do not add authentication, multi-tenancy, or a database.
-* Do not add a heuristic or genetic solver. The instance is tiny; CP-SAT solves it exactly and any
-  fallback is dead code that will drift out of sync with the constraint set.
-* Do not infer preferences the survey did not state — no transitive wishes, no "A likes B so B
-  probably likes A", no clustering.
-* Do not model height, appearance, choreography paths, or anything the coach did not ask for.
-* Do not commit real survey data. `data/team.yaml` goes in `.gitignore`; only the example file is
+* No authentication, multi-tenancy, or database.
+* No heuristic or genetic solver. The instance is tiny; CP-SAT solves it exactly, and any fallback
+  is dead code that drifts out of sync with the constraint set.
+* No inferred preferences — no transitive wishes, no "A likes B so B probably likes A", no
+  clustering.
+* No modelling of height, appearance, choreography paths, or anything the coach did not ask for.
+* No real survey data in the repo. `data/team.yaml` is gitignored; only the example files are
   tracked.
-* Ask me before changing anything in §3 or §6 — the glossary and the hard constraints are the parts
+* Ask before changing anything in §3 or §6 — the glossary and the hard constraints are the parts
   the team has actually agreed on. (The English-vocabulary rename in §2.1 was agreed this way.)
