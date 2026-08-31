@@ -40,17 +40,17 @@ class PositionAssignment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     label: str
-    herren: list[str]
-    damen: list[str]
+    leaders: list[str]
+    followers: list[str]
 
     @property
     def is_doubled(self) -> bool:
-        """*Doppelbesetzung* in the strict sense: two Herren **and** two Damen."""
-        return len(self.herren) == 2 and len(self.damen) == 2
+        """A *Doppelbesetzung* in the strict sense: two leaders **and** two followers."""
+        return len(self.leaders) == 2 and len(self.followers) == 2
 
     def role_ids(self, role: Role) -> list[str]:
         """Dancer ids of one role on this position."""
-        return self.herren if role is Role.HERR else self.damen
+        return self.leaders if role is Role.LEADER else self.followers
 
 
 class DancerSatisfaction(BaseModel):
@@ -60,16 +60,16 @@ class DancerSatisfaction(BaseModel):
         score: The dancer's objective contribution, on the solver's integer scale. With
             ``SolverConfig.normalize_double`` that scale is x2, so a value of 6 with a
             LINEAR tier weight of 3 means one fulfilled top wish, not six of anything.
-        fulfilled_wunsch: Tier rank -> the wished-for partner ids actually granted.
-        violated_nicht_wunsch: Tier rank -> the un-wished partner ids co-positioned anyway.
+        fulfilled_desired: Tier rank -> the wished-for partner ids actually granted.
+        violated_not_desired: Tier rank -> the un-wished partner ids co-positioned anyway.
         neutral_partners: In-scope co-positioned dancers this dancer named in no tier.
     """
 
     model_config = ConfigDict(frozen=True)
 
     score: int
-    fulfilled_wunsch: dict[int, list[str]] = Field(default_factory=dict)
-    violated_nicht_wunsch: dict[int, list[str]] = Field(default_factory=dict)
+    fulfilled_desired: dict[int, list[str]] = Field(default_factory=dict)
+    violated_not_desired: dict[int, list[str]] = Field(default_factory=dict)
     neutral_partners: list[str] = Field(default_factory=list)
 
 
@@ -95,7 +95,7 @@ class Solution(BaseModel):
         same *Verpartnerung*.
         """
         return frozenset(
-            frozenset((*position.herren, *position.damen)) for position in self.positions
+            frozenset((*position.leaders, *position.followers)) for position in self.positions
         )
 
 
@@ -122,7 +122,7 @@ def tier_weight(rank: int, direction: Direction, max_rank: int, base: int | None
 
     Args:
         rank: The tier rank, 1 being strongest.
-        direction: ``"wunsch"`` gives a positive weight, ``"nicht_wunsch"`` a negative one of
+        direction: ``"desired"`` gives a positive weight, ``"not_desired"`` a negative one of
             the same magnitude -- dislikes are symmetric to likes.
         max_rank: ``K``, the largest rank in the instance. Instance-global rather than
             per-dancer, so a dancer who listed one tier is not scored lower than one who
@@ -130,7 +130,7 @@ def tier_weight(rank: int, direction: Direction, max_rank: int, base: int | None
         base: ``B`` for GEOMETRIC weights, ``None`` for LINEAR.
     """
     magnitude = max_rank - rank + 1 if base is None else base ** (max_rank - rank)
-    return magnitude if direction == "wunsch" else -magnitude
+    return magnitude if direction == "desired" else -magnitude
 
 
 def build_weights(team: Team, config: SolverConfig) -> dict[tuple[str, str], int]:
@@ -159,7 +159,7 @@ def scored_pairs(team: Team, config: SolverConfig) -> list[frozenset[str]]:
     pairs: set[frozenset[str]] = set()
     for source, target in build_weights(team, config):
         pairs.add(frozenset((source, target)))
-    # Vetoes are already in build_weights (a vetoed pair is always a nicht_wunsch entry), but
+    # Vetoes are already in build_weights (a vetoed pair is always a not_desired entry), but
     # deriving them separately keeps this correct if veto handling ever widens.
     pairs |= veto_pairs(team, config)
     return sorted(pairs, key=lambda pair: sorted(pair))
@@ -213,11 +213,11 @@ def build_satisfaction(
                 else:
                     score += weight * scale
 
-                rank = survey.rank_of(other, "wunsch") if survey else None
+                rank = survey.rank_of(other, "desired") if survey else None
                 if rank is not None:
                     fulfilled.setdefault(rank, []).append(other)
                     continue
-                rank = survey.rank_of(other, "nicht_wunsch") if survey else None
+                rank = survey.rank_of(other, "not_desired") if survey else None
                 if rank is not None:
                     violated.setdefault(rank, []).append(other)
                 else:
@@ -225,8 +225,8 @@ def build_satisfaction(
 
             result[dancer_id] = DancerSatisfaction(
                 score=score,
-                fulfilled_wunsch={rank: sorted(ids) for rank, ids in sorted(fulfilled.items())},
-                violated_nicht_wunsch={rank: sorted(ids) for rank, ids in sorted(violated.items())},
+                fulfilled_desired={rank: sorted(ids) for rank, ids in sorted(fulfilled.items())},
+                violated_not_desired={rank: sorted(ids) for rank, ids in sorted(violated.items())},
                 neutral_partners=neutral,
             )
     return result
@@ -239,8 +239,8 @@ def build_solution(team: Team, config: SolverConfig, groups: Sequence[Sequence[s
     positions = [
         PositionAssignment(
             label=label,
-            herren=sorted(i for i in group if by_id[i].role is Role.HERR),
-            damen=sorted(i for i in group if by_id[i].role is Role.DAME),
+            leaders=sorted(i for i in group if by_id[i].role is Role.LEADER),
+            followers=sorted(i for i in group if by_id[i].role is Role.FOLLOWER),
         )
         for label, group in zip(labels, groups, strict=True)
     ]

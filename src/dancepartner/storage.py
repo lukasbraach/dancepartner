@@ -6,11 +6,11 @@ round-tripping a Python object:
 * Keys are emitted in a fixed, meaningful order -- never alphabetically. ``yaml.safe_dump``
   sorts keys by default, which would shuffle ``id``/``name``/``role`` on every save.
 * Dancer order is preserved on load **and** save, because it is semantically significant: the
-  solver's symmetry breaking numbers positions by the input index of the Herren.
+  solver's symmetry breaking numbers positions by the input index of the leaders.
 * Tiers are written as a ``rank -> [dancer ids]`` mapping rather than a list of objects. The
   model stores ``dancer_ids`` as a ``frozenset``, so ids are emitted sorted to keep saves
   deterministic.
-* ``has_startanspruch`` and ``needs_coaching`` are omitted when false, and empty survey
+* ``is_pole_position`` and ``needs_coaching`` are omitted when false, and empty survey
   directions are omitted entirely.
 
 Known limitation: PyYAML cannot preserve comments, so ``save_team`` drops any the coach wrote.
@@ -28,9 +28,16 @@ import yaml
 
 from .model import Dancer, Role, Survey, Team, Tier
 
-__all__ = ["StorageError", "dump_team", "load_team", "parse_team", "save_team"]
+__all__ = [
+    "MalformedYamlError",
+    "StorageError",
+    "dump_team",
+    "load_team",
+    "parse_team",
+    "save_team",
+]
 
-_DANCER_KEYS = ("id", "name", "role", "has_startanspruch", "needs_coaching")
+_DANCER_KEYS = ("id", "name", "role", "is_pole_position", "needs_coaching")
 
 
 class _FlowList(list[str]):
@@ -59,8 +66,17 @@ _TeamDumper.add_representer(
 class StorageError(ValueError):
     """The file is not a readable team definition.
 
-    Distinct from ``pydantic.ValidationError``: this one means the YAML shape is wrong (a list
-    where a mapping belongs), not that the domain rules were broken.
+    Distinct from ``pydantic.ValidationError``: this one means the YAML *shape* is wrong -- an
+    unknown key, a list where a mapping belongs -- not that the domain rules were broken.
+    """
+
+
+class MalformedYamlError(StorageError):
+    """The file is not valid YAML at all.
+
+    Separate from its parent so callers can tell "you have a syntax error" from "your keys are
+    wrong". Telling somebody their YAML is invalid when it parses perfectly well sends them
+    hunting for a missing colon that is not there.
     """
 
 
@@ -69,7 +85,8 @@ def load_team(path: Path | str) -> Team:
 
     Raises:
         FileNotFoundError: No file at ``path``.
-        StorageError: The file is not valid YAML, or not shaped like a team.
+        MalformedYamlError: The file is not valid YAML.
+        StorageError: The file parses but is not shaped like a team.
         pydantic.ValidationError: The team violates a domain rule from SPEC.md 6.
     """
     text = Path(path).read_text(encoding="utf-8")
@@ -81,7 +98,7 @@ def parse_team(text: str) -> Team:
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as error:
-        raise StorageError(f"not valid YAML: {error}") from error
+        raise MalformedYamlError(f"not valid YAML: {error}") from error
     if raw is None:
         raise StorageError("the team file is empty")
     if not isinstance(raw, dict):
@@ -155,22 +172,20 @@ def _parse_dancer(entry: object, index: int) -> Dancer:
         id=str(mapping.get("id", "")),
         name=str(mapping.get("name", "")),
         role=Role(role),
-        has_startanspruch=bool(mapping.get("has_startanspruch", False)),
+        is_pole_position=bool(mapping.get("is_pole_position", False)),
         needs_coaching=bool(mapping.get("needs_coaching", False)),
     )
 
 
 def _parse_survey(entry: object, index: int) -> Survey:
     mapping = _mapping(entry, f"surveys[{index}]")
-    unknown = set(mapping) - {"dancer_id", "wunsch", "nicht_wunsch"}
+    unknown = set(mapping) - {"dancer_id", "desired", "not_desired"}
     if unknown:
         raise StorageError(f"surveys[{index}]: unknown key(s) {sorted(unknown)}")
     return Survey(
         dancer_id=str(mapping.get("dancer_id", "")),
-        wunsch_tiers=_parse_tiers(mapping.get("wunsch"), f"surveys[{index}].wunsch"),
-        nicht_wunsch_tiers=_parse_tiers(
-            mapping.get("nicht_wunsch"), f"surveys[{index}].nicht_wunsch"
-        ),
+        desired_tiers=_parse_tiers(mapping.get("desired"), f"surveys[{index}].desired"),
+        not_desired_tiers=_parse_tiers(mapping.get("not_desired"), f"surveys[{index}].not_desired"),
     )
 
 
@@ -201,8 +216,8 @@ def _dump_dancer(dancer: Dancer) -> dict[str, Any]:
         "role": dancer.role.value,
     }
     # Omitted when false: two extra lines per dancer would bury the flags that are actually set.
-    if dancer.has_startanspruch:
-        entry["has_startanspruch"] = True
+    if dancer.is_pole_position:
+        entry["is_pole_position"] = True
     if dancer.needs_coaching:
         entry["needs_coaching"] = True
     return entry
@@ -210,10 +225,10 @@ def _dump_dancer(dancer: Dancer) -> dict[str, Any]:
 
 def _dump_survey(survey: Survey) -> dict[str, Any]:
     entry: dict[str, Any] = {"dancer_id": survey.dancer_id}
-    if survey.wunsch_tiers:
-        entry["wunsch"] = _dump_tiers(survey.wunsch_tiers)
-    if survey.nicht_wunsch_tiers:
-        entry["nicht_wunsch"] = _dump_tiers(survey.nicht_wunsch_tiers)
+    if survey.desired_tiers:
+        entry["desired"] = _dump_tiers(survey.desired_tiers)
+    if survey.not_desired_tiers:
+        entry["not_desired"] = _dump_tiers(survey.not_desired_tiers)
     return entry
 
 

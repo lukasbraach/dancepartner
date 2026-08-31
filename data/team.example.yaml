@@ -1,15 +1,16 @@
 # Beispielteam für dancepartner — erfundene Daten, keine echte Teambefragung.
 #
-# Rollen:      herr | dame
-# Flags:       has_startanspruch  (muss allein in der eigenen Rolle auf der Position sein)
-#              needs_coaching     (darf NICHT allein in der eigenen Rolle sein)
+# Rollen:      leader (Herr) | follower (Dame)
+# Flags:       is_pole_position   (Startanspruch: muss allein in der eigenen Rolle auf der
+#                                 Position sein)
+#              needs_coaching     (Coachingbedarf: darf NICHT allein in der eigenen Rolle sein)
 #              Die beiden schließen sich gegenseitig aus.
-# Wünsche:     wunsch / nicht_wunsch, jeweils  <tier>: [ids]  — Tier 1 ist der stärkste Wunsch.
+# Wünsche:     desired / not_desired, jeweils  <tier>: [ids]  — Tier 1 ist der stärkste Wunsch.
 #              Tiers müssen bei 1 beginnen und lückenlos sein, je Richtung.
 #              Eine ID darf pro Richtung in nur einem Tier stehen und nie in beiden Richtungen.
 #
 # Die Reihenfolge der Tänzer:innen ist bedeutsam: die Symmetriebrechung des Solvers numeriert
-# die Positionen nach dem Index der Herren in dieser Liste.
+# die Positionen nach dem Index der leader in dieser Liste.
 #
 # ACHTUNG: »dancepartner solve --save« o. Ä. gibt es nicht, aber save_team() aus storage.py
 # schreibt diese Datei ohne Kommentare neu. Echte Daten gehören nach data/team.yaml
@@ -18,137 +19,137 @@ n_positions: 8
 dancers:
   - id: lukas-b
     name: Lukas Brandt
-    role: herr
+    role: leader
   - id: jonas-k
     name: Jonas Kettner
-    role: herr
+    role: leader
   - id: tim-r
     name: Tim Rothe
-    role: herr
-    has_startanspruch: true
+    role: leader
+    is_pole_position: true
   - id: felix-w
     name: Felix Wendt
-    role: herr
+    role: leader
   - id: moritz-s
     name: Moritz Sander
-    role: herr
+    role: leader
   - id: david-l
     name: David Lorenz
-    role: herr
+    role: leader
   - id: nils-p
     name: Nils Petersen
-    role: herr
+    role: leader
   - id: jan-h
     name: Jan Hübner
-    role: herr
+    role: leader
   - id: paul-m
     name: Paul Mertens
-    role: herr
+    role: leader
     needs_coaching: true
   - id: anna-b
     name: Anna Brenner
-    role: dame
+    role: follower
   - id: lena-f
     name: Lena Fricke
-    role: dame
+    role: follower
   - id: mia-t
     name: Mia Thalmann
-    role: dame
+    role: follower
   - id: sofia-r
     name: Sofia Reinhardt
-    role: dame
-    has_startanspruch: true
+    role: follower
+    is_pole_position: true
   - id: emma-k
     name: Emma Köhler
-    role: dame
+    role: follower
   - id: clara-w
     name: Clara Wagner
-    role: dame
+    role: follower
   - id: nina-s
     name: Nina Steinbach
-    role: dame
+    role: follower
   - id: leah-d
     name: Leah Dorn
-    role: dame
+    role: follower
     needs_coaching: true
   - id: marie-g
     name: Marie Günther
-    role: dame
+    role: follower
   - id: julia-v
     name: Julia Voigt
-    role: dame
+    role: follower
   - id: hanna-z
     name: Hanna Zeller
-    role: dame
+    role: follower
 surveys:
   - dancer_id: lukas-b
-    wunsch:
+    desired:
       1: [anna-b]
       2: [lena-f, mia-t]
-    nicht_wunsch:
+    not_desired:
       1: [emma-k]
   - dancer_id: jonas-k
-    wunsch:
+    desired:
       1: [lena-f]
       2: [sofia-r]
   - dancer_id: tim-r
-    wunsch:
+    desired:
       1: [mia-t]
-    nicht_wunsch:
+    not_desired:
       1: [nina-s]
   - dancer_id: felix-w
-    nicht_wunsch:
+    not_desired:
       1: [clara-w]
   - dancer_id: moritz-s
-    wunsch:
+    desired:
       1: [emma-k, clara-w]
   - dancer_id: david-l
-    wunsch:
+    desired:
       1: [nina-s]
       2: [leah-d]
   - dancer_id: nils-p
-    wunsch:
+    desired:
       1: [marie-g]
       2: [julia-v]
   - dancer_id: jan-h
-    wunsch:
+    desired:
       1: [hanna-z]
   - dancer_id: paul-m
-    wunsch:
+    desired:
       1: [hanna-z]
-    nicht_wunsch:
+    not_desired:
       1: [julia-v]
   - dancer_id: anna-b
-    wunsch:
+    desired:
       1: [lukas-b]
   - dancer_id: lena-f
-    wunsch:
+    desired:
       1: [jonas-k]
       2: [tim-r]
   - dancer_id: mia-t
-    wunsch:
+    desired:
       1: [tim-r]
       2: [lukas-b]
   - dancer_id: sofia-r
-    wunsch:
+    desired:
       1: [jonas-k]
-    nicht_wunsch:
+    not_desired:
       1: [felix-w]
   - dancer_id: emma-k
-    nicht_wunsch:
+    not_desired:
       1: [lukas-b]
   - dancer_id: clara-w
-    wunsch:
+    desired:
       1: [moritz-s]
   - dancer_id: nina-s
-    wunsch:
+    desired:
       1: [david-l]
   - dancer_id: leah-d
-    wunsch:
+    desired:
       1: [david-l, nils-p]
   - dancer_id: hanna-z
-    wunsch:
+    desired:
       1: [paul-m]
   - dancer_id: julia-v
-    nicht_wunsch:
+    not_desired:
       1: [paul-m]

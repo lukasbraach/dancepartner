@@ -9,7 +9,7 @@
 ## 1. Context
 
 We assign dancers of a Latin formation team (Lateinformation, VfL Pinneberg) to **8 unordered positions**.
-Each position is occupied by at least one Herr and at least one Dame, optionally two of each
+Each position is occupied by at least one leader and at least one follower, optionally two of each
 (*Doppelbesetzung* — two couples share a position and alternate across tournaments).
 
 The team runs an internal survey (*Teambefragung*) in which every dancer names desired and
@@ -26,30 +26,61 @@ near-optimal assignments**, never a single mandated answer.
 Read this carefully, it is a recurring source of inconsistency.
 
 * **All code identifiers, comments, docstrings, commit messages, tests and log output: English.**
-* **Exception — domain terms of art.** The following German nouns have no precise English
-  equivalent in ballroom/formation context and are used verbatim as identifiers. Each one gets an
-  English explanation in its docstring (see glossary in §3).
+  No exceptions. This includes the domain terms of art — see §3 for the mapping and §2.1 for why
+  this rule changed.
+* **The on-disk YAML and JSON use the same English vocabulary as the code.** `role: leader`,
+  `desired:`, `not_desired:`, `is_pole_position:`. There is one vocabulary, not two.
 * **All user-facing strings in the Streamlit UI and the CLI: German.** Route them through a single
   module `dancepartner/i18n.py` holding a flat `dict[str, str]`; never inline German string
-  literals in widget calls.
-* Do not translate the glossary terms in variable names "for readability". `has_startanspruch`
-  is correct; `has_starting_claim` is not, because it silently invents a term the team does not use.
+  literals in widget calls. The *keys* of that dict are English, the *values* are German.
+* Where an English identifier replaces a German term the team actually says, its docstring names
+  the old term once, so a reader who knows the team's vocabulary can still find their way. Do not
+  reintroduce the German spelling as an identifier.
+
+### 2.1 History — this rule used to say the opposite
+
+Until the end of Milestone 3 this section mandated the German nouns verbatim as identifiers
+(`has_startanspruch`, `wunsch_tiers`, `Role.HERR`) on the grounds that they have no precise
+English equivalent. That produced a codebase in two languages, and the seam ran straight through
+the data model, the storage format and the test suite.
+
+The team moved to English `leader`/`follower` vocabulary, which is also what the wider dance world
+uses, so the exception no longer paid for itself. The renames were:
+
+| Was | Is now |
+|---|---|
+| `Role.HERR` / `"herr"` | `Role.LEADER` / `"leader"` |
+| `Role.DAME` / `"dame"` | `Role.FOLLOWER` / `"follower"` |
+| `has_startanspruch` | `is_pole_position` |
+| `wunsch_tiers`, YAML `wunsch:` | `desired_tiers`, YAML `desired:` |
+| `nicht_wunsch_tiers`, YAML `nicht_wunsch:` | `not_desired_tiers`, YAML `not_desired:` |
+| `fulfilled_wunsch` | `fulfilled_desired` |
+| `violated_nicht_wunsch` | `violated_not_desired` |
+| `PositionAssignment.herren` / `.damen` | `.leaders` / `.followers` |
+| `TOO_MANY_STARTANSPRUCH` | `TOO_MANY_POLE_POSITION` |
+
+There is **no backwards compatibility**: a team file written in the old vocabulary fails to load
+with a `StorageError` naming the offending key. Only the example file was ever tracked, so this is
+a one-off manual edit for any private `data/team.yaml`.
 
 ---
 
-## 3. Glossary (Deutsch → identifier)
+## 3. Glossary (identifier → meaning)
 
-| German term | Identifier | Meaning (English) |
+The German column records what the team used to call each thing. It is there so the vocabulary
+shift stays traceable — it is **not** a licence to use those spellings as identifiers.
+
+| Identifier | Formerly (Deutsch) | Meaning |
 |---|---|---|
-| Herr / Damen | `Role.HERR`, `Role.DAME` | The two dance roles. Fixed per dancer, not a preference. |
-| Position | `Position` | One of the 8 slots on the floor. Unordered and interchangeable in the model. |
-| Doppelbesetzung | `is_doubled` | A position holding two Herren *and* two Damen. |
-| Startanspruch | `has_startanspruch` | Dancer is the sole driver of their position and must **not** share it with another dancer of the same role. Hard constraint. |
-| Coachingbedarf | `needs_coaching` | Dancer must **not** be the only one of their role on a position; they need a same-role dancer alongside them. Hard constraint. |
-| Wunschpartner | `wunsch_tiers` | Ranked list of sets of desired partners. Tier 1 = strongest wish. Sets within a tier are equivalent. |
-| Nicht-Wunschpartner | `nicht_wunsch_tiers` | Same structure, for undesired partners. |
-| Teambefragung | `Survey` | One dancer's complete set of answers. |
-| Verpartnerung | `Assignment` | A complete mapping of dancers to positions. |
+| `Role.LEADER`, `Role.FOLLOWER` | Herr / Dame | The two dance roles. Fixed per dancer, not a preference. |
+| position index `p`, label A–H | Position | One of the 8 slots on the floor. Unordered and interchangeable in the model. |
+| `is_doubled` | Doppelbesetzung | A position holding two leaders *and* two followers. |
+| `is_pole_position` | Startanspruch | Dancer is the sole driver of their position and must **not** share it with another dancer of the same role. Hard constraint. A claim on the starting slot, **not** a ranking. |
+| `needs_coaching` | Coachingbedarf | Dancer must **not** be the only one of their role on a position; they need a same-role dancer alongside them. Hard constraint. |
+| `desired_tiers` | Wunschpartner | Ranked list of sets of desired partners. Tier 1 = strongest wish. Sets within a tier are equivalent. |
+| `not_desired_tiers` | Nicht-Wunschpartner | Same structure, for undesired partners. |
+| `Survey` | Teambefragung | One dancer's complete set of answers. |
+| `Solution` | Verpartnerung | A complete mapping of dancers to positions. |
 
 Dancers not named in any tier are **neutral**: assignable, contributing zero to that dancer's score.
 
@@ -107,14 +138,14 @@ the reverse. A reviewer should be able to delete `app/` and still run everything
 
 ```python
 class Role(StrEnum):
-    HERR = "herr"
-    DAME = "dame"
+    LEADER = "leader"
+    FOLLOWER = "follower"
 
 class Dancer(BaseModel):
     id: str                      # stable slug, e.g. "lukas-b"
     name: str
     role: Role
-    has_startanspruch: bool = False   # must be alone in their role on the position
+    is_pole_position: bool = False     # must be alone in their role on the position
     needs_coaching: bool = False      # must NOT be alone in their role on the position
 
 class Tier(BaseModel):
@@ -123,8 +154,8 @@ class Tier(BaseModel):
 
 class Survey(BaseModel):
     dancer_id: str
-    wunsch_tiers: list[Tier] = []
-    nicht_wunsch_tiers: list[Tier] = []
+    desired_tiers: list[Tier] = []
+    not_desired_tiers: list[Tier] = []
 
 class Team(BaseModel):
     dancers: list[Dancer]
@@ -134,7 +165,7 @@ class Team(BaseModel):
 
 Validators, all of which must raise on violation:
 
-1. `has_startanspruch` and `needs_coaching` are mutually exclusive per dancer.
+1. `is_pole_position` and `needs_coaching` are mutually exclusive per dancer.
 2. Tier ranks are contiguous starting at 1, no duplicates.
 3. A dancer id appears in at most one tier per direction (no dancer both tier-1 and tier-3 wish).
 4. A dancer id appears in **at most one direction** — being both wished and un-wished is a survey
@@ -147,8 +178,8 @@ Validators, all of which must raise on violation:
 scored independently and must never be silently symmetrised.
 
 **Design question to model explicitly:** preferences are about *cross-role* partners by default
-(a Herr names Damen). Support same-role entries too — on a Doppelbesetzung two Herren share a
-position and their working relationship matters. Represent this with a `PreferenceScope` config
+(a leader names followers). Support same-role entries too — on a Doppelbesetzung two leaders
+share a position and their working relationship matters. Represent this with a `PreferenceScope` config
 flag: `CROSS_ROLE_ONLY` (default) or `ALL`. Same-role preferences are scored only when both are on
 the same position.
 
@@ -159,14 +190,14 @@ the same position.
 Run before building the CP-SAT model and return structured, German-readable diagnostics. Do not
 let the solver return a bare INFEASIBLE for causes that are decidable by counting.
 
-With `n = len(herren)` and 8 positions:
+With `n = len(leaders)` and 8 positions:
 
-* Exactly `n - 8` positions carry a Doppelbesetzung of Herren, exactly `16 - n` carry a single Herr.
-* Therefore: `count(startanspruch ∧ HERR) ≤ 16 - n`
-* And: `n - 8 ≥ ceil(count(needs_coaching ∧ HERR) / 2)`
+* Exactly `n - 8` positions carry two leaders, exactly `16 - n` carry a single leader.
+* Therefore: `count(is_pole_position ∧ LEADER) ≤ 16 - n`
+* And: `n - 8 ≥ ceil(count(needs_coaching ∧ LEADER) / 2)`
 * And: `8 ≤ n ≤ 16`
 
-Identical checks for Damen. Report each failure as a `FeasibilityIssue(code, message_de, involved_ids)`
+Identical checks for followers. Report each failure as a `FeasibilityIssue(code, message_de, involved_ids)`
 so the UI can surface it. Include a check for hard vetoes (§8) making a role infeasible.
 
 ---
@@ -182,9 +213,9 @@ so the UI can surface it. Include a check for hard vetoes (§8) making a role in
 
 1. `AddExactlyOne(x[d, p] for p in positions)` for every dancer.
 2. Per position and per role: `1 ≤ Σ x ≤ 2`.
-3. Startanspruch: `Add(role_count == 1).OnlyEnforceIf(x[d, p])`.
-4. Coachingbedarf: `Add(role_count >= 2).OnlyEnforceIf(x[d, p])`.
-5. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `nicht_wunsch`
+3. Pole position: `Add(role_count == 1).OnlyEnforceIf(x[d, p])`.
+4. Coaching need: `Add(role_count >= 2).OnlyEnforceIf(x[d, p])`.
+5. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `not_desired`
    entries at that tier or stronger get `together[d, e] == 0`.
 
 ### Reification — get this exactly right
@@ -202,10 +233,10 @@ penalty. Add a regression test that specifically catches this.
 ### Symmetry breaking
 
 Positions are unordered — without symmetry breaking the search space is inflated by 8! = 40320.
-Enforce a canonical numbering over Herren, ordered by their index in the input list:
+Enforce a canonical numbering over leaders, ordered by their index in the input list:
 
 ```
-x[herr_i, p] <= Σ_{j<i} x[herr_j, p-1]     for p >= 1
+x[leader_i, p] <= Σ_{j<i} x[leader_j, p-1]     for p >= 1
 ```
 
 Add a test asserting that the solver finds the same objective value with and without symmetry
@@ -255,8 +286,8 @@ position — symmetry breaking makes positions comparable but the signature is t
 
 ```python
 class PositionAssignment(BaseModel):
-    herren: list[str]
-    damen: list[str]
+    leaders: list[str]
+    followers: list[str]
 
 class Solution(BaseModel):
     positions: list[PositionAssignment]
@@ -266,8 +297,8 @@ class Solution(BaseModel):
 
 class DancerSatisfaction(BaseModel):
     score: int
-    fulfilled_wunsch: dict[int, list[str]]      # tier -> partner ids granted
-    violated_nicht_wunsch: dict[int, list[str]]
+    fulfilled_desired: dict[int, list[str]]      # tier -> partner ids granted
+    violated_not_desired: dict[int, list[str]]
     neutral_partners: list[str]
 ```
 
@@ -291,13 +322,16 @@ Yes, a UI is worth it here: the survey data is fiddly, the coach is not going to
 comparing near-optimal solutions is inherently interactive.
 
 * `Home.py` — load / create a team file, show a feasibility summary panel driven by §7.
-* `1_Team.py` — dancer table with `st.data_editor`: name, role, Startanspruch, Coachingbedarf.
+* `1_Team.py` — dancer table with `st.data_editor`: name, role, `is_pole_position`,
+  `needs_coaching`. The column headings the coach sees stay German ("Startanspruch",
+  "Coachingbedarf") like every other user-facing string.
 * `2_Umfrage.py` — pick a dancer, then per direction a dynamic list of tiers, each an
   `st.multiselect` over eligible dancers. "Tier hinzufügen" / "Tier entfernen" buttons.
   Live-validate rules 3 and 4 from §6 and show the conflict inline, in German.
 * `3_Loesung.py` — solver config widgets (objective, weight scheme, veto tier, time limit),
-  a run button, then the best solution as 8 cards, each showing Herren and Damen with badges for
-  fulfilled wishes and violated dislikes.
+  a run button, then the best solution as 8 cards, each showing the leaders and followers on the
+  position with badges for fulfilled wishes and violated dislikes. Card headings stay German
+  ("Herren" / "Damen").
 * `4_Analyse.py` — per-dancer satisfaction table sorted ascending (the unhappiest first, that is
   the row the coach actually needs), plus a browser over the enumerated near-optimal solutions with
   a diff against the currently selected one.
@@ -365,4 +399,4 @@ Stop after each one and wait for my review.
 * Do not commit real survey data. `data/team.yaml` goes in `.gitignore`; only the example file is
   tracked.
 * Ask me before changing anything in §3 or §6 — the glossary and the hard constraints are the parts
-  the team has actually agreed on.
+  the team has actually agreed on. (The English-vocabulary rename in §2.1 was agreed this way.)

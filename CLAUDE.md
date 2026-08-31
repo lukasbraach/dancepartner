@@ -18,36 +18,34 @@ start the next milestone without explicit confirmation.
 
 ## Language policy (§2)
 
-* Code identifiers, comments, docstrings, commit messages, tests, log output: **English**.
-* **Exception — domain terms of art**, used verbatim as identifiers, each with an English
-  explanation in its docstring: `Role.HERR` / `Role.DAME`, `has_startanspruch`,
-  `needs_coaching`, `wunsch_tiers`, `nicht_wunsch_tiers`, `is_doubled`, `Survey`
-  (Teambefragung), `Assignment` / `Solution` (Verpartnerung).
-* Do **not** translate these "for readability". `has_startanspruch` is correct;
-  `has_starting_claim` invents a term the team does not use.
-* All user-facing strings in the Streamlit UI and the CLI: **German**, routed through
-  `i18n.py` (M4). Never inline German literals in widget calls.
-* `i18n.py` landed in M2 rather than M4, because §2 requires the CLI's German to be routed
-  through it and the CLI ships in M2. `feasibility`'s diagnostics moved there too, keyed
-  `feasibility.<CODE>`. `test_cli.py::test_no_string_key_is_missing_from_i18n` fails on a key
-  that nothing references.
+* Code identifiers, comments, docstrings, commit messages, tests, log output, **and the on-disk
+  YAML/JSON vocabulary**: English. No exceptions — the German terms of art were renamed at the end
+  of M3, see §2.1 of `SPEC.md` for the mapping and the reason.
+* All user-facing strings in the Streamlit UI and the CLI: **German**, routed through `i18n.py`.
+  The dict's *keys* are English, its *values* are German. Never inline a German literal in a widget
+  call or a `print`.
+* Where an English identifier replaced a German term the team says out loud, the docstring names
+  the old word once (`is_pole_position` — formerly *Startanspruch*). That is a breadcrumb, not a
+  licence to bring the German spelling back as an identifier.
+* `is_pole_position` is a claim on the *starting slot*, not a ranking. Say so in any new docstring
+  that mentions it — read as "ranked first" it means the opposite of the constraint it encodes.
 
 ## Glossary (§3 — do not change without asking)
 
-| German | Identifier | Meaning |
+| Identifier | Formerly | Meaning |
 |---|---|---|
-| Herr / Dame | `Role.HERR`, `Role.DAME` | The two dance roles. Fixed per dancer. |
-| Position | index `p`, label A–H | One of the 8 slots. **Unordered and interchangeable.** |
-| Doppelbesetzung | `is_doubled` | A position holding two Herren *and* two Damen. |
-| Startanspruch | `has_startanspruch` | Must **not** share their position with a same-role dancer. |
-| Coachingbedarf | `needs_coaching` | Must **not** be alone in their role on a position. |
-| Wunschpartner | `wunsch_tiers` | Ranked sets of desired partners, tier 1 strongest. |
-| Nicht-Wunschpartner | `nicht_wunsch_tiers` | Same structure, undesired. |
-| Teambefragung | `Survey` | One dancer's complete answers. |
-| Verpartnerung | `Assignment` / `Solution` | A complete mapping of dancers to positions. |
+| `Role.LEADER`, `Role.FOLLOWER` | Herr / Dame | The two dance roles. Fixed per dancer. |
+| position index `p`, label A–H | Position | One of the 8 slots. **Unordered and interchangeable.** |
+| `is_doubled` | Doppelbesetzung | A position holding two leaders *and* two followers. |
+| `is_pole_position` | Startanspruch | Must **not** share their position with a same-role dancer. |
+| `needs_coaching` | Coachingbedarf | Must **not** be alone in their role on a position. |
+| `desired_tiers` | Wunschpartner | Ranked sets of desired partners, tier 1 strongest. |
+| `not_desired_tiers` | Nicht-Wunschpartner | Same structure, undesired. |
+| `Survey` | Teambefragung | One dancer's complete answers. |
+| `Solution` | Verpartnerung | A complete mapping of dancers to positions. |
 
-Ask before changing anything in §3 or §6 of `SPEC.md` — the glossary and the hard constraints
-are the parts the team has actually agreed on.
+Ask before changing anything in §3 or §6 of `SPEC.md` — the glossary and the hard constraints are
+the parts the team has actually agreed on. The vocabulary rename was agreed that way.
 
 ## Architecture
 
@@ -67,11 +65,11 @@ are the parts the team has actually agreed on.
 
 * **Environment: `pip` + stdlib `venv` on Python 3.11**, not `uv` on 3.12 (`uv` is not
   installed on the dev machine). `requirements-dev.txt` is the lock file.
-* **Doppelbesetzung is independent per role.** The roster has more Damen than Herren, so a
-  position may hold 2 Herren and 1 Dame. Hard constraints are per role (`1 ≤ count ≤ 2`);
-  coupling the two (2 Herren ⇔ 2 Damen, i.e. two full couples) is a **soft** preference,
+* **Doppelbesetzung is independent per role.** The roster has more followers than leaders, so a
+  position may hold 2 leaders and 1 follower. Hard constraints are per role (`1 ≤ count ≤ 2`);
+  coupling the two (2 leaders ⇔ 2 followers, i.e. two full couples) is a **soft** preference,
   `SolverConfig.prefer_coupled`, implemented as the **weakest objective stage** so it can never
-  cost a fulfilled wish. `abs(n_herren - n_damen)` is a lower bound on the lopsided count, not
+  cost a fulfilled wish. `abs(n_leaders - n_followers)` is a lower bound on the lopsided count, not
   an attainable target: normalisation pushes the other way (a granted wish is worth more when
   the position holds a single dancer of the opposite role), so on survey-rich instances the
   stage settles above that bound. Wishes first is the intended trade.
@@ -99,7 +97,7 @@ are the parts the team has actually agreed on.
   sorted score vector, so `LEXIMIN` needs no `sum` stage and every optimum has the same total.
 * `LEXICOGRAPHIC_TIERS` counts fulfilled wishes per tier rather than scoring them, so
   `SolverConfig.weights` does not affect it. §8 specifies only the wish half; the mirror-image
-  dislike stages (`nicht_wunsch.tierN`, minimised) are an addition — without them every dislike
+  dislike stages (`not_desired.tierN`, minimised) are an addition — without them every dislike
   weaker than `veto_tier` would be ignored outright under this objective.
 * **`Stage.surrogate`** marks an artificial bound variable (a maximin/leximin floor). Once the
   objective is gone in the enumeration pass such a variable floats free, and CP-SAT would report
@@ -135,8 +133,9 @@ are the parts the team has actually agreed on.
 
 * `storage.py` writes canonical YAML with `sort_keys=False` and a fixed key order; **never**
   let PyYAML sort keys, it shuffles `id`/`name`/`role` on every save. Dancer order is preserved
-  because symmetry breaking numbers positions by the Herren's input index.
-* Tiers are stored as `rank: [ids]` mappings, emitted inline (`1: [anna-b, lena-f]`). False
+  because symmetry breaking numbers positions by the leaders' input index.
+* Tiers are stored as `rank: [ids]` mappings under `desired:` / `not_desired:`, emitted inline
+  (`1: [anna-b, lena-f]`). False
   flags and empty survey directions are omitted.
 * PyYAML cannot preserve comments, so `save_team` drops them. `load_team` never writes, and the
   CLI only writes when asked. The M4 UI must save explicitly, never on autosave.
@@ -171,6 +170,9 @@ are the parts the team has actually agreed on.
 * Verify the load-bearing constraints by mutation; each must turn the suite red:
   the `add_bool_or` half of the reification (35 failures), the symmetry-breaking constraint (3),
   the signature dedup (1), and the `_lock_in` tie-break guard (2).
+* Synthetic test dancers are `led0..`/`fol0..` (see `tests/builders.py::roster`). Roster order is
+  significant — symmetry breaking numbers positions by leader input index — so those ids double as
+  the canonical ordering.
 * Coverage is at 100 % on `src/dancepartner/`; the gate is 90 %.
 * `tests/test_objectives.py::divergent_instance` is the instance where maximising the total and
   levelling up genuinely disagree — `MAXIMIN_THEN_SUM` reaches `[0, 0, 2, 6, 6, 6, 6]`, `LEXIMIN`

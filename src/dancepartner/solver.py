@@ -349,8 +349,8 @@ def _build_model(
     for dancer in team.dancers:
         model.add_exactly_one(x[(dancer.id, p)] for p in team.positions)
 
-    # 2. Per position and per role: one or two dancers. Herren- and Damen-doubling are
-    #    independent; coupling them is a soft preference, see _stages.
+    # 2. Per position and per role: one or two dancers. Leader- and follower-doubling are
+    #    independent; coupling them is a soft preference, see _stage_source.
     role_count: dict[tuple[Role, int], cp_model.IntVar] = {}
     for role in Role:
         members = team.by_role(role)
@@ -359,11 +359,11 @@ def _build_model(
             model.add(count == sum(x[(dancer.id, p)] for dancer in members))
             role_count[(role, p)] = count
 
-    # 3./4. Startanspruch and Coachingbedarf, enforced on the position the dancer occupies.
+    # 3./4. Pole position and coaching need, enforced on the position the dancer occupies.
     for dancer in team.dancers:
         for p in team.positions:
             own = role_count[(dancer.role, p)]
-            if dancer.has_startanspruch:
+            if dancer.is_pole_position:
                 model.add(own == 1).only_enforce_if(x[(dancer.id, p)])
             elif dancer.needs_coaching:
                 model.add(own >= 2).only_enforce_if(x[(dancer.id, p)])
@@ -439,22 +439,22 @@ def _reify_together(
 def _break_symmetry(
     model: cp_model.CpModel, x: dict[tuple[str, int], cp_model.IntVar], team: Team
 ) -> None:
-    """Canonical position numbering over the Herren, in input order.
+    """Canonical position numbering over the leaders, in input order.
 
     Positions are unordered, so without this the search space carries a factor of
-    ``n_positions!`` (40320 for eight). Herr *i* may only open position *p* if some Herr
+    ``n_positions!`` (40320 for eight). Leader *i* may only open position *p* if some leader
     *j < i* already occupies position *p - 1*, which forces positions to be filled in order.
     """
-    herren = team.by_role(Role.HERR)
-    for i, herr in enumerate(herren):
+    leaders = team.by_role(Role.LEADER)
+    for i, leader in enumerate(leaders):
         for p in team.positions:
             if p == 0:
                 continue
-            earlier = [x[(other.id, p - 1)] for other in herren[:i]]
+            earlier = [x[(other.id, p - 1)] for other in leaders[:i]]
             if earlier:
-                model.add(x[(herr.id, p)] <= sum(earlier))
+                model.add(x[(leader.id, p)] <= sum(earlier))
             else:
-                model.add(x[(herr.id, p)] == 0)
+                model.add(x[(leader.id, p)] == 0)
 
 
 def _build_scores(
@@ -545,23 +545,23 @@ def _build_mismatch(
 
     Minimising the sum of these prefers real Doppelbesetzungen -- two full couples sharing a
     position -- over lopsided ones, which is why it can only ever be a tie-break: on an uneven
-    roster ``abs(n_herren - n_damen)`` positions are lopsided no matter what.
+    roster ``abs(n_leaders - n_followers)`` positions are lopsided no matter what.
 
     That bound is a lower one, not a promise. Because this is the weakest stage, the earlier
     ones are already pinned when it runs, and normalisation actively pushes the other way: a
     dancer whose wish is granted scores more when their position holds a *single* dancer of the
     opposite role. On an instance with many granted wishes the achievable minimum is therefore
-    often above ``abs(n_herren - n_damen)``, and that is the correct trade -- wishes first.
+    often above ``abs(n_leaders - n_followers)``, and that is the correct trade -- wishes first.
     """
     mismatch: dict[int, cp_model.IntVar] = {}
     for p in team.positions:
-        herr_doubled = doubled[(Role.HERR, p)]
-        dame_doubled = doubled[(Role.DAME, p)]
+        leader_doubled = doubled[(Role.LEADER, p)]
+        follower_doubled = doubled[(Role.FOLLOWER, p)]
         flag = model.new_bool_var(f"mismatch[{p}]")
-        model.add(flag == 1).only_enforce_if([herr_doubled, dame_doubled.negated()])
-        model.add(flag == 1).only_enforce_if([herr_doubled.negated(), dame_doubled])
-        model.add(flag == 0).only_enforce_if([herr_doubled, dame_doubled])
-        model.add(flag == 0).only_enforce_if([herr_doubled.negated(), dame_doubled.negated()])
+        model.add(flag == 1).only_enforce_if([leader_doubled, follower_doubled.negated()])
+        model.add(flag == 1).only_enforce_if([leader_doubled.negated(), follower_doubled])
+        model.add(flag == 0).only_enforce_if([leader_doubled, follower_doubled])
+        model.add(flag == 0).only_enforce_if([leader_doubled.negated(), follower_doubled.negated()])
         mismatch[p] = flag
     return mismatch
 
@@ -679,7 +679,7 @@ def _lexicographic_tier_stages(
     """
     del model  # the tier expressions are sums over existing `together` variables
     by_rank = _tier_expressions(team, config, variables)
-    for direction, sense in (("wunsch", Sense.MAXIMIZE), ("nicht_wunsch", Sense.MINIMIZE)):
+    for direction, sense in (("desired", Sense.MAXIMIZE), ("not_desired", Sense.MINIMIZE)):
         for rank in sorted(by_rank.get(direction, {})):
             yield Stage(
                 f"{direction}.tier{rank}",
@@ -693,7 +693,7 @@ def _tier_expressions(
     team: Team, config: SolverConfig, variables: _Vars
 ) -> dict[str, dict[int, cp_model.LinearExpr]]:
     """Per direction and rank, the count of in-scope entries whose pair shares a position."""
-    collected: dict[str, dict[int, list[cp_model.IntVar]]] = {"wunsch": {}, "nicht_wunsch": {}}
+    collected: dict[str, dict[int, list[cp_model.IntVar]]] = {"desired": {}, "not_desired": {}}
     for entry in team.preference_entries(config.scope):
         variable = variables.together[frozenset((entry.source, entry.target))]
         collected[entry.direction].setdefault(entry.rank, []).append(variable)
@@ -847,7 +847,8 @@ def _ranking_key(solution: Solution, config: SolverConfig) -> tuple[int, int, st
     primary = -solution.min_score if fairness_first else -solution.total_score
     secondary = -solution.total_score if fairness_first else -solution.min_score
     tie_break = "|".join(
-        ",".join(sorted((*position.herren, *position.damen))) for position in solution.positions
+        ",".join(sorted((*position.leaders, *position.followers)))
+        for position in solution.positions
     )
     return (primary, secondary, tie_break)
 

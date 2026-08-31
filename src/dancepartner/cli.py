@@ -23,7 +23,7 @@ from .i18n import de
 from .model import Objective, PreferenceScope, Role, SolverConfig, Team, WeightScheme
 from .scoring import DancerSatisfaction, Solution
 from .solver import InfeasibleInstanceError, SolveResult, solve
-from .storage import StorageError, load_team
+from .storage import MalformedYamlError, StorageError, load_team
 
 __all__ = ["app"]
 
@@ -80,8 +80,12 @@ def _read_team(path: Path) -> Team:
         return load_team(path)
     except FileNotFoundError:
         _fail(de("error.file_not_found", path=path))
-    except StorageError as error:
+    except MalformedYamlError as error:
         _fail(de("error.invalid_yaml", detail=error))
+    except StorageError as error:
+        # Valid YAML, wrong shape -- an unknown key, a list where a mapping belongs. Saying
+        # "invalid YAML" here would send the coach hunting for a syntax error that is not there.
+        _fail(de("error.invalid_shape", detail=error))
     except ValidationError as error:
         details = "\n".join(f"  - {item['msg']}" for item in error.errors())
         _fail(de("error.invalid_team", detail=details))
@@ -92,8 +96,8 @@ def _team_summary(team: Team) -> str:
     return de(
         "team.summary",
         n_dancers=len(team.dancers),
-        n_herren=len(team.by_role(Role.HERR)),
-        n_damen=len(team.by_role(Role.DAME)),
+        n_leaders=len(team.by_role(Role.LEADER)),
+        n_followers=len(team.by_role(Role.FOLLOWER)),
         n_positions=team.n_positions,
         labels=" ".join(team.labels),
     )
@@ -115,11 +119,11 @@ def _names(team: Team, ids: list[str] | tuple[str, ...]) -> str:
 def _format_wishes(satisfaction: DancerSatisfaction, team: Team) -> str:
     parts = [
         de("table.fulfilled", rank=rank, names=_names(team, ids))
-        for rank, ids in sorted(satisfaction.fulfilled_wunsch.items())
+        for rank, ids in sorted(satisfaction.fulfilled_desired.items())
     ]
     parts += [
         de("table.violated", rank=rank, names=_names(team, ids))
-        for rank, ids in sorted(satisfaction.violated_nicht_wunsch.items())
+        for rank, ids in sorted(satisfaction.violated_not_desired.items())
     ]
     return "; ".join(parts) if parts else de("table.nothing")
 
@@ -134,8 +138,8 @@ def _print_solution(solution: Solution, team: Team) -> None:
     for position in solution.positions:
         doubled = de("solve.doubled") if position.is_doubled else ""
         _echo(de("solve.position", label=position.label, doubled=doubled))
-        _echo(de("solve.herren", names=_names(team, position.herren)))
-        _echo(de("solve.damen", names=_names(team, position.damen)))
+        _echo(de("solve.leaders", names=_names(team, position.leaders)))
+        _echo(de("solve.followers", names=_names(team, position.followers)))
 
 
 def _print_table(solution: Solution, team: Team) -> None:
@@ -319,7 +323,7 @@ def _read_result(path: Path) -> tuple[SolveResult, SolverConfig]:
     except FileNotFoundError:
         _fail(de("error.file_not_found", path=path))
     except json.JSONDecodeError as error:
-        _fail(de("error.invalid_yaml", detail=error))
+        _fail(de("error.invalid_json", detail=error))
     try:
         result = SolveResult.model_validate(raw["result"])
         config = SolverConfig.model_validate(raw["config"])
@@ -342,8 +346,8 @@ def _print_across_solutions(dancer_id: str, result: SolveResult, team: Team) -> 
     count = len(result.solutions)
     hits: dict[str, int] = {}
     for solution in result.solutions:
-        position = next(p for p in solution.positions if dancer_id in (*p.herren, *p.damen))
-        for other in (*position.herren, *position.damen):
+        position = next(p for p in solution.positions if dancer_id in (*p.leaders, *p.followers))
+        for other in (*position.leaders, *position.followers):
             if other != dancer_id:
                 hits[other] = hits.get(other, 0) + 1
 
@@ -358,10 +362,10 @@ def _print_across_solutions(dancer_id: str, result: SolveResult, team: Team) -> 
 
 def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: SolverConfig) -> None:
     dancer = team.dancers_by_id[dancer_id]
-    position = next(p for p in solution.positions if dancer_id in (*p.herren, *p.damen))
+    position = next(p for p in solution.positions if dancer_id in (*p.leaders, *p.followers))
     satisfaction = solution.per_dancer[dancer_id]
     same_role = [i for i in position.role_ids(dancer.role) if i != dancer_id]
-    partners = [i for i in (*position.herren, *position.damen) if i != dancer_id]
+    partners = [i for i in (*position.leaders, *position.followers) if i != dancer_id]
 
     _echo(
         de(
@@ -373,8 +377,8 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
     )
     _echo(de("explain.score", score=satisfaction.score))
     _echo(de("explain.partners", names=_names(team, partners)))
-    if dancer.has_startanspruch:
-        _echo(de("explain.startanspruch"))
+    if dancer.is_pole_position:
+        _echo(de("explain.pole_position"))
     if dancer.needs_coaching:
         _echo(de("explain.needs_coaching", names=_names(team, same_role)))
 
@@ -383,17 +387,17 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
         _echo(de("explain.no_survey"))
         return
 
-    if satisfaction.fulfilled_wunsch:
+    if satisfaction.fulfilled_desired:
         _echo(de("explain.fulfilled"))
-        for rank, ids in sorted(satisfaction.fulfilled_wunsch.items()):
+        for rank, ids in sorted(satisfaction.fulfilled_desired.items()):
             _echo(de("explain.entry", rank=rank, names=_names(team, ids)))
     else:
         _echo(de("explain.no_wishes"))
 
-    granted = {i for ids in satisfaction.fulfilled_wunsch.values() for i in ids}
+    granted = {i for ids in satisfaction.fulfilled_desired.values() for i in ids}
     missed = {
         tier.rank: sorted(i for i in tier.dancer_ids if i not in granted)
-        for tier in survey.wunsch_tiers
+        for tier in survey.desired_tiers
     }
     missed = {rank: ids for rank, ids in missed.items() if ids}
     if missed:
@@ -401,19 +405,19 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
         for rank, ids in sorted(missed.items()):
             _echo(de("explain.entry", rank=rank, names=_names(team, ids)))
 
-    if satisfaction.violated_nicht_wunsch:
+    if satisfaction.violated_not_desired:
         _echo(de("explain.violated"))
-        for rank, ids in sorted(satisfaction.violated_nicht_wunsch.items()):
+        for rank, ids in sorted(satisfaction.violated_not_desired.items()):
             _echo(de("explain.entry", rank=rank, names=_names(team, ids)))
 
-    violated = {i for ids in satisfaction.violated_nicht_wunsch.values() for i in ids}
+    violated = {i for ids in satisfaction.violated_not_desired.values() for i in ids}
     respected = {
         tier.rank: sorted(
             i
             for i in tier.dancer_ids
             if i not in violated and team.in_scope(dancer_id, i, config.scope)
         )
-        for tier in survey.nicht_wunsch_tiers
+        for tier in survey.not_desired_tiers
     }
     respected = {rank: ids for rank, ids in respected.items() if ids}
     if respected:
@@ -485,7 +489,7 @@ def _positions_by_dancer(solution: Solution) -> dict[str, str]:
     return {
         dancer_id: position.label
         for position in solution.positions
-        for dancer_id in (*position.herren, *position.damen)
+        for dancer_id in (*position.leaders, *position.followers)
     }
 
 

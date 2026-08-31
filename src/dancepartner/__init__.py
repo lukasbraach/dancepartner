@@ -31,7 +31,14 @@ from .scoring import (
     scored_pairs,
 )
 from .solver import InfeasibleInstanceError, SolveResult, solve
-from .storage import StorageError, dump_team, load_team, parse_team, save_team
+from .storage import (
+    MalformedYamlError,
+    StorageError,
+    dump_team,
+    load_team,
+    parse_team,
+    save_team,
+)
 
 __all__ = [
     "DEFAULT_N_POSITIONS",
@@ -39,6 +46,7 @@ __all__ = [
     "DancerSatisfaction",
     "FeasibilityIssue",
     "InfeasibleInstanceError",
+    "MalformedYamlError",
     "Objective",
     "PositionAssignment",
     "PreferenceEntry",

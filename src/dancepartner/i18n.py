@@ -18,7 +18,7 @@ STRINGS: dict[str, str] = {
         "{role_de}: {n} Tänzer:innen auf {p} Positionen. Jede Position braucht eine oder "
         "zwei — möglich sind daher {p} bis {max_n}."
     ),
-    "feasibility.TOO_MANY_STARTANSPRUCH": (
+    "feasibility.TOO_MANY_POLE_POSITION": (
         "{role_de}: {count} mit Startanspruch, aber nur {available} Position(en) mit "
         "einfacher Besetzung ({n} {role_de} auf {p} Positionen)."
     ),
@@ -40,19 +40,21 @@ STRINGS: dict[str, str] = {
         "Besetzung."
     ),
     # -- roles ---------------------------------------------------------------------------
-    "role.herr.plural": "Herren",
-    "role.dame.plural": "Damen",
-    "role.herr": "Herr",
-    "role.dame": "Dame",
+    "role.leader.plural": "Herren",
+    "role.follower.plural": "Damen",
+    "role.leader": "Herr",
+    "role.follower": "Dame",
     # -- shared --------------------------------------------------------------------------
     "team.summary": (
-        "{n_dancers} Tänzer:innen ({n_herren} Herren, {n_damen} Damen) "
+        "{n_dancers} Tänzer:innen ({n_leaders} Herren, {n_followers} Damen) "
         "auf {n_positions} Positionen {labels}."
     ),
     "team.surveys": "{n_surveys} von {n_dancers} haben die Teambefragung beantwortet.",
     "error.file_not_found": "Datei nicht gefunden: {path}",
     "error.invalid_team": "Die Teamdatei ist ungültig:\n{detail}",
     "error.invalid_yaml": "Die Datei ist kein gültiges YAML: {detail}",
+    "error.invalid_shape": "Die Datei hat nicht den erwarteten Aufbau: {detail}",
+    "error.invalid_json": "Die Ergebnisdatei ist kein gültiges JSON: {detail}",
     # -- check ---------------------------------------------------------------------------
     "check.ok": "Keine zählbaren Hindernisse gefunden.",
     "check.caveat": (
@@ -79,8 +81,8 @@ STRINGS: dict[str, str] = {
     "solve.positions": "Positionen:",
     "solve.position": "  Position {label}{doubled}",
     "solve.doubled": "  (Doppelbesetzung)",
-    "solve.herren": "     Herren: {names}",
-    "solve.damen": "     Damen:  {names}",
+    "solve.leaders": "     Herren: {names}",
+    "solve.followers": "     Damen:  {names}",
     "solve.solution_count": "{count} gleichwertige Lösung(en) gefunden.",
     "solve.solution_count_truncated": (
         "Mindestens {count} gleichwertige Lösungen — die Liste ist bei {count} abgeschnitten. "
@@ -126,7 +128,7 @@ STRINGS: dict[str, str] = {
     "explain.no_survey": "  Keine Teambefragung abgegeben — die Punktzahl bleibt daher 0.",
     "explain.unfulfilled": "  Nicht erfüllte Wünsche:",
     "explain.respected": "  Eingehaltene Nicht-Wünsche:",
-    "explain.startanspruch": "  Startanspruch: alleine in der eigenen Rolle auf der Position.",
+    "explain.pole_position": "  Startanspruch: alleine in der eigenen Rolle auf der Position.",
     "explain.needs_coaching": "  Coachingbedarf: mit {names} in der eigenen Rolle.",
     # -- CLI help (German, like all user-facing text) ------------------------------------
     "help.app": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",

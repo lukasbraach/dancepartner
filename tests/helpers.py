@@ -54,12 +54,12 @@ def stage_expectation(name: str, solution: Solution) -> int:
         return sum(
             1
             for position in solution.positions
-            if (len(position.herren) == 2) != (len(position.damen) == 2)
+            if (len(position.leaders) == 2) != (len(position.followers) == 2)
         )
     direction, _, tier = name.partition(".tier")
     if tier:
         rank = int(tier)
-        field = "fulfilled_wunsch" if direction == "wunsch" else "violated_nicht_wunsch"
+        field = "fulfilled_desired" if direction == "desired" else "violated_not_desired"
         return sum(
             len(getattr(satisfaction, field).get(rank, []))
             for satisfaction in solution.per_dancer.values()
@@ -151,13 +151,15 @@ def assert_valid(solution: Solution, team: Team, config: SolverConfig | None = N
     assert [position.label for position in solution.positions] == team.labels
 
     # 1. Every dancer on exactly one position.
-    placed = [i for position in solution.positions for i in (*position.herren, *position.damen)]
+    placed = [
+        i for position in solution.positions for i in (*position.leaders, *position.followers)
+    ]
     assert sorted(placed) == sorted(by_id), f"dancers placed {sorted(placed)}"
 
     for position in solution.positions:
         # Roles are not mixed up.
-        assert all(by_id[i].role is Role.HERR for i in position.herren)
-        assert all(by_id[i].role is Role.DAME for i in position.damen)
+        assert all(by_id[i].role is Role.LEADER for i in position.leaders)
+        assert all(by_id[i].role is Role.FOLLOWER for i in position.followers)
         # 2. One or two dancers per role per position.
         for role in Role:
             count = len(position.role_ids(role))
@@ -168,7 +170,7 @@ def assert_valid(solution: Solution, team: Team, config: SolverConfig | None = N
                 dancer = by_id[dancer_id]
                 count = len(position.role_ids(role))
                 # 3. Startanspruch: alone in their own role.
-                if dancer.has_startanspruch:
+                if dancer.is_pole_position:
                     assert count == 1, f"{dancer_id} has Startanspruch but shares with {count - 1}"
                 # 4. Coachingbedarf: not alone in their own role.
                 if dancer.needs_coaching:
@@ -177,7 +179,7 @@ def assert_valid(solution: Solution, team: Team, config: SolverConfig | None = N
     # 5. No vetoed pair shares a position.
     for pair in veto_pairs(team, config):
         for position in solution.positions:
-            here = {*position.herren, *position.damen}
+            here = {*position.leaders, *position.followers}
             assert not pair <= here, f"vetoed pair {sorted(pair)} on position {position.label}"
 
     assert_scores_consistent(solution, team, config)
@@ -188,7 +190,7 @@ def assert_scores_consistent(
 ) -> None:
     """The reported scores must match an independent recomputation."""
     config = config or SolverConfig()
-    groups = [[*position.herren, *position.damen] for position in solution.positions]
+    groups = [[*position.leaders, *position.followers] for position in solution.positions]
     expected = build_satisfaction(team, config, groups)
     assert solution.per_dancer == expected
     assert solution.total_score == sum(s.score for s in expected.values())
@@ -197,13 +199,13 @@ def assert_scores_consistent(
 
 def groups_of(solution: Solution) -> list[set[str]]:
     """The dancer id sets per position, for asserting on the shape of an assignment."""
-    return [{*position.herren, *position.damen} for position in solution.positions]
+    return [{*position.leaders, *position.followers} for position in solution.positions]
 
 
 def position_of(solution: Solution, dancer_id: str) -> str:
     """The label of the position a dancer ended up on."""
     for position in solution.positions:
-        if dancer_id in position.herren or dancer_id in position.damen:
+        if dancer_id in position.leaders or dancer_id in position.followers:
             return position.label
     raise AssertionError(f"{dancer_id} is not on any position")
 

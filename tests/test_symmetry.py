@@ -9,7 +9,7 @@ from __future__ import annotations
 from dancepartner.model import Role, SolverConfig, Team
 from dancepartner.solver import solve
 
-from .builders import nicht_wunsch, roster, tier, wunsch
+from .builders import desired, not_desired, roster, tier
 from .helpers import assert_result_valid
 
 
@@ -18,14 +18,14 @@ def _instance() -> Team:
     return Team(
         dancers=roster(10, 12),
         surveys=[
-            wunsch("h0", tier(1, "d0", "d1"), tier(2, "d2")),
-            wunsch("h1", tier(1, "d1"), tier(2, "d3")),
-            wunsch("h2", tier(1, "d4")),
-            wunsch("h5", tier(1, "d0")),
-            nicht_wunsch("h3", tier(1, "d5")),
-            wunsch("d0", tier(1, "h0")),
-            wunsch("d6", tier(1, "h4", "h5")),
-            nicht_wunsch("d7", tier(1, "h6")),
+            desired("led0", tier(1, "fol0", "fol1"), tier(2, "fol2")),
+            desired("led1", tier(1, "fol1"), tier(2, "fol3")),
+            desired("led2", tier(1, "fol4")),
+            desired("led5", tier(1, "fol0")),
+            not_desired("led3", tier(1, "fol5")),
+            desired("fol0", tier(1, "led0")),
+            desired("fol6", tier(1, "led4", "led5")),
+            not_desired("fol7", tier(1, "led6")),
         ],
         n_positions=8,
     )
@@ -60,26 +60,26 @@ def test_symmetry_breaking_reduces_the_search() -> None:
 CANONICAL = SolverConfig(max_solutions=1)
 
 
-def test_canonical_numbering_puts_the_first_herr_on_position_a() -> None:
+def test_canonical_numbering_puts_the_first_leader_on_position_a() -> None:
     # Asserted across the whole shortlist, not just the best solution: the constraint forces
-    # `x[herr_0, p] == 0` for every p > 0, so *no* admissible assignment may place h0 elsewhere.
+    # `x[leader_0, p] == 0` for every p > 0, so *no* admissible assignment may place led0 elsewhere.
     # Checking only one solution would pass by luck even with the constraint deleted.
     instance = _instance()
     result = solve(instance, SolverConfig(max_solutions=30), break_symmetry=True)
     assert len(result.solutions) > 1, "the instance must have several optima to be a real test"
     for solution in result.solutions:
-        assert "h0" in solution.positions[0].herren
+        assert "led0" in solution.positions[0].leaders
 
 
 def test_canonical_numbering_fills_positions_in_order() -> None:
     instance = _instance()
     result = solve(instance, CANONICAL, break_symmetry=True)
-    herren = [dancer.id for dancer in instance.by_role(Role.HERR)]
+    leaders = [dancer.id for dancer in instance.by_role(Role.LEADER)]
     first_seen: list[int] = []
     for position in result.best.positions:
-        indices = [herren.index(i) for i in position.herren]
+        indices = [leaders.index(i) for i in position.leaders]
         first_seen.append(min(indices))
-    # Position p may only be opened by a Herr later in the input than the one that opened
+    # Position p may only be opened by a leader later in the input than the one that opened
     # position p-1, which is exactly what the constraint encodes.
     assert first_seen == sorted(first_seen)
     assert len(set(first_seen)) == len(first_seen)

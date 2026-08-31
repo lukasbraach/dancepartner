@@ -1,8 +1,10 @@
 """Domain model for the formation team assignment problem.
 
-Domain terms of art are kept in German (see SPEC.md 3): ``Startanspruch``,
-``Coachingbedarf``, ``Wunschpartner``, ``Doppelbesetzung``. Every one of them carries an
-English explanation in its docstring. Everything else in this package is English.
+Identifiers are English throughout (SPEC.md 2). Where a name replaces a German term of art
+the team used to say, the docstring records the old word so the transition stays traceable:
+``is_pole_position`` was *Startanspruch*, ``needs_coaching`` was *Coachingbedarf*,
+``desired_tiers`` were *Wunschpartner*, ``is_doubled`` is a *Doppelbesetzung*. User-facing
+output stays German and lives in :mod:`dancepartner.i18n`.
 """
 
 from __future__ import annotations
@@ -33,32 +35,32 @@ __all__ = [
 
 DEFAULT_N_POSITIONS = 8
 
-Direction = Literal["wunsch", "nicht_wunsch"]
+Direction = Literal["desired", "not_desired"]
 """Which of the two preference directions an entry belongs to."""
 
 
 class Role(StrEnum):
     """The two dance roles. Fixed per dancer, never a preference.
 
-    ``HERR`` is the leading role, ``DAME`` the following role.
+    ``LEADER`` is the leading role, ``FOLLOWER`` the following role.
     """
 
-    HERR = "herr"
-    DAME = "dame"
+    LEADER = "leader"
+    FOLLOWER = "follower"
 
     @property
     def opposite(self) -> Role:
         """The other role."""
-        return Role.DAME if self is Role.HERR else Role.HERR
+        return Role.FOLLOWER if self is Role.LEADER else Role.LEADER
 
 
 class PreferenceScope(StrEnum):
     """Which dancer pairs a preference may be expressed about.
 
-    ``CROSS_ROLE_ONLY``: only Herr-Dame pairs are scored, the default reading of the
-    Teambefragung (a Herr names Damen).
+    ``CROSS_ROLE_ONLY``: only leader-follower pairs are scored, the default reading of the
+    survey (a leader names followers).
 
-    ``ALL``: same-role pairs are scored too. On a Doppelbesetzung two Herren share a
+    ``ALL``: same-role pairs are scored too. On a Doppelbesetzung two leaders share a
     position and their working relationship matters. Same-role preferences are only ever
     scored when both dancers end up on the same position, which is exactly what the
     ``together`` variables express, so no extra handling is needed.
@@ -116,13 +118,13 @@ class Dancer(BaseModel):
     Attributes:
         id: Stable slug, e.g. ``"lukas-b"``.
         name: Display name.
-        role: Herr or Dame. Fixed, not a preference.
-        has_startanspruch: *Startanspruch* -- the dancer is the sole driver of their
-            position and must not share it with another dancer of the same role. Hard
-            constraint.
-        needs_coaching: *Coachingbedarf* -- the dancer must not be the only one of their
-            role on a position; they need a same-role dancer alongside them. Hard
-            constraint.
+        role: Leader or follower. Fixed, not a preference.
+        is_pole_position: The dancer is the sole driver of their position and must not share
+            it with another dancer of the same role. Hard constraint. Formerly
+            *Startanspruch* -- note that this is a claim on the starting slot, not a ranking.
+        needs_coaching: The dancer must not be the only one of their role on a position; they
+            need a same-role dancer alongside them. Hard constraint. Formerly
+            *Coachingbedarf*.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -130,21 +132,21 @@ class Dancer(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     role: Role
-    has_startanspruch: bool = False
+    is_pole_position: bool = False
     needs_coaching: bool = False
 
     @model_validator(mode="after")
     def _flags_are_mutually_exclusive(self) -> Dancer:
-        """Validator 1: Startanspruch and Coachingbedarf contradict each other."""
-        if self.has_startanspruch and self.needs_coaching:
+        """Validator 1: a pole position and a coaching need contradict each other."""
+        if self.is_pole_position and self.needs_coaching:
             raise ValueError(
-                f"dancer {self.id!r}: has_startanspruch and needs_coaching are mutually exclusive"
+                f"dancer {self.id!r}: is_pole_position and needs_coaching are mutually exclusive"
             )
         return self
 
 
 class Tier(BaseModel):
-    """One rank of a *Wunschpartner* / *Nicht-Wunschpartner* list.
+    """One rank of a desired / not-desired partner list.
 
     Attributes:
         rank: 1 is the strongest preference.
@@ -174,15 +176,15 @@ class Survey(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     dancer_id: str = Field(min_length=1)
-    wunsch_tiers: list[Tier] = Field(default_factory=list)
-    nicht_wunsch_tiers: list[Tier] = Field(default_factory=list)
+    desired_tiers: list[Tier] = Field(default_factory=list)
+    not_desired_tiers: list[Tier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_tiers(self) -> Survey:
         """Validators 2, 3, 4 and 5."""
         for direction, tiers in (
-            ("wunsch", self.wunsch_tiers),
-            ("nicht_wunsch", self.nicht_wunsch_tiers),
+            ("desired", self.desired_tiers),
+            ("not_desired", self.not_desired_tiers),
         ):
             ranks = sorted(tier.rank for tier in tiers)
             if ranks != list(range(1, len(tiers) + 1)):
@@ -200,13 +202,13 @@ class Survey(BaseModel):
                     )
                 seen |= tier.dancer_ids
 
-        wished = self.named_ids("wunsch")
-        unwished = self.named_ids("nicht_wunsch")
+        wished = self.named_ids("desired")
+        unwished = self.named_ids("not_desired")
         both = wished & unwished
         if both:
             raise ValueError(
-                f"survey {self.dancer_id!r}: {sorted(both)} appear as both wunsch and "
-                f"nicht_wunsch; that is a survey entry error, not a subtle preference"
+                f"survey {self.dancer_id!r}: {sorted(both)} appear as both desired and "
+                f"not_desired; that is a survey entry error, not a subtle preference"
             )
         if self.dancer_id in wished | unwished:
             raise ValueError(f"survey {self.dancer_id!r}: self-reference is not allowed")
@@ -214,12 +216,12 @@ class Survey(BaseModel):
 
     def named_ids(self, direction: Direction) -> frozenset[str]:
         """All dancer ids named in one direction, across every tier."""
-        tiers = self.wunsch_tiers if direction == "wunsch" else self.nicht_wunsch_tiers
+        tiers = self.desired_tiers if direction == "desired" else self.not_desired_tiers
         return frozenset().union(*(tier.dancer_ids for tier in tiers)) if tiers else frozenset()
 
     def rank_of(self, dancer_id: str, direction: Direction) -> int | None:
         """The tier rank ``dancer_id`` was named at, or ``None`` if unnamed (neutral)."""
-        tiers = self.wunsch_tiers if direction == "wunsch" else self.nicht_wunsch_tiers
+        tiers = self.desired_tiers if direction == "desired" else self.not_desired_tiers
         for tier in tiers:
             if dancer_id in tier.dancer_ids:
                 return tier.rank
@@ -228,7 +230,7 @@ class Survey(BaseModel):
     @property
     def max_rank(self) -> int:
         """The largest rank used in either direction, 0 for an empty survey."""
-        ranks = [tier.rank for tier in (*self.wunsch_tiers, *self.nicht_wunsch_tiers)]
+        ranks = [tier.rank for tier in (*self.desired_tiers, *self.not_desired_tiers)]
         return max(ranks, default=0)
 
 
@@ -269,7 +271,7 @@ class Team(BaseModel):
         for survey in self.surveys:
             if survey.dancer_id not in known:
                 raise ValueError(f"survey references unknown dancer id {survey.dancer_id!r}")
-            unknown = (survey.named_ids("wunsch") | survey.named_ids("nicht_wunsch")) - known
+            unknown = (survey.named_ids("desired") | survey.named_ids("not_desired")) - known
             if unknown:
                 raise ValueError(
                     f"survey {survey.dancer_id!r} references unknown dancer ids {sorted(unknown)}"
@@ -323,10 +325,10 @@ class Team(BaseModel):
         cannot disagree about it. Out-of-scope entries are dropped silently: under
         ``CROSS_ROLE_ONLY`` a same-role wish is data the model does not use, not an error.
         """
-        directions: tuple[Direction, ...] = ("wunsch", "nicht_wunsch")
+        directions: tuple[Direction, ...] = ("desired", "not_desired")
         for survey in self.surveys:
             for direction in directions:
-                tiers = survey.wunsch_tiers if direction == "wunsch" else survey.nicht_wunsch_tiers
+                tiers = survey.desired_tiers if direction == "desired" else survey.not_desired_tiers
                 for tier in tiers:
                     for target in sorted(tier.dancer_ids):
                         if self.in_scope(survey.dancer_id, target, scope):
@@ -342,8 +344,8 @@ class Team(BaseModel):
 
         With ``n`` dancers of a role over ``P`` positions, each holding one or two of them,
         exactly ``n - P`` positions are doubled and ``2P - n`` are single. Doubling is
-        counted per role: Herren- and Damen-Doppelbesetzung are independent here, coupling
-        them is a soft preference (``SolverConfig.prefer_coupled``), not a hard constraint.
+        counted per role: leader- and follower-doubling are independent here, coupling them
+        is a soft preference (``SolverConfig.prefer_coupled``), not a hard constraint.
         """
         return len(self.by_role(role)) - self.n_positions
 
@@ -402,7 +404,7 @@ class SolverConfig(BaseModel):
         return self
 
     def vetoed_ranks(self, rank: int) -> bool:
-        """Whether a nicht_wunsch entry at ``rank`` is a hard veto."""
+        """Whether a not_desired entry at ``rank`` is a hard veto."""
         return self.veto_tier is not None and rank <= self.veto_tier
 
     @property

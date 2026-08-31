@@ -15,7 +15,7 @@ from dancepartner.model import Objective, PreferenceScope, SolverConfig, Team
 from dancepartner.solver import solve
 from dancepartner.storage import load_team
 
-from .builders import nicht_wunsch, roster, team, tier, wunsch
+from .builders import desired, not_desired, roster, team, tier
 from .helpers import assert_result_valid, assert_valid, stage_expectation
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "data" / "team.example.yaml"
@@ -138,9 +138,9 @@ def test_the_slack_widens_a_negative_optimum_instead_of_tightening_it() -> None:
         4,
         4,
         3,
-        nicht_wunsch("h0", tier(1, "h1")),
-        nicht_wunsch("h1", tier(1, "h0")),
-        **{"h0": {"needs_coaching": True}, "h1": {"needs_coaching": True}},
+        not_desired("led0", tier(1, "led1")),
+        not_desired("led1", tier(1, "led0")),
+        **{"led0": {"needs_coaching": True}, "led1": {"needs_coaching": True}},
     )
     config = SolverConfig(
         scope=PreferenceScope.ALL,
@@ -178,16 +178,16 @@ def test_leximin_optima_all_share_one_score_vector() -> None:
     assert len(vectors) == 1, "the leximin rounds pin the whole vector, so it cannot vary"
 
 
-def test_enumeration_respects_startanspruch_and_coaching() -> None:
+def test_enumeration_respects_pole_position_and_coaching() -> None:
     instance = team(
         6,
         7,
         4,
-        wunsch("h0", tier(1, "d0")),
+        desired("led0", tier(1, "fol0")),
         **{
-            "h0": {"has_startanspruch": True},
-            "h1": {"needs_coaching": True},
-            "d0": {"has_startanspruch": True},
+            "led0": {"is_pole_position": True},
+            "led1": {"needs_coaching": True},
+            "fol0": {"is_pole_position": True},
         },
     )
     config = SolverConfig(max_solutions=30)
@@ -197,14 +197,14 @@ def test_enumeration_respects_startanspruch_and_coaching() -> None:
 
 
 def test_enumeration_respects_hard_vetoes() -> None:
-    instance = team(6, 7, 4, nicht_wunsch("h0", tier(1, "d0", "d1")))
+    instance = team(6, 7, 4, not_desired("led0", tier(1, "fol0", "fol1")))
     config = SolverConfig(max_solutions=30)
     result = solve(instance, config)
     for solution in result.solutions:
         for position in solution.positions:
-            here = {*position.herren, *position.damen}
-            assert not {"h0", "d0"} <= here
-            assert not {"h0", "d1"} <= here
+            here = {*position.leaders, *position.followers}
+            assert not {"led0", "fol0"} <= here
+            assert not {"led0", "fol1"} <= here
     assert_result_valid(result, instance, config)
 
 
@@ -257,9 +257,9 @@ def test_tier_slack_is_locked_before_the_shortlist_is_enumerated() -> None:
         6,
         7,
         4,
-        wunsch("h0", tier(1, "d0"), tier(2, "d1")),
-        nicht_wunsch("h1", tier(1, "d2"), tier(2, "d3")),
-        nicht_wunsch("d4", tier(1, "h2"), tier(2, "h3")),
+        desired("led0", tier(1, "fol0"), tier(2, "fol1")),
+        not_desired("led1", tier(1, "fol2"), tier(2, "fol3")),
+        not_desired("fol4", tier(1, "led2"), tier(2, "led3")),
     )
     config = SolverConfig(
         objective=Objective.LEXICOGRAPHIC_TIERS,
@@ -273,7 +273,7 @@ def test_tier_slack_is_locked_before_the_shortlist_is_enumerated() -> None:
 
     # Every entry of the shortlist must respect the locked-in dislike counts.
     for stage in result.stages:
-        if not stage.name.startswith("nicht_wunsch."):
+        if not stage.name.startswith("not_desired."):
             continue
         target = stage.value if stage.locked_at is None else stage.locked_at
         for solution in result.solutions:

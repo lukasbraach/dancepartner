@@ -44,7 +44,7 @@ def test_check_reports_issues_and_exits_one(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "ROLE_COUNT_OUT_OF_RANGE" in result.stdout
     assert "Positionen" in result.stdout
-    assert "betroffen: h0, h1, h2" in result.stdout
+    assert "betroffen: led0, led1, led2" in result.stdout
 
 
 def test_check_missing_file_exits_one(tmp_path: Path) -> None:
@@ -61,11 +61,58 @@ def test_check_broken_yaml_exits_one(tmp_path: Path) -> None:
     assert "kein gültiges YAML" in result.stderr
 
 
+def test_check_reports_a_shape_error_without_blaming_the_yaml_syntax(tmp_path: Path) -> None:
+    # A file in the pre-M3 German vocabulary is well-formed YAML with the wrong keys; the
+    # message has to say so, or the coach goes looking for a syntax error that is not there.
+    path = tmp_path / "team.yaml"
+    path.write_text(
+        "n_positions: 1\ndancers:\n  - {id: a, name: A, role: leader, has_pole_position: true}\n",
+        encoding="utf-8",
+    )
+    result = run("check", str(path))
+    assert result.exit_code == 1
+    assert "nicht den erwarteten Aufbau" in result.stderr
+    assert "has_pole_position" in result.stderr
+    assert "YAML" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("entry", "needle"),
+    [
+        pytest.param("role: herr", "role must be one of", id="old-role-value"),
+        pytest.param(
+            "role: leader, has_startanspruch: true", "has_startanspruch", id="old-flag-key"
+        ),
+    ],
+)
+def test_check_rejects_the_pre_rename_vocabulary(tmp_path: Path, entry: str, needle: str) -> None:
+    """There is no backwards compatibility; the error must name the offending key."""
+    path = tmp_path / "team.yaml"
+    path.write_text(
+        f"n_positions: 1\ndancers:\n  - {{id: a, name: A, {entry}}}\n", encoding="utf-8"
+    )
+    result = run("check", str(path))
+    assert result.exit_code == 1
+    assert needle in result.stderr
+
+
+def test_check_rejects_the_old_survey_keys(tmp_path: Path) -> None:
+    path = tmp_path / "team.yaml"
+    path.write_text(
+        "n_positions: 1\ndancers:\n  - {id: a, name: A, role: leader}\n"
+        "surveys:\n  - {dancer_id: a, wunsch: {1: [a]}}\n",
+        encoding="utf-8",
+    )
+    result = run("check", str(path))
+    assert result.exit_code == 1
+    assert "wunsch" in result.stderr
+
+
 def test_check_invalid_team_exits_one(tmp_path: Path) -> None:
     path = tmp_path / "team.yaml"
     path.write_text(
         "n_positions: 1\ndancers:\n"
-        "  - {id: h0, name: H0, role: herr, has_startanspruch: true, needs_coaching: true}\n",
+        "  - {id: led0, name: LED0, role: leader, is_pole_position: true, needs_coaching: true}\n",
         encoding="utf-8",
     )
     result = run("check", str(path))
@@ -119,10 +166,10 @@ def test_solve_veto_tier_zero_means_no_hard_vetoes(tmp_path: Path) -> None:
     path.write_text(
         "n_positions: 1\n"
         "dancers:\n"
-        "  - {id: h0, name: H0, role: herr}\n"
-        "  - {id: d0, name: D0, role: dame}\n"
+        "  - {id: led0, name: LED0, role: leader}\n"
+        "  - {id: fol0, name: FOL0, role: follower}\n"
         "surveys:\n"
-        "  - dancer_id: h0\n    nicht_wunsch:\n      1: [d0]\n",
+        "  - dancer_id: led0\n    not_desired:\n      1: [fol0]\n",
         encoding="utf-8",
     )
     assert run("solve", str(path)).exit_code == 1
@@ -159,8 +206,8 @@ def test_solve_leximin_prints_its_rounds() -> None:
 def test_solve_tier_objective_prints_tier_stages() -> None:
     result = run("solve", EXAMPLE, "--objective", "lexicographic-tiers")
     assert result.exit_code == 0
-    assert "wunsch.tier1" in result.stdout
-    assert "nicht_wunsch.tier1" in result.stdout
+    assert "desired.tier1" in result.stdout
+    assert "not_desired.tier1" in result.stdout
 
 
 # -- the shortlist ------------------------------------------------------------------------
@@ -277,7 +324,7 @@ def test_explain_reports_coachingbedarf(solved: Path) -> None:
     assert "Coachingbedarf: mit Jan Hübner" in result.stdout
 
 
-def test_explain_reports_startanspruch(solved: Path) -> None:
+def test_explain_reports_pole_position(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "tim-r")
     assert result.exit_code == 0
     assert "Startanspruch: alleine" in result.stdout
@@ -314,7 +361,7 @@ def test_explain_broken_json_exits_one(tmp_path: Path) -> None:
     path.write_text("{not json", encoding="utf-8")
     result = run("explain", EXAMPLE, str(path))
     assert result.exit_code == 1
-    assert "kein gültiges YAML" in result.stderr
+    assert "kein gültiges JSON" in result.stderr
 
 
 def test_explain_json_of_the_wrong_shape_exits_one(tmp_path: Path) -> None:
@@ -413,25 +460,25 @@ def test_every_dancer_appears_exactly_once_in_the_solve_output() -> None:
 
 # -- the boundary between counting and the solver -----------------------------------------
 
-# 2 positions, 2 Herren, 4 Damen: both Damen positions must be doubled. h0 vetoes three of
+# 2 positions, 2 Herren, 4 Damen: both Damen positions must be doubled. led0 vetoes three of
 # the four Damen, so its position cannot be filled with two -- but no pure counting argument
 # sees that, which is exactly what feasibility.py documents about itself.
 COUNTING_CLEAN_BUT_INFEASIBLE = """
 n_positions: 2
 dancers:
-  - {id: h0, name: H0, role: herr}
-  - {id: h1, name: H1, role: herr}
-  - {id: d0, name: D0, role: dame}
-  - {id: d1, name: D1, role: dame}
-  - {id: d2, name: D2, role: dame}
-  - {id: d3, name: D3, role: dame}
+  - {id: led0, name: LED0, role: leader}
+  - {id: led1, name: LED1, role: leader}
+  - {id: fol0, name: FOL0, role: follower}
+  - {id: fol1, name: FOL1, role: follower}
+  - {id: fol2, name: FOL2, role: follower}
+  - {id: fol3, name: FOL3, role: follower}
 surveys:
-  - dancer_id: h0
-    nicht_wunsch:
-      1: [d0, d1, d2]
-  - dancer_id: h1
-    nicht_wunsch:
-      1: [d3]
+  - dancer_id: led0
+    not_desired:
+      1: [fol0, fol1, fol2]
+  - dancer_id: led1
+    not_desired:
+      1: [fol3]
 """
 
 
@@ -471,7 +518,7 @@ def test_explain_reports_violated_dislikes(counting_clean_but_infeasible: Path) 
         str(out),
     )
     assert solved_result.exit_code == 0
-    result = run("explain", str(counting_clean_but_infeasible), str(out), "--dancer", "h0")
+    result = run("explain", str(counting_clean_but_infeasible), str(out), "--dancer", "led0")
     assert result.exit_code == 0
     assert "Verletzte Nicht-Wünsche:" in result.stdout
     assert "Eingehaltene Nicht-Wünsche:" in result.stdout

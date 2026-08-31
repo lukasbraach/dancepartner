@@ -1,8 +1,8 @@
 """Cheap counting pre-checks, run before the CP-SAT model is built.
 
 The solver must never answer a question that arithmetic already settles: a bare INFEASIBLE
-tells the coach nothing, while "du hast 5 Herren mit Startanspruch, aber nur 4 Positionen
-mit einfacher Herrenbesetzung" tells them exactly which flag to change.
+tells the coach nothing, while "5 leaders hold a pole position but only 4 positions carry a
+single leader" tells them exactly which flag to change.
 
 German diagnostics live in :mod:`dancepartner.i18n`, keyed ``feasibility.<code>``.
 
@@ -20,7 +20,7 @@ from .model import Role, SolverConfig, Team, ceil_div
 
 __all__ = ["FeasibilityIssue", "check_feasibility", "veto_pairs"]
 
-_ROLE_DE = {Role.HERR: de("role.herr.plural"), Role.DAME: de("role.dame.plural")}
+_ROLE_DE = {Role.LEADER: de("role.leader.plural"), Role.FOLLOWER: de("role.follower.plural")}
 
 
 class FeasibilityIssue(BaseModel):
@@ -53,7 +53,7 @@ def veto_pairs(team: Team, config: SolverConfig) -> set[frozenset[str]]:
     """
     pairs: set[frozenset[str]] = set()
     for entry in team.preference_entries(config.scope):
-        if entry.direction == "nicht_wunsch" and config.vetoed_ranks(entry.rank):
+        if entry.direction == "not_desired" and config.vetoed_ranks(entry.rank):
             pairs.add(frozenset((entry.source, entry.target)))
     return pairs
 
@@ -100,14 +100,14 @@ def _check_role_counts(team: Team) -> list[FeasibilityIssue]:
             continue
 
         singles = team.n_single_positions(role)
-        startanspruch = [d for d in dancers if d.has_startanspruch]
-        if len(startanspruch) > singles:
+        pole_position = [d for d in dancers if d.is_pole_position]
+        if len(pole_position) > singles:
             issues.append(
                 _issue(
-                    "TOO_MANY_STARTANSPRUCH",
-                    tuple(d.id for d in startanspruch),
+                    "TOO_MANY_POLE_POSITION",
+                    tuple(d.id for d in pole_position),
                     role_de=role_de,
-                    count=len(startanspruch),
+                    count=len(pole_position),
                     available=singles,
                     n=n,
                     p=p,
@@ -162,7 +162,7 @@ def _check_vetoes(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
         for dancer in dancers:
             same_role_others = [other for other in dancers if other.id != dancer.id]
             admissible = [other for other in same_role_others if not is_vetoed(dancer.id, other.id)]
-            if dancer.has_startanspruch:
+            if dancer.is_pole_position:
                 forced_single.append(dancer.id)
             elif not admissible:
                 if dancer.needs_coaching:
