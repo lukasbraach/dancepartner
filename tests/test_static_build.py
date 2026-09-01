@@ -57,14 +57,22 @@ def test_the_core_ships_where_the_entry_script_can_import_it(tmp_path: Path) -> 
     ``data/``, so the example team resolves with no code change.
     """
     files = _files(_build(tmp_path))
-    for module in ("__init__", "model", "storage", "i18n", "scoring", "feasibility", "reporting"):
+    shipped = ("__init__", "model", "storage", "i18n", "scoring", "feasibility", "reporting")
+    for module in shipped:
         assert f"app/dancepartner/{module}.py" in files
     assert "data/team.example.yaml" in files
 
 
-def test_the_solver_and_the_cli_are_left_out(tmp_path: Path) -> None:
+def test_the_cpsat_backend_and_the_cli_are_left_out(tmp_path: Path) -> None:
+    """Only the ortools backend is excluded -- the dispatcher and the result types ship.
+
+    That is the point of the split: the browser gets ``solve()``, ``SolveResult`` and the type
+    annotations, and resolves the backend to HiGHS at call time (SPEC.md 14.2).
+    """
     files = _files(_build(tmp_path))
-    assert [name for name in files if name.endswith(("solver.py", "cli.py"))] == []
+    assert [name for name in files if name.endswith(("cpsat.py", "cli.py"))] == []
+    assert "app/dancepartner/solver.py" in files
+    assert "app/dancepartner/results.py" in files
 
 
 def test_nothing_in_the_bundle_imports_ortools(tmp_path: Path) -> None:

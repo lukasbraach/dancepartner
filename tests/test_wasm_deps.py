@@ -30,8 +30,10 @@ LOCKFILE = REPO_ROOT / "wasm" / "pyodide-lock.trimmed.json"
 REQUIREMENTS = REPO_ROOT / "wasm" / "requirements-wasm.txt"
 
 # Excluded from the bundle by wasm/build_static.py, so they may import whatever they like:
-# solver.py is the only home of ortools, and the CLI never ships to a browser.
-SERVER_ONLY = frozenset({"solver", "cli"})
+# cpsat.py is the only home of ortools, and the CLI never ships to a browser. solver.py is
+# deliberately absent from this set -- it is the dispatcher, it imports neither backend, and the
+# browser needs it.
+SERVER_ONLY = frozenset({"cpsat", "cli"})
 
 
 def _normalize(name: str) -> str:
@@ -128,7 +130,17 @@ def test_the_browser_safe_core_never_reaches_ortools() -> None:
     running ``__init__`` first.
     """
     seen: set[str] = set()
-    pending = ["__init__", "model", "storage", "i18n", "scoring", "feasibility", "reporting"]
+    pending = [
+        "__init__",
+        "model",
+        "storage",
+        "i18n",
+        "scoring",
+        "feasibility",
+        "reporting",
+        "results",
+        "solver",  # the dispatcher; it reaches a backend only inside solve()
+    ]
     while pending:
         module = pending.pop()
         if module in seen:
@@ -176,7 +188,14 @@ import dancepartner
 from dancepartner.model import Team
 from dancepartner.storage import parse_team
 
-# dir() must still advertise the deferred names, or the public surface silently shrank.
+# The dispatcher and the result types must come along without a backend -- that is what the
+# browser build relies on (SPEC.md 14.2).
+from dancepartner.solver import SolveResult, available_backends, resolve_backend
+
+assert SolveResult.__name__ == "SolveResult"
+assert "cpsat" not in available_backends(), available_backends()
+
+# dir() must still advertise the deferred name, or the public surface silently shrank.
 assert "solve" in dir(dancepartner), dir(dancepartner)
 assert "SolveResult" in dir(dancepartner)
 """

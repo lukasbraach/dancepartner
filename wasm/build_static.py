@@ -5,7 +5,7 @@ inlined, a web manifest, and icons. There is no server, no Python runtime and no
 treat everything this writes as public.
 
 What ships is the *editor*: Home, Team and Survey, plus the feasibility pre-check. Solving is
-absent because ortools has no WebAssembly wheel, so ``solver.py`` and ``cli.py`` are excluded
+absent because ortools has no WebAssembly wheel, so ``cpsat.py`` and ``cli.py`` are excluded
 outright rather than merely left unimported -- a stray ``import dancepartner.solver`` then
 fails as a plain ModuleNotFoundError instead of a bewildering micropip error about a package
 that was never going to resolve.
@@ -43,8 +43,13 @@ STLITE_VERSION: Final = "1.8.1"
 PYODIDE_VERSION: Final = "0.29.3"
 """What ``@stlite/browser`` 1.8.1 loads. Only used to re-check the vendored package index."""
 
-SERVER_ONLY: Final = frozenset({"solver.py", "cli.py"})
-"""Core modules kept out of the bundle -- the only two that import ortools and typer."""
+SERVER_ONLY: Final = frozenset({"cpsat.py", "cli.py"})
+"""Core modules kept out of the bundle -- the only two that import ortools and typer.
+
+``solver.py`` is deliberately not among them: it is the backend dispatcher, it imports neither
+backend, and the browser needs it for ``solve()``, ``SolveResult`` and the type annotations.
+It resolves to the HiGHS backend at call time (SPEC.md 14.2).
+"""
 
 DEFAULT_BASE_PATH: Final = "/dancepartner/"
 """GitHub Pages serves a project site under /<repo>/, not at the root."""

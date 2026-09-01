@@ -490,7 +490,7 @@ def test_wall_time_counts_every_stage_not_just_the_last(monkeypatch: pytest.Monk
     """
     from ortools.sat.python import cp_model
 
-    from dancepartner import solver as solver_module
+    from dancepartner import cpsat as solver_module
 
     per_stage: list[float] = []
     make_solver = solver_module._make_solver

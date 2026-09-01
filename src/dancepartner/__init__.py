@@ -3,10 +3,13 @@
 Public surface. The core is UI-agnostic on purpose: nothing under ``dancepartner`` imports
 ``streamlit``, and a reviewer can delete ``app/`` and still run everything.
 
-The three solver names are re-exported lazily (SPEC.md 14). Importing any submodule runs this
-module first, so an eager ``from .solver import ...`` would put ortools -- which has no
-WebAssembly wheel -- in the browser build's dependency set, and the data model would become
-unimportable there. Everything else is a plain eager re-export.
+``solve`` is re-exported lazily (SPEC.md 14.2). Importing any submodule runs this module first,
+so an eager import of a *backend* would put ortools -- which has no WebAssembly wheel -- in the
+browser build's dependency set, and the data model would become unimportable there.
+
+``solver`` itself is safe to import eagerly: since the backends were split out it dispatches
+between them without importing either, so the result types come along for free. Only the
+function that actually reaches a backend stays deferred.
 """
 
 from typing import TYPE_CHECKING, Any, Final
@@ -27,6 +30,7 @@ from .model import (
     position_label,
     position_labels,
 )
+from .results import InfeasibleInstanceError, SolveResult
 from .scoring import (
     DancerSatisfaction,
     PositionAssignment,
@@ -45,11 +49,11 @@ from .storage import (
     save_team,
 )
 
-if TYPE_CHECKING:  # mypy binds the real types; at runtime __getattr__ below does the work.
-    from .solver import InfeasibleInstanceError, SolveResult, solve
+if TYPE_CHECKING:  # mypy binds the real type; at runtime __getattr__ below does the work.
+    from .solver import solve
 
-_LAZY: Final = frozenset({"InfeasibleInstanceError", "SolveResult", "solve"})
-"""Names resolved from :mod:`dancepartner.solver` on first use, rather than at import."""
+_LAZY: Final = frozenset({"solve"})
+"""Resolved from :mod:`dancepartner.solver` on first use, rather than at import."""
 
 __all__ = [
     "DEFAULT_N_POSITIONS",
@@ -91,7 +95,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:  # noqa: ANN401
-    """Resolve a solver name on first access, then cache it in the module namespace.
+    """Resolve ``solve`` on first access, then cache it in the module namespace.
 
     Args:
         name: The attribute being looked up.
@@ -100,7 +104,7 @@ def __getattr__(name: str) -> Any:  # noqa: ANN401
         The object of that name from :mod:`dancepartner.solver`.
 
     Raises:
-        AttributeError: ``name`` is not one of the deferred solver names.
+        AttributeError: ``name`` is not one of the deferred names.
     """
     if name in _LAZY:
         from . import solver
