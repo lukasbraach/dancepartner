@@ -1,0 +1,96 @@
+// Service worker for the browser build (SPEC.md 14.7).
+//
+// Two jobs. It makes the app installable and usable offline by caching the ~30 MB of Pyodide,
+// wheels and stlite that a cold load pulls from jsDelivr; and it answers any in-scope
+// navigation with the app shell, which is what makes a deep link like /survey work on a host
+// that has no such file.
+//
+// Pyodide runs in a Web Worker created from a blob: URL. That worker inherits this page's
+// controller, so its fetches land here too -- confirmed in Chrome by reading back the cache
+// after a cold load. Without that this would only ever cache the shell.
+
+// Two caches, deliberately. The runtime is keyed by the stlite and Pyodide versions and
+// changes about once a year; the shell is keyed by its own content and changes on every commit
+// that touches the app. Sharing one name would re-download 30 MB after a one-line UI fix.
+const RUNTIME_CACHE = "dancepartner-runtime-{{ stlite_version }}-{{ pyodide_version }}";
+const SHELL_CACHE = "dancepartner-shell-{{ shell_version }}";
+const KEEP = [RUNTIME_CACHE, SHELL_CACHE];
+const SHELL = "{{ base_path }}index.html";
+
+// Everything the runtime is pulled from. jsDelivr sends `access-control-allow-origin: *`, so
+// the responses are readable rather than opaque -- they can be inspected, and they count
+// against the quota at their real size instead of a padded one.
+const REMOTE = [
+  "https://cdn.jsdelivr.net/",
+  "https://files.pythonhosted.org/",
+  "https://pypi.org/",
+];
+
+self.addEventListener("install", (event) => {
+  // skipWaiting plus the claim below is what makes the *first* visit count. Without them a
+  // freshly registered worker only starts controlling on the next navigation, so the one load
+  // that actually pulls the 30 MB is the one load that goes uncached -- measured in Chrome.
+  // Safe here because the caches are version-keyed: a new worker never reads an old runtime.
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.add(SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  // Anything not in KEEP is from an older build: a superseded shell, or a runtime from
+  // before a stlite bump. Dropping it here is the whole upgrade story.
+  event.waitUntil(
+    caches
+      .keys()
+      .then((names) =>
+        Promise.all(names.filter((n) => !KEEP.includes(n)).map((n) => caches.delete(n))),
+      )
+      .then(() => self.clients.claim()),
+  );
+});
+
+async function cacheFirst(request, name) {
+  const cache = await caches.open(name);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const response = await fetch(request);
+  if (response && response.ok) {
+    cache.put(request, response.clone()).catch(() => {});
+  }
+  return response;
+}
+
+async function shellFirst(request) {
+  // Network-first, so a redeploy is picked up on the next load. index.html carries the whole
+  // app inlined, and a stale one would pin the coach to an old build.
+  const cache = await caches.open(SHELL_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      cache.put(SHELL, response.clone()).catch(() => {});
+      return response;
+    }
+  } catch (error) {
+    // offline -- fall through
+  }
+  return (await cache.match(SHELL)) || Response.error();
+}
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+
+  // Any in-scope navigation resolves to the shell: /survey, /solution and the rest are
+  // client-side routes, and the host has no file behind them.
+  if (request.mode === "navigate") {
+    event.respondWith(shellFirst(request));
+    return;
+  }
+
+  const url = new URL(request.url);
+  const remote = REMOTE.some((origin) => request.url.startsWith(origin));
+  if (remote) {
+    event.respondWith(cacheFirst(request, RUNTIME_CACHE));
+  } else if (url.origin === self.location.origin) {
+    event.respondWith(cacheFirst(request, SHELL_CACHE));
+  }
+});
