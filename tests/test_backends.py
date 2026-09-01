@@ -7,11 +7,14 @@ result types while installing only HiGHS.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from dancepartner import solver
-from dancepartner.model import SolverConfig, Team
+from dancepartner.model import Objective, ScoreAggregation, SolverConfig, Team
 from dancepartner.results import SolveResult
+from dancepartner.storage import load_team
 
 
 @pytest.fixture
@@ -82,6 +85,51 @@ def test_the_result_records_which_backend_produced_it(no_env: None, tiny: Team) 
     pytest.importorskip("ortools")
     result: SolveResult = solver.solve(tiny, SolverConfig(max_solutions=1))
     assert result.backend == "cpsat"
+
+
+# -- the two backends must agree ---------------------------------------------------------
+#
+# SPEC.md 8.1. The assignment itself is *not* compared: several are genuinely equally optimal
+# and the two solvers break ties differently. What must match is the stage value vector -- the
+# sorted score profile leximin pins, the totals, the tier counts -- because that is what the
+# objective actually specifies. If those agree, the backends agree about the problem.
+
+
+def _stage_vector(result: SolveResult) -> list[tuple[str, int]]:
+    return [(stage.name, stage.value) for stage in result.stages]
+
+
+@pytest.mark.parametrize("objective", list(Objective))
+@pytest.mark.parametrize("aggregation", list(ScoreAggregation))
+def test_both_backends_reach_the_same_stage_values(
+    objective: Objective, aggregation: ScoreAggregation, small: Team
+) -> None:
+    pytest.importorskip("ortools")
+    pytest.importorskip("highspy")
+    config = SolverConfig(objective=objective, aggregation=aggregation, max_solutions=1)
+
+    cpsat = solver.solve(small, config, backend="cpsat")
+    highs = solver.solve(small, config, backend="highs")
+
+    assert _stage_vector(highs) == _stage_vector(cpsat)
+    assert highs.best.total_score == cpsat.best.total_score
+    assert highs.best.min_score == cpsat.best.min_score
+
+
+def test_both_backends_agree_on_the_example_team() -> None:
+    """The instance the README's figures are measured on, at the shipped defaults."""
+    pytest.importorskip("ortools")
+    pytest.importorskip("highspy")
+    team = load_team(Path(__file__).resolve().parents[1] / "data" / "team.example.yaml")
+    config = SolverConfig(max_solutions=1)
+
+    cpsat = solver.solve(team, config, backend="cpsat")
+    highs = solver.solve(team, config, backend="highs")
+
+    assert _stage_vector(highs) == _stage_vector(cpsat)
+    assert sorted(s.score for s in highs.best.per_dancer.values()) == sorted(
+        s.score for s in cpsat.best.per_dancer.values()
+    ), "the sorted score profile is what leximin pins; it has to be identical"
 
 
 def test_the_dispatcher_imports_no_backend_by_itself() -> None:

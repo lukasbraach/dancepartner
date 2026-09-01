@@ -132,8 +132,66 @@ def test_the_icons_are_written(tmp_path: Path) -> None:
 def test_the_shell_says_it_is_loading_in_both_languages(tmp_path: Path) -> None:
     """It renders before Python exists, so it cannot use the runtime language switch."""
     html = (_build(tmp_path) / "index.html").read_text(encoding="utf-8")
-    assert TABLES[Language.EN]["ui.loading"] in html
-    assert TABLES[Language.DE]["ui.loading"] in html
+    for language in Language:
+        for key in build_static.BOOT_KEYS.values():
+            assert TABLES[language][key] in html, f"{language.value} is missing {key}"
+
+
+def test_the_boot_screen_outlives_the_stlite_mount(tmp_path: Path) -> None:
+    """It has to be a sibling of #root, not a child.
+
+    stlite replaces #root's children as soon as its bundle parses -- seconds into a load that
+    takes half a minute -- and takes over with its own developer-facing progress text. A boot
+    screen inside #root is therefore gone before the coach has anything to look at.
+    """
+    html = (_build(tmp_path) / "index.html").read_text(encoding="utf-8")
+    assert '<div id="root"></div>' in html
+    assert html.index('<div id="root">') < html.index('<div id="boot">')
+    # Removed when Streamlit's main block actually has content in it, not on a timer that
+    # hopes for the best -- and not on the containers, which stlite renders empty within a
+    # few hundred milliseconds of a load that takes several seconds.
+    assert 'data-testid="stMain"' in html
+    assert "MutationObserver" in html
+
+
+def test_the_service_worker_is_built_and_registered(tmp_path: Path) -> None:
+    """Without it the browser re-downloads ~30 MB of runtime on every cold load."""
+    out = _build(tmp_path)
+    worker = (out / "sw.js").read_text(encoding="utf-8")
+    # Keyed by the two pins, so a stlite bump orphans the old runtime instead of mixing them.
+    assert build_static.STLITE_VERSION in worker
+    assert build_static.PYODIDE_VERSION in worker
+    assert "https://cdn.jsdelivr.net/" in worker
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert '.register("/dancepartner/sw.js", { scope: "/dancepartner/" })' in html
+
+
+def test_the_shell_cache_turns_over_when_the_app_changes(tmp_path: Path) -> None:
+    """The runtime cache must not: re-downloading 30 MB after a UI fix is the bug to avoid."""
+    first = (_build(tmp_path / "a") / "sw.js").read_text(encoding="utf-8")
+    monkey = TABLES[Language.EN]["ui.title"]
+    TABLES[Language.EN]["ui.title"] = f"{monkey} (edited)"
+    try:
+        second = (_build(tmp_path / "b") / "sw.js").read_text(encoding="utf-8")
+    finally:
+        TABLES[Language.EN]["ui.title"] = monkey
+    assert _cache_name(first, "shell") != _cache_name(second, "shell")
+    assert _cache_name(first, "runtime") == _cache_name(second, "runtime")
+
+
+def _cache_name(worker: str, kind: str) -> str:
+    match = re.search(rf'"(dancepartner-{kind}-[^"]+)"', worker)
+    assert match, f"no {kind} cache name in the service worker"
+    return match.group(1)
+
+
+def test_a_deep_link_gets_the_app_rather_than_a_404(tmp_path: Path) -> None:
+    """The pages are client-side routes; a static host has no file behind /survey."""
+    out = _build(tmp_path)
+    # Pages serves 404.html for an unknown path with the URL intact, so the shell boots there.
+    assert (out / "404.html").read_bytes() == (out / "index.html").read_bytes()
+    assert (out / ".nojekyll").is_file()
+    assert 'request.mode === "navigate"' in (out / "sw.js").read_text(encoding="utf-8")
 
 
 def test_the_draft_mount_matches_what_persistence_writes_to(tmp_path: Path) -> None:
@@ -165,3 +223,15 @@ def test_rebuilding_replaces_the_previous_output(tmp_path: Path) -> None:
     stale.write_text("from an older build", encoding="utf-8")
     _build(tmp_path)
     assert not stale.exists()
+
+
+def test_the_shell_and_the_script_agree_on_the_page_parameter(tmp_path: Path) -> None:
+    """Two places name it; if they drift, every deep link quietly lands on Home instead."""
+    import common
+
+    assert build_static.PAGE_PARAM == common.PAGE_PARAM
+    html = (_build(tmp_path) / "index.html").read_text(encoding="utf-8")
+    assert f'params.set("{build_static.PAGE_PARAM}", page)' in html
+    # Rewritten back to the base path: st.switch_page resolves relative to the address bar,
+    # so leaving the deep path in place turns /survey into /survey/survey.
+    assert 'history.replaceState(null, "", base + "?" + params.toString())' in html

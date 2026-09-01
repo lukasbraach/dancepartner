@@ -259,14 +259,19 @@ def _click(at: AppTest, key: str) -> AppTest:
     return next(b for b in at.button if b.label == label).click().run()
 
 
-def _token(at: AppTest) -> str:
-    """The draft token as AppTest reports it.
+def _param(at: AppTest, name: str) -> str:
+    """One query parameter as AppTest reports it.
 
     AppTest mirrors the raw query dict, so values arrive as one-element lists rather than the
     plain strings ``st.query_params`` hands the running script.
     """
-    raw = at.query_params[persistence.DRAFT_PARAM]
+    raw = at.query_params[name]
     return raw[0] if isinstance(raw, list) else str(raw)
+
+
+def _token(at: AppTest) -> str:
+    """The draft token as AppTest reports it."""
+    return _param(at, persistence.DRAFT_PARAM)
 
 
 def _texts(at: AppTest) -> str:
@@ -277,3 +282,43 @@ def _texts(at: AppTest) -> str:
         for element in group
     ]
     return "\n".join(str(p) for p in parts)
+
+
+# -- the language preference --------------------------------------------------------------------
+
+
+def test_the_browser_remembers_the_language_across_a_reload(wasm: Path) -> None:
+    """Web Workers have no localStorage at all, so the preference rides the draft mount.
+
+    Which is the same IndexedDB the drafts already live in, and survives the same reload.
+    """
+    assert persistence.load_language() is None
+    persistence.save_language("de")
+    st.session_state.clear()  # what a reload leaves behind
+    assert persistence.load_language() == "de"
+
+
+def test_the_language_store_is_browser_only() -> None:
+    """The server build must not keep one coach's choice where the next coach's session sees it."""
+    persistence.save_language("de")
+    assert persistence.load_language() is None
+
+
+def test_an_unwritable_mount_is_not_an_error(wasm: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Best effort, like every other entry point here: a preference is never worth an error page."""
+    monkeypatch.setattr(persistence, "MOUNTPOINT", wasm / "file")
+    (wasm).mkdir(parents=True, exist_ok=True)
+    (wasm / "file").write_text("not a directory", encoding="utf-8")
+    persistence.save_language("de")
+    assert persistence.load_language() is None
+
+
+def test_the_language_is_stamped_into_the_url_beside_the_draft() -> None:
+    """The static shell reads it from there -- it renders before Python exists (SPEC.md 14)."""
+    at = AppTest.from_file(HOME, default_timeout=60).run()
+    assert _param(at, persistence.LANG_PARAM) == Language.EN.value
+
+    at.session_state["language"] = Language.DE.value
+    at.run()
+    assert _param(at, persistence.LANG_PARAM) == Language.DE.value
+    assert TABLES[Language.DE]["ui.title"] in [element.value for element in at.title]

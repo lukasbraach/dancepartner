@@ -10,11 +10,12 @@ The dependency runs one way only. ``dancepartner`` never imports ``streamlit``; 
 
 from __future__ import annotations
 
-import importlib.util
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import streamlit as st
+from streamlit.navigation.page import StreamlitPage
 
 import persistence
 from dancepartner.i18n import Language, get_language, set_language, t
@@ -32,18 +33,22 @@ from dancepartner.model import (
     Tier,
 )
 from dancepartner.scoring import DancerSatisfaction, Solution
+from dancepartner.solver import available_backends
 from dancepartner.storage import dump_team
 
 if TYPE_CHECKING:  # Importing the solver for real would pull in ortools -- see SOLVER_AVAILABLE.
     from dancepartner.solver import SolveResult
 
-SOLVER_AVAILABLE: Final = importlib.util.find_spec("ortools") is not None
+SOLVER_AVAILABLE: Final = bool(available_backends())
 """Whether an assignment can be computed here.
 
-Asked as a capability rather than as a platform test: ``find_spec`` locates the package without
-importing it, so this costs nothing and stays true in an environment we did not anticipate.
-ortools has no WebAssembly wheel, so the browser build (SPEC.md 14) sets this ``False`` and the
-two solving pages say so instead of failing.
+Asked of the dispatcher rather than of one package: there are two backends and the browser
+build has only the second of them (SPEC.md 8.1). ``available_backends`` probes with
+``find_spec``, so asking costs nothing and never drags a solver in.
+
+It is normally true everywhere, including in the browser. It goes false only where neither
+ortools nor highspy is installed -- a CLI-only install of the core, say -- and then the two
+solving pages say so instead of failing.
 """
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
@@ -62,22 +67,90 @@ _DIRTY: Final = "dirty"
 _RESULT: Final = "result"
 _CONFIG: Final = "config"
 LANGUAGE_KEY: Final = "language"
+_LANGUAGE_CODES: Final = frozenset(language.value for language in Language)
 _RESTORED: Final = "draft_restored"
 _RESTORED_NOTICE: Final = "draft_restored_notice"
+_ROUTED: Final = "routed_from_url"
+
+
+_LANGUAGE_STORED: Final = "language_stored"
+
+
+def _resolve_language() -> str:
+    """Where a fresh session gets its language from, most specific source first.
+
+    ``?lang=`` beats the store because it is the more deliberate act -- a shared or bookmarked
+    link -- and it is also what a reload preserves on the server build, which has no store.
+    Anything unrecognised is ignored rather than raising: a hand-edited URL should not be able
+    to break the page.
+    """
+    for candidate in (st.query_params.get(persistence.LANG_PARAM), persistence.load_language()):
+        if isinstance(candidate, str) and candidate in _LANGUAGE_CODES:
+            return candidate
+    return get_language().value
 
 
 def sync_language() -> None:
-    """Point the core i18n layer at the language chosen in this session.
+    """Point the core i18n layer at the language chosen in this session, and remember it.
 
     The core language is a process-wide setting while the choice lives per browser session,
     so Home.py calls this at the top of every rerun, before anything renders a label. A fresh
-    session is seeded from the environment-variable default (English when unset).
+    session resolves one through :func:`_resolve_language`, falling back to the
+    environment-variable default (English when unset).
+
+    The write-back is guarded on having actually changed. It reaches IndexedDB on the browser
+    build, and doing that once per rerun for a value that never moves would be pure waste.
     """
     raw = st.session_state.get(LANGUAGE_KEY)
-    if not isinstance(raw, str):
-        raw = get_language().value
+    if not isinstance(raw, str) or raw not in _LANGUAGE_CODES:
+        raw = _resolve_language()
         st.session_state[LANGUAGE_KEY] = raw
     set_language(Language(raw))
+    if st.session_state.get(_LANGUAGE_STORED) != raw:
+        st.session_state[_LANGUAGE_STORED] = raw
+        persistence.save_language(raw)
+
+
+PAGE_PARAM: Final = "page"
+"""Query parameter naming the page a deep link asked for. Must match ``wasm/build_static.py``.
+
+Only the browser build ever sets it. A static host has no file behind ``/survey``, so the shell
+is served for that path instead -- a ``404.html`` copy on Pages, the service worker on a return
+visit, ``wasm/serve.py`` locally -- and the app boots on its default page while the address bar
+still says ``/survey``. Streamlit's own server resolves the path for itself, so under
+``make ui`` this parameter never appears and :func:`initial_page` finds nothing to do.
+
+The shell has to be the one to translate the path, because Python cannot see it: under stlite
+``st.context.url`` is the bare origin, no path and no query string. Verified in Chrome; the
+query string is the only channel from the address bar into the script (SPEC.md 14.7).
+"""
+
+
+def initial_page(pages: list[StreamlitPage], selected: StreamlitPage) -> StreamlitPage | None:
+    """The page a deep link asked for, when Streamlit has not already opened it.
+
+    Consumed once per session and cleared out of the URL either way, so client-side navigation
+    afterwards is left entirely alone.
+
+    Returns:
+        The page to switch to, or ``None`` if the URL agrees already or names nothing known.
+    """
+    if st.session_state.get(_ROUTED):
+        return None
+    st.session_state[_ROUTED] = True
+    wanted = st.query_params.get(PAGE_PARAM)
+    if wanted is None:
+        return None
+    st.query_params.pop(PAGE_PARAM, None)
+    if wanted == selected.url_path:
+        return None
+    return next((page for page in pages if page.url_path == wanted), None)
+
+
+def current_language() -> str:
+    """The language code this session is rendering in."""
+    raw = st.session_state.get(LANGUAGE_KEY)
+    return raw if isinstance(raw, str) and raw in _LANGUAGE_CODES else get_language().value
 
 
 def get_team() -> Team | None:
@@ -121,7 +194,7 @@ def restore_draft() -> None:
     """
     # Re-stamp first, and on every rerun: st.navigation strips the query string on each page
     # change, and a reload from a stripped URL would restore nothing (SPEC.md 14.4).
-    persistence.stamp_url()
+    persistence.stamp_url(current_language())
     if st.session_state.get(_RESTORED):
         return
     st.session_state[_RESTORED] = True
@@ -238,6 +311,25 @@ def cached_solve(team: Team, config: SolverConfig) -> SolveResult:
     return solve(team, config)
 
 
+UI_FLUSH_SECONDS: Final = 0.05
+"""How long to yield so the browser can draw what was just written. Measured, not guessed."""
+
+
+def flush_ui() -> None:
+    """Give the page a chance to show what has been written, before blocking on the solver.
+
+    Streamlit hands an element to the browser as soon as it is written, and on the server that
+    is the end of it. Under stlite the delivery needs the Pyodide worker's event loop, and a
+    script run that goes straight from drawing a busy banner into a solve never gives it a
+    turn -- so the banner arrives together with the answer, which is to say never. Sleeping is
+    what yields; 50 ms is enough, measured in Chrome against a 1.3 s solve (SPEC.md 14.7).
+
+    Harmless on the other two targets, where it costs one twentieth of a second nobody was
+    going to notice, on a click that is about to take seconds.
+    """
+    time.sleep(UI_FLUSH_SECONDS)
+
+
 def solve_and_store(team: Team, config: SolverConfig) -> None:
     """Run the cached solve into session state, or show the pre-check issues and stop.
 
@@ -248,6 +340,7 @@ def solve_and_store(team: Team, config: SolverConfig) -> None:
     """
     from dancepartner.solver import InfeasibleInstanceError
 
+    flush_ui()
     # The configured time limit is what keeps the UI from hanging (SPEC.md 10).
     with st.spinner(t("solve.running")):
         try:

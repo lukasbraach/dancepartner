@@ -232,6 +232,51 @@ pre-check to catch it; that needs general matching, which is the solver's job.
 
 ## 8. Solver (`solver.py`)
 
+### Two backends
+
+`solver.py` is a dispatcher; the model lives in a backend beside it. Everything below describes
+one model, stated twice.
+
+| Module | Solver | Where it runs |
+|---|---|---|
+| `cpsat.py` | OR-Tools CP-SAT | local, server |
+| `highs.py` | HiGHS, as a MILP | local, server, **and the browser** |
+| `results.py` | neither — the shared result types and stage vocabulary | everywhere |
+
+CP-SAT is the reference implementation and the default. HiGHS exists because ortools has no
+WebAssembly wheel and highspy does, so it is the only one of the two the browser build can
+install (§14.2). Choice is the `backend` argument, then `DANCEPARTNER_BACKEND`, then the first
+importable one; `SolveResult.backend` records which ran, and `solve --json` carries it.
+
+The two must agree, and the way that is enforced is by running the **existing** suite against
+both (`pytest --backend=highs`, and the `highs-backend` CI job) rather than by writing a second
+set of tests. `tests/helpers.py::assert_result_valid` re-derives every hard constraint and every
+stage value independently of whichever solver produced them, which is what makes that worth
+anything. Two tests are marked `cpsat_only`: both measure CP-SAT's own search effort, which is
+not a claim about the model.
+
+Where they are compared directly, the assertion is on the **stage value vector**, never on the
+assignment — several assignments are genuinely equally optimal and the two break ties
+differently.
+
+`solver.py` itself imports neither backend, which is what lets the browser ship it for
+`SolveResult` and the type annotations while installing only HiGHS.
+
+### What the MILP has to spell out
+
+CP-SAT states implications directly; a MILP linearizes them. The translations are in
+`highs.py`, and three are worth naming because they are where a mistake would be silent:
+
+* `together` becomes the standard AND — `b ≤ x_d`, `b ≤ x_e`, **`b ≥ x_d + x_e − 1`**. The third
+  row is the counterpart of the reverse implication below, and just as mandatory.
+* `doubled` needs no reification at all: the role count is already confined to `{1,2}`, so
+  `Σ x == 1 + doubled` defines the flag and the bound together. Pole position and coaching need
+  then reduce to `doubled + x ≤ 1` and `doubled ≥ x`, with no big-M anywhere.
+* `max` (the `BEST` aggregation) needs a selector: `best ≥ c_i v_i` for every operand, plus
+  `best ≤ c_i v_i + M(1 − y_i)` with `Σ y_i = 1`. Only the upper half stops the solver inflating
+  `best`; only the lower half stops it understating one. The pins and the enumeration replay
+  both need it exact in *both* directions.
+
 ### Variables
 
 * `x[d, p] ∈ {0,1}` — dancer `d` on position `p`.
@@ -605,6 +650,11 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
   `dynamic_prefixes`).
 * Coverage gate: ≥ 90 % on `src/dancepartner/` (currently 100 %), with `i18n.py` omitted. The UI
   has its own tests but no gate.
+* With two backends, **no single run can reach 100 %** — whichever solver is idle looks dead. The
+  90 % gate stays on the single-backend run; `make cov-both` (and the `highs-backend` CI job) runs
+  the suite twice and combines, which is where the real figure comes from. `pytest --backend=X`
+  selects; `@pytest.mark.cpsat_only` excuses the two tests that measure CP-SAT's own search effort
+  rather than the model.
 
 ---
 
@@ -636,28 +686,34 @@ particular there is no `DataSource` abstraction over "local file vs S3 vs databa
 database (§9), no multi-tenancy (§13), and the core/UI split already lives in `src/` vs `app/`. The
 only real difference between the targets is whether the solver exists, and that is one boolean.
 
-### 14.2 Why the browser cannot solve
+### 14.2 Which solver the browser gets
 
 `ortools` has no WebAssembly wheel. Every wheel published to PyPI is macOS, Linux or Windows
 specific — there is no `py3-none-any` fallback — and Pyodide's distribution does not carry it.
-`pydantic` and `pyyaml` are both there, so everything else in the core runs unchanged.
+`highspy` **does** ship `highspy-1.11.0-cp313-cp313-pyodide_2025_0_wasm32.whl`, so the browser
+solves with the HiGHS backend (§8) while local and server installs default to CP-SAT.
 
-This is why `dancepartner/__init__.py` resolves `solve`, `SolveResult` and `InfeasibleInstanceError`
-through a PEP 562 `__getattr__` instead of importing them. Importing any submodule runs the package
-`__init__` first, so an eager `from .solver import ...` would mean that `from dancepartner.model
-import Team` pulls in CP-SAT — and the browser build could not import the data model at all. §5's
-import-direction rule gains one clause: **`solver` is reachable from `__init__` only lazily, and
-`app/` never imports it at module level.** `tests/test_wasm_deps.py` and the `wasm-parity` CI job
-enforce both halves.
+That constraint is still what shapes the module layout. `cpsat.py` is excluded from the bundle,
+and `solver.py` — the dispatcher — imports neither backend, so it can ship. `dancepartner/__init__.py`
+resolves only `solve` through a PEP 562 `__getattr__`: importing any submodule runs the package
+`__init__` first, so an eager import of a *backend* would mean `from dancepartner.model import Team`
+pulls in CP-SAT, and the browser could not import the data model at all. §5's import-direction rule
+gains one clause: **a backend is reachable from `__init__` only lazily, and `app/` never imports one
+at module level.** `tests/test_wasm_deps.py` and the `wasm-parity` CI job enforce both halves.
+
+Being able to solve everywhere is worth more here than solving fastest, which is the trade the
+`highs.py` formulation makes. HiGHS has no solution pool, so enumeration re-solves with a no-good
+cut per assignment instead of walking one search — see §8's enumeration notes.
 
 ### 14.3 Degrading explicitly
 
-`app/common.py` exposes `SOLVER_AVAILABLE`, asked as a capability
-(`importlib.util.find_spec("ortools")`) rather than as a platform test. Where it is false, Solution
-and Analysis render `ui.solver.unavailable` and stop, and Home says so up front. Neither page leaves
-`st.navigation`: a missing menu entry is a worse lie than a page that explains itself. Analysis
-checks the capability *before* `require_result()`, or the coach would be told "no solution computed
-yet", which misstates the cause.
+`app/common.py` exposes `SOLVER_AVAILABLE`, asked of the dispatcher (`available_backends()`)
+rather than of one package or of the platform. It is normally true everywhere, the browser
+included; it goes false only where neither backend is installed — a CLI-only install of the core,
+say. There, Solution and Analysis render `ui.solver.unavailable` and stop, and Home says so up
+front. Neither page leaves `st.navigation`: a missing menu entry is a worse lie than a page that
+explains itself. Analysis checks the capability *before* `require_result()`, or the coach would be
+told "no solution computed yet", which misstates the cause.
 
 ### 14.4 Drafts
 
@@ -726,7 +782,83 @@ true of the local and browser targets and false of the server one. The telemetry
 attached to — that nothing is reported to Streamlit's usage statistics — holds everywhere; the
 data-location claim is 14.5's business, and the comment now points there instead of asserting it.
 
-### 14.7 Pinned versions
+### 14.7 The first visit, and every one after it
+
+Three things the browser target needs that a served app gets for free.
+
+**A boot screen that means something.** A cold load pulls roughly 30 MB and takes several seconds
+even on a fast connection. stlite narrates that with "Loading Pyodide", "Unpacking archives",
+"Mocking" — accurate, and not addressed to a dance coach. `wasm/index.html.j2` therefore paints its
+own overlay, **outside `#root`** and fixed on top, and steps through `ui.loading.*` on a timer:
+getting ready, downloading, preparing the solver, nearly there. Both language tables are baked into
+the shell at build time (it renders before Python exists) and it picks one from `?lang=`, falling
+back to `navigator.language`.
+
+It comes down when the app is genuinely up, which means **content inside `[data-testid="stMain"]`**
+— not the container, which stlite renders empty within a few hundred milliseconds of a load that
+takes several seconds. A 120 s timeout removes it regardless, so a broken deploy shows a broken app
+rather than a spinner forever.
+
+**A service worker.** `wasm/sw.js.j2` caches the runtime, which is what makes the app installable
+in any useful sense and what makes it work offline. Two caches: one keyed by the stlite and Pyodide
+pins, holding the ~30 MB from jsDelivr, and one keyed by the shell's own content hash. Separate on
+purpose — sharing a name would re-download the runtime after a one-line UI fix. `activate` deletes
+everything outside that pair.
+
+It claims the page on install rather than waiting for the next navigation. Measured in Chrome: the
+one load that actually pulls the 30 MB is otherwise the one load that goes uncached. Pyodide runs in
+a Web Worker created from a `blob:` URL and that worker inherits the page's controller, so its
+fetches are cached too — verified by reading the cache back after a cold load (68 entries,
+`pyodide.asm.wasm`, `python_stdlib.zip` and the `highspy` wheel among them).
+
+**Deep links.** The pages are client-side routes; a static host has no file behind `/survey`. Three
+layers answer it with the shell: `404.html` (a byte copy of `index.html`) on Pages, the service
+worker on any return visit, and `wasm/serve.py` locally — which is why `make wasm-serve` no longer
+uses `python -m http.server`.
+
+That alone lands the coach on the *start* page with `/survey` still in the address bar, because
+stlite's client does not resolve the path the way Streamlit's own server does. Python cannot resolve
+it either: under stlite `st.context.url` is the bare origin, no path and no query string. So the
+shell copies the path into `?page=`, which the script *can* read, and `common.initial_page` switches
+to it once and clears the parameter. The shell rewrites the address back to the base path when it
+does — `st.switch_page` resolves relative to wherever the address bar points, so leaving `/survey`
+there produces `/survey/survey`.
+
+**Feedback while it solves.** Writing an element is not what puts it on screen. Streamlit hands it
+over immediately, but under stlite the delivery needs the Pyodide worker's event loop, and a script
+run that goes straight from drawing a busy banner into a solve never gives it a turn — so the
+banner arrives together with the answer, which is to say never. Splitting the click across extra
+reruns does not help either; ending a run is not a yield.
+
+What yields is sleeping. `common.flush_ui()` sleeps 50 ms between the banner and the solver, and
+`solve_and_store` calls it so a page cannot forget to. Measured in Chrome against a 1.3 s solve: the
+banner appears 0.10 s after the click and stays until the answer replaces it. 50 ms is enough; the
+same run without it shows nothing at all, which is how this was found.
+
+### 14.8 The language preference
+
+The sidebar toggle is per session, and a session ends at every reload. Two mechanisms put it back:
+
+* `?lang=` in the URL, stamped by `app/persistence.py` next to the draft token. It survives a reload
+  on **both** targets, it is what a shared link carries, and it is the only way the static shell can
+  know which language to write its boot screen in.
+* A one-line file on the IDBFS mount, browser build only. That covers a genuinely fresh visit and a
+  PWA launched from the home screen, neither of which carries a query string.
+
+Not `localStorage`, which is the obvious answer and not available: Python runs in a Web Worker here,
+and Web Workers have no `localStorage` at all — it is synchronous and main-thread-only. IndexedDB is
+what a worker does get, and the draft mount is already IndexedDB and already flushed after every
+script run, so the preference rides along with it.
+
+The server build has no store, deliberately: process memory would leak one coach's choice into the
+next coach's session, and the container filesystem is read-only (14.5). It persists through the URL
+and nothing else.
+
+Resolution order, in `common.sync_language()`: session state, then `?lang=`, then the stored file,
+then `DANCEPARTNER_LANG`. The URL beats the store because it is the more deliberate act. Anything
+unrecognised is ignored rather than raised — a hand-edited URL must not be able to break the page.
+
+### 14.9 Pinned versions
 
     @stlite/browser 1.8.1  ->  Pyodide 0.29.3  ->  CPython 3.13.2  ->  streamlit 1.57.0
 
@@ -746,6 +878,7 @@ A new runtime dependency clears three gates, not one:
    index — add it to `requirements-wasm.txt` pinned to *exactly* that version. A pure-Python
    `py3-none-any` wheel from PyPI also works; a compiled extension does not, unless Pyodide builds
    it.
-3. If it cannot run in the browser, it gets the `ortools` treatment: confined to one module, lazily
-   re-exported, excluded from the bundle, and gated in the UI behind a flag beside
-   `SOLVER_AVAILABLE`. Never a bare module-level import in something the editor pages need.
+3. If it cannot run in the browser, it gets the `ortools` treatment: confined to one module,
+   reached only through a dispatcher that imports it lazily, excluded from the bundle by
+   `build_static.SERVER_ONLY`, and gated in the UI behind a capability flag. Never a bare
+   module-level import in something the browser pages need.

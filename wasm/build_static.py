@@ -4,11 +4,11 @@ Produces a directory that can be served by anything -- ``index.html`` with the w
 inlined, a web manifest, and icons. There is no server, no Python runtime and no secret in it;
 treat everything this writes as public.
 
-What ships is the *editor*: Home, Team and Survey, plus the feasibility pre-check. Solving is
-absent because ortools has no WebAssembly wheel, so ``cpsat.py`` and ``cli.py`` are excluded
-outright rather than merely left unimported -- a stray ``import dancepartner.solver`` then
-fails as a plain ModuleNotFoundError instead of a bewildering micropip error about a package
-that was never going to resolve.
+The whole app ships, solving included: ortools has no WebAssembly wheel but highspy does, so
+the bundle installs the HiGHS backend and ``solver.py`` resolves to it (SPEC.md 8, 14.2).
+``cpsat.py`` and ``cli.py`` are excluded outright rather than merely left unimported -- a stray
+``import dancepartner.cpsat`` then fails as a plain ModuleNotFoundError instead of a
+bewildering micropip error about a package that was never going to resolve.
 
 The virtual filesystem mirrors the repository, with one move: ``src/dancepartner/`` is written
 to ``app/dancepartner/``. Streamlit puts the entry script's directory on ``sys.path`` -- the
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import shutil
 import urllib.request
@@ -53,6 +54,13 @@ It resolves to the HiGHS backend at call time (SPEC.md 14.2).
 
 DEFAULT_BASE_PATH: Final = "/dancepartner/"
 """GitHub Pages serves a project site under /<repo>/, not at the root."""
+
+PAGE_PARAM: Final = "page"
+"""How the shell tells the script which page a deep link asked for.
+
+Must equal ``app/common.py``'s ``PAGE_PARAM``; the reasoning lives there, and
+tests/test_static_build.py pins the two together.
+"""
 
 IDBFS_MOUNTPOINT: Final = "/mnt"
 """Where the draft lives, in IndexedDB. Must equal ``app/persistence.py``'s ``MOUNTPOINT``.
@@ -138,8 +146,31 @@ def _assert_no_ortools(files: dict[str, str]) -> None:
         )
 
 
+BOOT_KEYS: Final = {
+    "start": "ui.loading.start",
+    "download": "ui.loading.download",
+    "solver": "ui.loading.solver",
+    "almost": "ui.loading.almost",
+    "noscript": "ui.loading.noscript",
+}
+"""Boot-screen steps, spelled out so the key-usage scanner in tests/test_app.py can see them."""
+
+
+def loading_strings() -> dict[str, dict[str, str]]:
+    """The boot screen's wording, per language, for the shell to pick from at runtime.
+
+    The shell paints before Python exists, so it cannot call :func:`dancepartner.i18n.t`.
+    Both tables are baked in and the shell chooses between them from ``?lang=`` or the
+    browser's own setting -- the one sanctioned exception to the language policy (SPEC.md 2).
+    """
+    return {
+        language.value: {step: TABLES[language][key] for step, key in BOOT_KEYS.items()}
+        for language in Language
+    }
+
+
 def render(out: Path, base_path: str) -> None:
-    """Write ``index.html``, the manifest and the icons into ``out``."""
+    """Write the shell, its 404 twin, the service worker, the manifest and the icons."""
     env = Environment(  # noqa: S701 -- output is HTML we author, values are JSON-encoded
         loader=FileSystemLoader(HERE),
         undefined=StrictUndefined,
@@ -149,21 +180,34 @@ def render(out: Path, base_path: str) -> None:
     context = {
         "base_path": base_path,
         "stlite_version": STLITE_VERSION,
-        # The shell renders before Python exists, so it cannot use the runtime language
-        # switch. Both languages go in, which is the one sanctioned exception to SPEC.md 2.
+        "pyodide_version": PYODIDE_VERSION,
         "title": TABLES[Language.EN]["ui.title"],
         "description": TABLES[Language.EN]["ui.subtitle"],
-        "loading_en": TABLES[Language.EN]["ui.loading"],
-        "loading_de": TABLES[Language.DE]["ui.loading"],
+        "loading_json": json.dumps(loading_strings(), ensure_ascii=False),
+        "default_language": Language.EN.value,
         "files_json": json.dumps(files, ensure_ascii=False),
         "requirements_json": json.dumps(read_requirements()),
         "idbfs_mountpoint": IDBFS_MOUNTPOINT,
+        "page_param": PAGE_PARAM,
     }
 
     out.mkdir(parents=True, exist_ok=True)
-    pages = (("index.html.j2", "index.html"), ("manifest.webmanifest.j2", "manifest.webmanifest"))
-    for template, name in pages:
-        (out / name).write_text(env.get_template(template).render(**context), encoding="utf-8")
+    shell = env.get_template("index.html.j2").render(**context)
+    (out / "index.html").write_text(shell, encoding="utf-8")
+    # GitHub Pages serves 404.html for any path it has no file for, with the URL left intact,
+    # so a deep link like /survey boots the app and Streamlit routes to the right page. A byte
+    # copy rather than a redirect: the address the coach shared is the one they get back.
+    (out / "404.html").write_text(shell, encoding="utf-8")
+    # Pages otherwise runs the output through Jekyll, which drops anything beginning with _.
+    (out / ".nojekyll").write_text("", encoding="utf-8")
+
+    (out / "manifest.webmanifest").write_text(
+        env.get_template("manifest.webmanifest.j2").render(**context), encoding="utf-8"
+    )
+    # The shell's own hash keys its cache, so a redeployed app is picked up while the 30 MB of
+    # runtime beside it -- keyed by the two version pins -- is not re-downloaded (SPEC.md 14.7).
+    sw_context = {**context, "shell_version": hashlib.sha256(shell.encode()).hexdigest()[:16]}
+    (out / "sw.js").write_text(env.get_template("sw.js.j2").render(**sw_context), encoding="utf-8")
 
     icons = out / "icons"
     icons.mkdir(exist_ok=True)

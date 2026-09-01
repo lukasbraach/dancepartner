@@ -87,6 +87,10 @@ _STRINGS_EN: dict[str, str] = {
     "check.involved": "      involved: {ids}",
     # -- solve ---------------------------------------------------------------------------
     "solve.running": "Searching for an optimal partner assignment …",
+    "solve.working": "Searching for an optimal partner assignment …",
+    "solve.working_hint": (
+        "This can take up to {seconds:.0f} seconds. The page stays busy until it is done."
+    ),
     "solve.infeasible_precheck": "The team file is not solvable:",
     "solve.no_solution": "No solution found (status {status}).",
     "solve.status": "Status: {status} — {wall_time:.2f} s, {branches} branches.",
@@ -191,7 +195,16 @@ _STRINGS_EN: dict[str, str] = {
     "ui.solver.editor_only": (
         "Browser version: teams and surveys can be edited here, an assignment cannot be computed."
     ),
-    "ui.loading": "Loading the app — the first visit takes a moment.",
+    # -- browser boot screen ----------------------------------------------------------
+    #
+    # Shown by the static shell before Python exists, so wasm/build_static.py bakes both
+    # tables in at build time and the shell steps through them on a timer. The wording has
+    # to reassure a coach staring at a spinner, not describe a runtime to a developer.
+    "ui.loading.start": "Getting the app ready …",
+    "ui.loading.download": "Loading the app — about 30 MB, only on the first visit.",
+    "ui.loading.solver": "Almost set up — preparing the solver …",
+    "ui.loading.almost": "Nearly there. The next visit will be much quicker.",
+    "ui.loading.noscript": "This app needs JavaScript.",
     "ui.draft.restored": (
         "Restored a draft from this browser. A draft is not a file — download the team to keep it."
     ),
@@ -355,6 +368,7 @@ _STRINGS_EN: dict[str, str] = {
     ),
     "help.solution": "Which solution from the result file to explain (1 = best).",
     "help.time_limit": "Solver time limit in seconds.",
+    "help.backend": "Which solver to use: cpsat (default) or highs.",
     "help.seed": "Random seed for the solver.",
     "help.normalize": "Halve the score of a doubled position.",
     "help.prefer_coupled": "Prefer complete doubled positions (weakest stage).",
@@ -419,6 +433,10 @@ _STRINGS_DE: dict[str, str] = {
     "check.involved": "      betroffen: {ids}",
     # -- solve ---------------------------------------------------------------------------
     "solve.running": "Suche eine optimale Verpartnerung …",
+    "solve.working": "Suche eine optimale Verpartnerung …",
+    "solve.working_hint": (
+        "Das kann bis zu {seconds:.0f} Sekunden dauern. Die Seite bleibt so lange beschäftigt."
+    ),
     "solve.infeasible_precheck": "Die Teamdatei ist nicht lösbar:",
     "solve.no_solution": "Keine Lösung gefunden (Status {status}).",
     "solve.status": "Status: {status} — {wall_time:.2f} s, {branches} Verzweigungen.",
@@ -514,17 +532,21 @@ _STRINGS_DE: dict[str, str] = {
     ),
     # -- UI: was diese Installation kann (SPEC.md 14) -------------------------------------
     "ui.solver.unavailable": (
-        "Das Berechnen einer Verpartnerung steht in der Browser-Version nicht zur Verfügung: "
-        "Für den Solver (OR-Tools) gibt es keine WebAssembly-Fassung. Team bearbeiten, "
-        "Umfrage erfassen und die Vorprüfung funktionieren hier — für eine Verpartnerung "
-        "laden Sie das Team bitte herunter und rechnen lokal, oder nutzen Sie die gehostete "
-        "Version."
+        "Hier ist kein Solver installiert, eine Verpartnerung lässt sich also nicht berechnen. "
+        "Team bearbeiten, Umfrage erfassen und die Vorprüfung funktionieren — für eine "
+        "Verpartnerung bitte das Paket samt Solver installieren oder die gehostete Version "
+        "nutzen."
     ),
     "ui.solver.editor_only": (
-        "Browser-Version: Teams und Umfragen lassen sich hier bearbeiten, eine Verpartnerung "
-        "nicht berechnen."
+        "Nur Editor: Es ist kein Solver installiert, Teams und Umfragen lassen sich hier also "
+        "bearbeiten, eine Verpartnerung aber nicht berechnen."
     ),
-    "ui.loading": "Die App wird geladen — der erste Besuch dauert einen Moment.",
+    # -- browser boot screen ----------------------------------------------------------
+    "ui.loading.start": "Die App wird vorbereitet …",
+    "ui.loading.download": "Die App wird geladen — rund 30 MB, nur beim ersten Besuch.",
+    "ui.loading.solver": "Fast fertig — der Solver wird eingerichtet …",
+    "ui.loading.almost": "Gleich geschafft. Der nächste Besuch geht deutlich schneller.",
+    "ui.loading.noscript": "Diese App benötigt JavaScript.",
     "ui.draft.restored": (
         "Ein Entwurf aus diesem Browser wurde wiederhergestellt. Ein Entwurf ist keine Datei "
         "— bitte laden Sie das Team herunter, um es zu behalten."
@@ -692,6 +714,7 @@ _STRINGS_DE: dict[str, str] = {
     ),
     "help.solution": "Welche Lösung aus der Ergebnisdatei erklärt wird (1 = beste).",
     "help.time_limit": "Zeitlimit des Solvers in Sekunden.",
+    "help.backend": "Welcher Solver: cpsat (Standard) oder highs.",
     "help.seed": "Zufalls-Startwert des Solvers.",
     "help.normalize": "Punkte einer Doppelbesetzung halbieren.",
     "help.prefer_coupled": "Vollständige Doppelbesetzungen bevorzugen (schwächste Stufe).",

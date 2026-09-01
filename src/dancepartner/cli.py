@@ -230,6 +230,7 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
         float, typer.Option("--time-limit", min=0.001, help=t("help.time_limit"))
     ] = 30.0,
     seed: Annotated[int, typer.Option("--seed", help=t("help.seed"))] = 0,
+    backend: Annotated[str | None, typer.Option("--backend", help=t("help.backend"))] = None,
     normalize: Annotated[
         bool, typer.Option("--normalize/--no-normalize", help=t("help.normalize"))
     ] = True,
@@ -265,10 +266,13 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
     _echo(_team_summary(team))
     _echo(t("solve.running"))
     try:
-        result = solve(team, config)
+        result = solve(team, config, backend=backend)
     except InfeasibleInstanceError as error:
         _echo(t("solve.infeasible_precheck"))
         _print_issues(error.issues)
+        raise typer.Exit(EXIT_REJECTED) from None
+    except ValueError as error:  # an unknown or uninstalled --backend
+        _echo(str(error))
         raise typer.Exit(EXIT_REJECTED) from None
 
     _echo("")

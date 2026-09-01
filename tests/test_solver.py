@@ -482,6 +482,7 @@ def test_a_realistic_instance_solves_within_the_time_limit(full: Team) -> None:
     assert result.wall_time < 30.0
 
 
+@pytest.mark.cpsat_only
 def test_wall_time_counts_every_stage_not_just_the_last(monkeypatch: pytest.MonkeyPatch) -> None:
     """A CpSolver reports only its most recent solve, and staged objectives solve repeatedly.
 

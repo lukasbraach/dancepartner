@@ -292,6 +292,42 @@ Nachrechnen:
 make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 ```
 
+### Die beiden Backends
+
+Die Zahlen oben sind CP-SAT, die Voreinstellung. HiGHS rechnet dasselbe Modell als MILP und ist
+das, was die Browser-Version verwendet, denn für OR-Tools gibt es keine WebAssembly-Fassung.
+Gleiche Instanzen, gleiche Methode, Auswahl über `--backend`:
+
+| Zielfunktion, Standard-Aggregation | cpsat 20 | highs 20 | cpsat 24 | highs 24 |
+|------------------------------------|---------:|---------:|---------:|---------:|
+| `leximin`                          |   0,03 s |   0,08 s |   0,06 s |   0,53 s |
+| `weighted-sum`                     |   0,01 s |   0,05 s |   0,03 s |   0,68 s |
+| `maximin-then-sum`                 |   0,02 s |   0,06 s |   0,05 s |   0,47 s |
+| `lexicographic-tiers`              |   0,02 s |   0,06 s |   0,04 s |   1,24 s |
+
+| Zielfunktion, `--aggregation sum` | cpsat 20 | highs 20 | cpsat 24 | highs 24 |
+|-----------------------------------|---------:|---------:|---------:|---------:|
+| `leximin`                         |   0,05 s |   0,18 s |   0,18 s |   4,09 s |
+| `weighted-sum`                    |   0,05 s |   1,36 s | 13,1 s \* | 140 s \* |
+| `maximin-then-sum`                |   0,06 s |   1,91 s | 12,4 s \* | 146 s \* |
+| `lexicographic-tiers`             |   0,03 s |   0,09 s |   0,06 s |   2,82 s |
+
+\* Einzelläufe einer Messung, nicht bester von drei, und die HiGHS-Seite braucht ein über die
+30 s hinaus angehobenes `--time-limit`. Beide Spalten einer Sternchen-Zeile stammen aus demselben
+Lauf, der Vergleich innerhalb der Zeile ist also fair.
+
+Beide Solver kommen in beiden Tabellen überall zum selben Ergebnis. HiGHS ist um den Faktor drei
+bis dreißig langsamer, und bei der Standard-Aggregation ist das der Unterschied zwischen sofort
+und immer noch sofort. Die Aufzählung hält sich besser als erwartet: `--top 50` kostet auf der
+20er-Instanz 0,11 s gegenüber 0,04 s bei CP-SAT — obwohl HiGHS keinen Lösungspool hat und je
+Verpartnerung mit einem No-Good-Schnitt neu rechnen muss. Das Modell ist zu diesem Zeitpunkt so
+festgezurrt, dass jeder weitere Lauf fast nichts kostet.
+
+Die beiden Sternchen sind der ehrliche Teil. Es sind genau die Kombinationen, die oben schon als
+pathologisch benannt sind, und der Abstand wächst dort vom Faktor dreißig auf den Faktor elf
+obendrauf auf einen ohnehin langsamen Lauf. Unter `--aggregation sum` auf der größeren Instanz
+also `leximin` verwenden — die ohnehin stärkere Aussage, und die Voreinstellung.
+
 ## Die Oberfläche
 
 `make ui` startet eine Startseite und vier Arbeitsseiten:
@@ -328,24 +364,25 @@ eingecheckte Befragungen wären ein echtes Problem.
 
 ## Betrieb
 
-Dieselbe Oberfläche läuft auf drei Wegen. Sie unterscheiden sich in einem Punkt, der zählt, und der
-gehört klar gesagt: **Die Browser-Version kann keine Verpartnerung berechnen.** Für OR-Tools gibt
-es keine WebAssembly-Fassung, dort ist also kein Solver. Alles bis zum Rechnen funktioniert.
+Dieselbe Oberfläche läuft auf drei Wegen, und alle drei können eine Verpartnerung berechnen — die
+Browser-Version eingeschlossen. Sie rechnet mit [HiGHS](https://highs.dev) statt mit OR-Tools, denn
+für OR-Tools gibt es keine WebAssembly-Fassung, für HiGHS schon. Beide liefern dasselbe Ergebnis;
+wie das sichergestellt wird, steht in der [Spezifikation](SPEC.md).
 
 | | `make ui` lokal | Browser (GitHub Pages) | Server (Docker) |
 |---|---|---|---|
 | Team laden, anlegen, hochladen, herunterladen | ✅ | ✅ | ✅ |
 | Mannschaft und Umfrage bearbeiten | ✅ | ✅ | ✅ |
 | Vorprüfung | ✅ | ✅ | ✅ |
-| **Verpartnerung berechnen** | ✅ | ❌ kein OR-Tools in WebAssembly | ✅ |
-| **Analyse, Tauschgruppen, Auswahlliste** | ✅ | ❌ braucht eine Lösung | ✅ |
+| **Verpartnerung berechnen** | ✅ CP-SAT | ✅ HiGHS | ✅ CP-SAT |
+| **Analyse, Tauschgruppen, Auswahlliste** | ✅ | ✅ | ✅ |
 | Die Kommandozeile | ✅ | ❌ | ✅ per `docker exec` |
 | Neuladen behält das Team | ✅ im Speicher | ✅ IndexedDB, auf dem Gerät | ✅ im Speicher, über `?draft=` |
 | Frühere Stände abrufbar | ✅ diese Sitzung | ✅ letzte 10, auch nach Neuladen | ✅ letzte 10, diese Sitzung |
 | Umfragedaten verlassen den Rechner | nein | nein — sie verlassen das Gerät nicht | ja, zu Ihrem Server |
 | Was eine Trainerin installieren muss | eine Python-Umgebung | nichts, nur eine URL | nichts, eine URL und ein Passwort |
 
-Wo die Browser-Version etwas nicht kann, steht das mit Begründung auf der Seite. Nichts wird
+Wo eine Fassung etwas nicht kann, steht das mit Begründung auf der Seite. Nichts wird
 versteckt.
 
 ### Die Browser-Version
@@ -389,10 +426,30 @@ Der Kern liegt in `src/dancepartner/` und importiert nie `streamlit`; die Oberfl
 hängt vom Kern ab, nie umgekehrt. Die CI prüft das, indem sie `app/` beiseiteschiebt,
 `streamlit` deinstalliert und `solve` noch einmal laufen lässt.
 
-Die Testabdeckung auf `src/dancepartner/` liegt bei 100 % (die Schwelle ist 90 %). Wichtiger als
-die Zahl: Jeder Solver-Test ruft `tests/helpers.py::assert_result_valid` auf, das jede harte
-Nebenbedingung unabhängig nachrechnet. Dem Solver wird nicht geglaubt, dass er modelliert hat,
-was wir zu modellieren glaubten.
+Die Testabdeckung auf `src/dancepartner/` liegt bei 100 %, gemessen mit `make cov-both` — die
+Suite gegen jedes Solver-Backend und zusammengeführt, denn allein erreicht das kein Lauf: Das
+jeweils untätige Backend sieht tot aus. `make check` hält eine 90-%-Schwelle auf dem Einzellauf.
+Wichtiger als die Zahl: Jeder Solver-Test ruft `tests/helpers.py::assert_result_valid` auf, das
+jede harte Nebenbedingung unabhängig nachrechnet. Keinem der beiden Solver wird geglaubt, dass er
+modelliert hat, was wir zu modellieren glaubten, und dieselben Tests gegen beide laufen zu lassen
+ist die Art, wie sie auf dasselbe Ergebnis festgenagelt werden.
+
+### Eine Abhängigkeit hinzufügen
+
+Sie muss drei Hürden nehmen, nicht eine:
+
+1. `pyproject.toml`, danach `requirements-dev.txt` neu einfrieren. Darauf pinnen CI und das
+   Docker-Image.
+2. **Läuft sie im Browser?** Wenn `src/dancepartner/` sie außerhalb eines Backend-Moduls
+   importiert, muss sie in der Pyodide-Distribution vorkommen, die stlite lädt. In
+   `wasm/pyodide-lock.trimmed.json` nachsehen, in `wasm/requirements-wasm.txt` auf *genau* diese
+   Version pinnen; `tests/test_wasm_deps.py` prüft es nach. Ein reines Python-Rad
+   (`py3-none-any`) von PyPI geht auch; eine kompilierte Erweiterung nicht, außer Pyodide baut
+   sie.
+3. **Wenn nicht**, bekommt sie die OR-Tools-Behandlung: auf ein Modul beschränkt, nur über einen
+   Dispatcher erreichbar, der sie verzögert importiert, per `build_static.SERVER_ONLY` aus dem
+   Bundle ausgeschlossen und in der Oberfläche hinter einem Capability-Flag. Nie ein nackter
+   Import auf Modulebene in etwas, das die Browser-Seiten brauchen.
 
 Die Spezifikation und die Design-Entscheidungen stehen in [`SPEC.md`](SPEC.md), die
 Arbeitsregeln für Mitarbeit und Agenten in [`AGENTS.md`](AGENTS.md).

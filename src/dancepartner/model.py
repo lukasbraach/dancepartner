@@ -394,8 +394,14 @@ class SolverConfig(BaseModel):
     """Slack epsilon for LEXICOGRAPHIC_TIERS: stage *k* may give up this many fulfilled
     tier-*k* wishes if a later tier gains by it. 0 is strict lexicographic order."""
 
-    max_solutions: int = Field(default=50, ge=1)
-    """Cap on the enumerated shortlist. 1 skips enumeration entirely."""
+    max_solutions: int = Field(default=5, ge=1)
+    """Cap on the enumerated shortlist. 1 skips enumeration entirely.
+
+    Small on purpose. Every extra entry is a re-solve on the HiGHS backend -- it has no
+    solution pool, so enumeration replays the model behind a no-good cut once per solution
+    (SPEC.md 8.1) -- and that backend is the one the browser runs on. A coach comparing
+    alternatives by hand rarely wants more than a handful; the UI and ``--top`` both raise it.
+    """
 
     near_optimal_ratio: float = Field(default=0.97, gt=0.0, le=1.0)
     """Which solutions the enumeration accepts. 1.0 means only the exact optima; 0.95 also

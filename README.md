@@ -264,6 +264,39 @@ In practice:
 * `--time-limit` is the emergency brake, not the normal case. If the solver runs into it, it reports `FEASIBLE` instead
   of `OPTIMAL`: the result is valid but not proven best. If it had no solution yet, none comes back (exit code 3).
 
+### The two backends
+
+The figures above are CP-SAT, the default. HiGHS solves the same model as a MILP and is what the browser build uses,
+because OR-Tools has no WebAssembly wheel. Same instances, same method, `--backend` to pick:
+
+| Objective, default aggregation | cpsat 20 | highs 20 | cpsat 24 | highs 24 |
+|--------------------------------|---------:|---------:|---------:|---------:|
+| `leximin`                      |   0.03 s |   0.08 s |   0.06 s |   0.53 s |
+| `weighted-sum`                 |   0.01 s |   0.05 s |   0.03 s |   0.68 s |
+| `maximin-then-sum`             |   0.02 s |   0.06 s |   0.05 s |   0.47 s |
+| `lexicographic-tiers`          |   0.02 s |   0.06 s |   0.04 s |   1.24 s |
+
+| Objective, `--aggregation sum` | cpsat 20 | highs 20 | cpsat 24 | highs 24 |
+|--------------------------------|---------:|---------:|---------:|---------:|
+| `leximin`                      |   0.05 s |   0.18 s |   0.18 s |   4.09 s |
+| `weighted-sum`                 |   0.05 s |   1.36 s | 13.1 s \* |  140 s \* |
+| `maximin-then-sum`             |   0.06 s |   1.91 s | 12.4 s \* |  146 s \* |
+| `lexicographic-tiers`          |   0.03 s |   0.09 s |   0.06 s |   2.82 s |
+
+\* Single runs of one measurement, not best of three, and the HiGHS side needs `--time-limit` raised above its
+30 s default. Both columns of a starred row come from the same run, so the comparison within it is fair.
+
+Both solvers reach the same answer everywhere in both tables. HiGHS is a factor of three to thirty slower, and at the
+default aggregation that is the difference between instant and still instant. Enumeration holds up better than
+expected: `--top 50` on the 20-dancer instance costs 0.11 s against CP-SAT's 0.04 s, even though HiGHS has no solution
+pool and has to re-solve with a no-good cut per assignment — the model is so tightly pinned by then that each re-solve
+is nearly free.
+
+The two starred cells are the honest part. They are the same combinations the notes above already single out as
+pathological, and the gap widens there from a factor of thirty to a factor of eleven on top of an already slow solve.
+Under `--aggregation sum` on the larger instance, use `leximin` — which is the stronger statement anyway, and the
+default.
+
 To verify:
 
 ```bash
@@ -302,24 +335,26 @@ problem.
 
 ## Deployment
 
-The same interface runs three ways. They differ in one thing that matters, and it is worth being blunt about it: **the
-browser version cannot compute an assignment.** OR-Tools has no WebAssembly build, so there is no solver there.
-Everything up to the solve works.
+The same interface runs three ways, and all three can compute an assignment — the browser one included. It solves with
+[HiGHS](https://highs.dev) rather than OR-Tools, because OR-Tools has no WebAssembly build and HiGHS does. Both produce
+the same answer; the [specification](SPEC.md) explains how that is enforced.
 
 |                                          | `make ui` locally    | Browser (GitHub Pages)          | Server (Docker)               |
 |------------------------------------------|----------------------|---------------------------------|-------------------------------|
 | Load, create, upload, download a team    | ✅                   | ✅                              | ✅                            |
 | Edit the roster and the survey           | ✅                   | ✅                              | ✅                            |
 | Feasibility pre-check                    | ✅                   | ✅                              | ✅                            |
-| **Compute an assignment**                | ✅                   | ❌ no OR-Tools in WebAssembly   | ✅                            |
-| **Analysis, exchange groups, shortlist** | ✅                   | ❌ needs a solution             | ✅                            |
+| **Compute an assignment**                | ✅ CP-SAT            | ✅ HiGHS                        | ✅ CP-SAT                     |
+| **Analysis, exchange groups, shortlist** | ✅                   | ✅                              | ✅                            |
 | The CLI                                  | ✅                   | ❌                              | ✅ via `docker exec`          |
+| Works offline                            | ✅                   | ✅ after the first visit        | ❌ needs the server           |
+| The language setting sticks              | ✅ in the URL        | ✅ across fresh visits          | ✅ in the URL                 |
 | A reload keeps the team                  | ✅ in memory         | ✅ IndexedDB, on the device     | ✅ in memory, via `?draft=`   |
 | Earlier versions to go back to | ✅ this session | ✅ last 10, across reloads | ✅ last 10, this session |
 | Survey data leaves the machine           | no                   | no — it never leaves the device | yes, to your server           |
 | What a coach has to install              | a Python environment | nothing, just a URL             | nothing, a URL and a password |
 
-Where the browser version cannot do something it says so on the page, with the reason. Nothing is hidden.
+Where a build cannot do something it says so on the page, with the reason. Nothing is hidden.
 
 ### The browser version
 
@@ -329,9 +364,12 @@ make wasm           # just build, into wasm/dist, for the Pages base path
 ```
 
 `.github/workflows/pages.yml` publishes it on every push to `main`. The first load pulls roughly 30 MB of Pyodide and
-takes a moment — there is a loading indicator, because a blank page for twenty seconds is indistinguishable from a
-broken deploy. It installs as a web app (a manifest with real icons), but there is no service worker, so nothing works
-offline.
+takes a few seconds, behind a loading screen that says what is happening — a blank page is indistinguishable from a
+broken deploy, and "Unpacking archives" is not addressed to a dance coach.
+
+A service worker caches that 30 MB on the way past, so a second visit is quick and works with no network at all. It
+installs as a web app, with a manifest and real icons. Deep links work too: `/survey` reloads onto the survey page
+rather than a 404, on Pages and under `make wasm-serve` alike.
 
 ### The server version
 
@@ -359,9 +397,25 @@ The core lives in `src/dancepartner/` and never imports `streamlit`; the interfa
 depends on the core, never the reverse. CI verifies this by moving `app/` aside, uninstalling
 `streamlit`, and running `solve` once more.
 
-Test coverage on `src/dancepartner/` sits at 100 % (the threshold is 90 %). More important than the number: every solver
-test calls `tests/helpers.py::assert_result_valid`, which independently re-checks every hard constraint. The solver is
-not trusted to have modelled what we believed we were modelling.
+Test coverage on `src/dancepartner/` sits at 100 %, measured by `make cov-both` — the suite run against each solver
+backend and combined, because neither run alone can reach it: whichever backend is idle looks dead. `make check` keeps
+a 90 % gate on the single-backend run. More important than the number: every solver test calls
+`tests/helpers.py::assert_result_valid`, which independently re-checks every hard constraint. Neither solver is trusted
+to have modelled what we believed we were modelling, and running the same tests against both is how they are held to
+the same answer.
+
+### Adding a dependency
+
+It has to clear three gates, not one:
+
+1. `pyproject.toml`, then re-freeze `requirements-dev.txt`. That is what CI and the Docker image both pin against.
+2. **Can it run in the browser?** If `src/dancepartner/` imports it outside a backend module, it must exist in the
+   Pyodide distribution stlite loads. Check `wasm/pyodide-lock.trimmed.json`, add it to `wasm/requirements-wasm.txt`
+   pinned to *exactly* that version, and `tests/test_wasm_deps.py` will confirm it. A pure-Python `py3-none-any` wheel
+   from PyPI works too; a compiled extension does not, unless Pyodide builds it.
+3. **If it cannot**, it gets the OR-Tools treatment: confined to one module, reached only through a dispatcher that
+   imports it lazily, excluded from the bundle by `build_static.SERVER_ONLY`, and gated in the UI behind a capability
+   flag. Never a bare module-level import in something the browser pages need.
 
 The specification and the design decisions live in [`SPEC.md`](SPEC.md), the working rules for contributors and agents
 in [`AGENTS.md`](AGENTS.md).

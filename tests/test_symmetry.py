@@ -6,6 +6,8 @@ good. The canonical numbering removes them from the search space.
 
 from __future__ import annotations
 
+import pytest
+
 from dancepartner.model import Role, SolverConfig, Team
 from dancepartner.solver import solve
 
@@ -44,6 +46,7 @@ def test_symmetry_breaking_does_not_change_the_optimum() -> None:
     assert constrained.best.min_score == free.best.min_score
 
 
+@pytest.mark.cpsat_only
 def test_symmetry_breaking_reduces_the_search() -> None:
     instance = _instance()
     config = SolverConfig()

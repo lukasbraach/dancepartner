@@ -10,8 +10,9 @@
 # The chain these pins hang off, all pinned in wasm/build_static.py:
 #   @stlite/browser 1.8.1  ->  Pyodide 0.29.3  ->  CPython 3.13.2  ->  streamlit 1.57.0
 #
-# ortools is deliberately absent: there is no WebAssembly build of CP-SAT, which is the whole
-# reason the browser target cannot compute an assignment (SPEC.md 14).
+# ortools is deliberately absent: there is no WebAssembly build of CP-SAT. highspy is here in
+# its place -- it is the one solver of the two with a wasm32 wheel, which is what lets the
+# browser compute an assignment at all (SPEC.md 8.1, 14.2). numpy comes with it.
 #
 # Regenerate the vendored index this is checked against with:
 #   curl -sS https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide-lock.json \
@@ -20,3 +21,4 @@
 # tests/test_wasm_deps.py enforces every sentence above.
 pydantic==2.12.5
 pyyaml==6.0.2
+highspy==1.11.0

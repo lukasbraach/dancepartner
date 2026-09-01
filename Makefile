@@ -20,7 +20,7 @@ DP_LANG ?= en
 BASE    ?= /dancepartner/
 
 .DEFAULT_GOAL := help
-.PHONY: help ui venv install fmt lint typecheck test cov check cli clean \
+.PHONY: help ui venv install fmt lint typecheck test cov cov-both check cli clean \
 	wasm wasm-serve wasm-icons docker-build docker-up docker-down
 
 help:  ## Show this help
@@ -71,6 +71,16 @@ test: ## Run the test suite
 cov: ## Run the test suite with the coverage gate
 	$(PYTEST) --cov=src/dancepartner --cov-report=term-missing --cov-fail-under=90
 
+cov-both: $(VENV)  ## Coverage across both solver backends, combined (SPEC.md 8)
+	@# Neither run can reach 100% alone: whichever backend is idle looks dead. The gate in
+	@# `cov` stays at 90% for the single-backend run; this is the one that shows the real
+	@# figure, and it is what the CI coverage job runs.
+	rm -f .coverage .coverage.cpsat .coverage.highs
+	COVERAGE_FILE=.coverage.cpsat $(PYTEST) --cov=src/dancepartner --cov-report=
+	COVERAGE_FILE=.coverage.highs $(PYTEST) --backend=highs --cov=src/dancepartner --cov-report=
+	$(VENV)/bin/coverage combine .coverage.cpsat .coverage.highs
+	$(VENV)/bin/coverage report --show-missing --fail-under=99
+
 check: lint typecheck cov cli  ## Everything CI runs
 
 ## -- the CLI, as a smoke test -------------------------------------------------------------
@@ -88,9 +98,9 @@ wasm: $(VENV)  ## Build the static browser bundle into wasm/dist
 
 wasm-serve: $(VENV)  ## Build for the root path and serve it on http://localhost:8000
 	$(PY) wasm/build_static.py --out wasm/dist --base-path /
-	@echo "Serving the browser build on http://localhost:8000 -- Ctrl-C to stop."
-	@# The first load pulls ~30 MB of Pyodide; the editor-only notice is the sign it worked.
-	$(PY) -m http.server 8000 --directory wasm/dist
+	@# Not http.server: the pages are client-side routes, so reloading on /survey has to be
+	@# answered with the shell rather than a 404. The first load pulls ~30 MB; give it a moment.
+	$(PY) wasm/serve.py --port 8000 --directory wasm/dist
 
 wasm-icons: $(VENV)  ## Redraw the PWA icons (they are committed; this only needs rerunning on a change)
 	$(PY) wasm/make_icons.py
@@ -105,5 +115,5 @@ docker-down:  ## Stop them
 	docker compose -f docker/compose.yaml down
 
 clean: ## Remove caches and build artefacts
-	rm -rf .mypy_cache .pytest_cache .ruff_cache .coverage htmlcov dist build wasm/dist
+	rm -rf .mypy_cache .pytest_cache .ruff_cache .coverage .coverage.* htmlcov dist build wasm/dist
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

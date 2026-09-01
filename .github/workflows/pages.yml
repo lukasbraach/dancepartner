@@ -1,6 +1,7 @@
 name: Pages
 
-# The browser target (SPEC.md 14): a static stlite bundle, editor-only, on GitHub Pages.
+# The browser target (SPEC.md 14): a static stlite bundle on GitHub Pages. It solves with the
+# HiGHS backend -- ortools has no WebAssembly wheel, highspy does.
 # Pull requests build and upload the artifact but do not deploy -- a broken template is much
 # cheaper to find here than on the live site.
 
@@ -38,12 +39,21 @@ jobs:
       - name: Build
         run: python wasm/build_static.py --out dist --base-path "/${{ github.event.repository.name }}/"
 
-      - name: The bundle carries no solver
+      - name: The bundle carries no CP-SAT
         # Belt and braces: build_static.py already refuses to write a bundle that imports
         # ortools, but the whole target is premised on this, so it is worth asserting twice.
         run: |
           ! grep -q "from ortools" dist/index.html
           ! grep -q "import ortools" dist/index.html
+
+      - name: The bundle can answer a deep link and cache itself
+        # A missing 404.html turns every reloaded /survey into a GitHub 404, and a missing
+        # sw.js quietly costs the coach 30 MB on every visit. Neither breaks the build.
+        run: |
+          test -f dist/404.html
+          test -f dist/.nojekyll
+          cmp dist/404.html dist/index.html
+          grep -q "dancepartner-runtime-" dist/sw.js
 
       - name: The vendored Pyodide index is still accurate
         # The one networked check in the project. It fails the day a stlite bump moves pydantic

@@ -56,6 +56,14 @@ IS_WASM: Final = sys.platform == "emscripten"
 DRAFT_PARAM: Final = "draft"
 """Query parameter naming the current draft. A refresh keeps the URL; that is the trick."""
 
+LANG_PARAM: Final = "lang"
+"""Query parameter carrying the chosen language, stamped the same way the draft token is.
+
+It is what makes the choice survive a reload on *both* targets, and it is also the only way
+the static shell can know which language to write its loading screen in -- that runs before
+Python exists, so the URL is the one channel open to it (SPEC.md 14.8).
+"""
+
 _TOKEN_KEY: Final = "draft_token"
 """Where the token lives during a session.
 
@@ -75,6 +83,7 @@ _HISTORY_KEY: Final = "draft_history"
 # with an ErrnoError before Streamlit ever renders.
 MOUNTPOINT: Final = Path("/mnt")
 _SUFFIX: Final = ".draft.yaml"
+_LANGUAGE_FILE: Final = "language"
 
 MAX_HISTORY: Final = 10
 """Drafts kept per browser. IndexedDB has a finite quota and nothing else prunes the mount."""
@@ -140,6 +149,41 @@ def _wasm_prune() -> None:
             logger.debug("could not prune a browser draft", exc_info=True)
 
 
+# -- the language preference --------------------------------------------------------------------
+#
+# The mount, not localStorage. Python runs in a Web Worker here and Web Workers have no
+# localStorage at all -- it is a synchronous main-thread-only API. IndexedDB is what a worker
+# does get, and the draft mount is already IndexedDB and already flushed after every script
+# run, so the preference rides along with it for free.
+#
+# There is no server-side counterpart: process memory would leak one coach's choice into the
+# next coach's session, and the container's filesystem is read-only by design (SPEC.md 14.8).
+# The server build persists through LANG_PARAM instead, which covers a reload if not a brand
+# new visit.
+
+
+def load_language() -> str | None:
+    """The language code stored in this browser, or ``None``. Never raises."""
+    if not IS_WASM:
+        return None
+    try:
+        code = (MOUNTPOINT / _LANGUAGE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return code or None
+
+
+def save_language(code: str) -> None:
+    """Remember ``code`` for the next visit to this browser. Never raises."""
+    if not IS_WASM:
+        return
+    try:
+        MOUNTPOINT.mkdir(parents=True, exist_ok=True)
+        (MOUNTPOINT / _LANGUAGE_FILE).write_text(code, encoding="utf-8")
+    except OSError:
+        logger.debug("could not store the language preference", exc_info=True)
+
+
 # -- server backend ---------------------------------------------------------------------------
 
 
@@ -184,8 +228,8 @@ def _adopt(token: str) -> None:
     st.session_state[_HISTORY_KEY] = history[-MAX_HISTORY:]
 
 
-def stamp_url() -> None:
-    """Put the session's token back in the URL if something stripped it.
+def stamp_url(language: str | None = None) -> None:
+    """Put the session's token -- and its language -- back in the URL if something stripped it.
 
     Called on every rerun, because ``st.navigation`` drops the query string each time the coach
     changes page. Writing to ``st.query_params`` triggers a rerun, so this only writes when the
@@ -194,6 +238,8 @@ def stamp_url() -> None:
     token = st.session_state.get(_TOKEN_KEY)
     if isinstance(token, str) and token and st.query_params.get(DRAFT_PARAM) != token:
         st.query_params[DRAFT_PARAM] = token
+    if language and st.query_params.get(LANG_PARAM) != language:
+        st.query_params[LANG_PARAM] = language
 
 
 def _mint() -> str:

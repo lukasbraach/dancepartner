@@ -505,3 +505,145 @@ def test_the_team_survives_a_round_trip_through_the_ui_state() -> None:
     at = loaded(HOME, team=team).run()
     assert dump_team(at.session_state["team"]) == dump_team(team)
     assert len(team.by_role(Role.LEADER)) + len(team.by_role(Role.FOLLOWER)) == len(team.dancers)
+
+
+# -- the language, and where it comes back from -----------------------------------------------
+
+
+def test_a_url_language_wins_over_the_environment_default() -> None:
+    """A shared or bookmarked link is the more deliberate act, so it beats the stored value."""
+    at = app()
+    at.query_params["lang"] = Language.DE.value
+    at.run()
+    assert not at.exception
+    assert TABLES[Language.DE]["ui.title"] in [element.value for element in at.title]
+
+
+def test_a_stored_language_is_used_when_the_url_says_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What makes the choice survive a fresh visit to the installed browser app."""
+    import common
+    import persistence
+
+    monkeypatch.setattr(persistence, "load_language", lambda: Language.DE.value)
+    at = app()
+    at.run()
+    assert not at.exception
+    assert TABLES[Language.DE]["ui.title"] in [element.value for element in at.title]
+    assert common.LANGUAGE_KEY in at.session_state
+
+
+def test_a_nonsense_language_in_the_url_is_ignored_rather_than_fatal() -> None:
+    at = app()
+    at.query_params["lang"] = "klingon"
+    at.run()
+    assert not at.exception
+    assert TABLES[Language.EN]["ui.title"] in [element.value for element in at.title]
+
+
+# -- the solve runs in two script runs ---------------------------------------------------------
+
+
+def test_the_busy_banner_is_drawn_before_the_solver_is_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Making the solve raise proves the ordering: the banner is already up when it does."""
+    import common
+
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
+
+    def _explode(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("the solver would block here")
+
+    monkeypatch.setattr(common, "solve_and_store", _explode)
+    at.button[0].click().run()
+
+    assert [str(e.value) for e in at.exception]
+    assert t("solve.working") in [element.value for element in at.info]
+
+
+def test_the_browser_gets_a_turn_before_the_solver_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drawing the banner is not enough on its own -- see common.flush_ui (SPEC.md 14.7).
+
+    Under stlite the delta only reaches the page when the Pyodide worker's event loop runs,
+    and a script run that blocks straight after writing never lets it. Deleting the yield puts
+    the banner back on screen at the same moment as the answer, which no coach ever sees.
+    """
+    import common
+
+    order: list[str] = []
+    solve = common.cached_solve
+
+    def _tracked(team: Team, config: SolverConfig) -> SolveResult:
+        order.append("solve")
+        return solve(team, config)
+
+    monkeypatch.setattr(common, "flush_ui", lambda: order.append("yield"))
+    monkeypatch.setattr(common, "cached_solve", _tracked)
+
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
+    at.session_state["config"] = SolverConfig(**FAST)
+    at.run()
+    at.button[0].click().run()
+
+    assert not at.exception
+    assert order[:2] == ["yield", "solve"]
+
+
+def test_the_solve_still_lands_a_result_in_session_state() -> None:
+    """Two runs instead of one must not change what the coach ends up with."""
+    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
+    at.session_state["config"] = SolverConfig(**FAST)
+    at.run()
+    at.button[0].click().run()
+    assert not at.exception
+    assert at.session_state["result"].solutions
+    # The banner is gone once the answer is up.
+    assert t("solve.working") not in [element.value for element in at.info]
+
+
+# -- deep links -------------------------------------------------------------------------------
+
+
+def test_a_deep_link_opens_the_page_it_names() -> None:
+    """The browser shell puts the path in ?page=; Python cannot see the path any other way.
+
+    Under stlite ``st.context.url`` is the bare origin -- no path, no query string -- so a
+    static host's shell has to translate the one into the other (SPEC.md 14.7).
+    """
+    import common
+
+    at = app()
+    at.query_params[common.PAGE_PARAM] = "survey"
+    at.run()
+    assert not at.exception
+    assert t("ui.survey.header") in [element.value for element in at.title]
+    # Consumed, so client-side navigation afterwards is left alone.
+    assert common.PAGE_PARAM not in at.query_params
+
+
+def test_a_deep_link_to_nothing_leaves_the_coach_on_the_start_page() -> None:
+    import common
+
+    at = app()
+    at.query_params[common.PAGE_PARAM] = "atlantis"
+    at.run()
+    assert not at.exception
+    assert TABLES[Language.EN]["ui.title"] in [element.value for element in at.title]
+
+
+def test_the_page_parameter_is_read_once_and_then_ignored() -> None:
+    """Otherwise it would fight every click in the sidebar for the rest of the session."""
+    import common
+
+    at = app()
+    at.query_params[common.PAGE_PARAM] = "team"
+    at.run()
+    assert t("ui.team.header") in [element.value for element in at.title]
+    at.query_params[common.PAGE_PARAM] = "survey"
+    at.run()
+    assert not at.exception
+    assert t("ui.survey.header") not in [element.value for element in at.title]

@@ -17,6 +17,7 @@ coverage==7.16.0
 distlib==0.4.3
 filelock==3.32.4
 h11==0.16.0
+highspy==1.11.0
 httptools==0.8.0
 identify==2.6.19
 idna==3.19

@@ -160,14 +160,24 @@ def test_the_browser_safe_core_never_reaches_ortools() -> None:
     )
 
 
-def test_the_ui_never_imports_the_solver_at_module_level() -> None:
-    """Every solver reference in ``app/`` sits inside a function, behind SOLVER_AVAILABLE."""
+def test_the_ui_never_imports_a_backend_at_module_level() -> None:
+    """Every *backend* reference in ``app/`` sits inside a function, behind SOLVER_AVAILABLE.
+
+    ``dancepartner.solver`` is deliberately not on this list: it is the dispatcher, it imports
+    neither backend, and ``app/common.py`` needs it at module level to ask which backends
+    exist. What must stay deferred is ``cpsat``/``highs`` themselves -- importing one in the
+    browser is either a hard failure (ortools) or a needless cost (SPEC.md 14.2).
+    """
+    backends = {"dancepartner.cpsat", "dancepartner.highs"}
     offenders = []
     for path in sorted((REPO_ROOT / "app").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
         for node in tree.body:  # module level only -- deferred imports live inside functions
-            if isinstance(node, ast.ImportFrom) and node.module == "dancepartner.solver":
+            if isinstance(node, ast.ImportFrom) and node.module in backends:
                 offenders.append(path.relative_to(REPO_ROOT).as_posix())
+            if isinstance(node, ast.Import):
+                if any(alias.name in backends for alias in node.names):
+                    offenders.append(path.relative_to(REPO_ROOT).as_posix())
     assert offenders == []
 
 

@@ -72,6 +72,54 @@ jobs:
           dancepartner solve data/team.example.yaml
           mv /tmp/app-moved app
 
+  highs-backend:
+    # SPEC.md 8.1: the second backend is validated by running the *existing* suite against it,
+    # not by a parallel set of tests -- tests/helpers.py::assert_result_valid re-derives every
+    # hard constraint and stage value independently of whichever solver produced them.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e . --no-deps
+
+      - name: The suite, on HiGHS
+        run: pytest --backend=highs
+
+      - name: Coverage, combined across both backends
+        # Neither backend alone can reach the project's 100%: whichever one is idle looks
+        # dead. The `checks` job keeps the 90% gate on a single run; this is the real figure.
+        run: |
+          COVERAGE_FILE=.coverage.cpsat pytest --cov=src/dancepartner --cov-report=
+          COVERAGE_FILE=.coverage.highs pytest --backend=highs --cov=src/dancepartner --cov-report=
+          coverage combine .coverage.cpsat .coverage.highs
+          coverage report --show-missing --fail-under=99
+
+      - name: Both backends agree from the command line
+        run: |
+          dancepartner solve data/team.example.yaml --backend cpsat --json /tmp/cpsat.json
+          dancepartner solve data/team.example.yaml --backend highs --json /tmp/highs.json
+          python - <<'PY'
+          import json
+          def stages(path):
+              with open(path) as fh:
+                  return [(s["name"], s["value"]) for s in json.load(fh)["result"]["stages"]]
+          a, b = stages("/tmp/cpsat.json"), stages("/tmp/highs.json")
+          assert a == b, f"backends disagree:\n  cpsat {a}\n  highs {b}"
+          print("stage vectors match:", a)
+          PY
+
   wasm-parity:
     # SPEC.md 14: the browser target runs this core on CPython 3.13 against pydantic 2.12.5,
     # neither of which the job above exercises, and with no ortools at all. A validator that
@@ -92,8 +140,15 @@ jobs:
           pip install -r wasm/requirements-wasm.txt pytest
           pip install -e . --no-deps
 
-      - name: The browser-safe core behaves
-        # Exactly the modules that import neither dancepartner.solver nor tests/helpers.py.
+      - name: The browser-safe core behaves, and solves
+        # Everything that does not need typer or streamlit, run on the browser's own solver.
+        # This is the strongest check in the file: the same tests the reference implementation
+        # passes, on CPython 3.13 with pydantic 2.12.5 and HiGHS, which is exactly what a coach
+        # on the Pages build is running. The cross-backend cases importorskip ortools and skip.
         run: |
-          pytest tests/test_model.py tests/test_storage.py tests/test_scoring.py \
-                 tests/test_feasibility.py tests/test_i18n.py tests/test_wasm_deps.py
+          pytest --backend=highs \
+                 tests/test_model.py tests/test_storage.py tests/test_scoring.py \
+                 tests/test_feasibility.py tests/test_i18n.py tests/test_wasm_deps.py \
+                 tests/test_solver.py tests/test_objectives.py tests/test_enumeration.py \
+                 tests/test_symmetry.py tests/test_reporting.py tests/test_milp.py \
+                 tests/test_backends.py

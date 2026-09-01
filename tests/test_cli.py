@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from dancepartner.cli import app
+from dancepartner.cli import EXIT_REJECTED, app
 from dancepartner.i18n import TABLES, Language, set_language
 from dancepartner.model import Team
 from dancepartner.storage import dump_team, load_team
@@ -522,6 +522,47 @@ def test_the_environment_variable_selects_the_language_at_import() -> None:
     )
     assert "Verpartnerung einer Lateinformation" in proc.stdout
     assert "Prüft eine Teamdatei" in proc.stdout
+
+
+# -- --backend ------------------------------------------------------------------------------
+
+
+def test_solve_records_the_backend_it_used(tmp_path: Path) -> None:
+    """A stored result has to say how it was computed.
+
+    The two backends are not interchangeable in provenance even when they agree (SPEC.md 8.1).
+    """
+    out = tmp_path / "out.json"
+    result = run("solve", EXAMPLE, "--backend", "cpsat", "--json", str(out))
+    assert result.exit_code == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["result"]["backend"] == "cpsat"
+
+
+def test_solve_runs_on_the_highs_backend(tmp_path: Path) -> None:
+    pytest.importorskip("highspy")
+    out = tmp_path / "out.json"
+    result = run("solve", EXAMPLE, "--backend", "highs", "--json", str(out))
+    assert result.exit_code == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["result"]["backend"] == "highs"
+
+
+def test_both_backends_report_the_same_stages(tmp_path: Path) -> None:
+    """The CLI is the reference interface, so the agreement is checked there too."""
+    pytest.importorskip("ortools")
+    pytest.importorskip("highspy")
+    stages = {}
+    for backend in ("cpsat", "highs"):
+        out = tmp_path / f"{backend}.json"
+        assert run("solve", EXAMPLE, "--backend", backend, "--json", str(out)).exit_code == 0
+        payload = json.loads(out.read_text(encoding="utf-8"))["result"]
+        stages[backend] = [(s["name"], s["value"]) for s in payload["stages"]]
+    assert stages["highs"] == stages["cpsat"]
+
+
+def test_an_unknown_backend_is_rejected() -> None:
+    result = run("solve", EXAMPLE, "--backend", "glpk")
+    assert result.exit_code == EXIT_REJECTED
+    assert "glpk" in result.stdout
 
 
 def test_no_string_key_is_missing_from_i18n() -> None:

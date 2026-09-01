@@ -133,7 +133,15 @@ common.set_config(config)
 # -- run -------------------------------------------------------------------------------------
 
 if st.button(t("ui.solve.run"), type="primary"):
+    # Drawn into a placeholder so it can be taken down again the moment there is an answer.
+    # What actually gets it on screen before the solver blocks is the yield inside
+    # solve_and_store -- see common.flush_ui, and do not reorder these two (SPEC.md 14.7).
+    banner = st.empty()
+    with banner.container():
+        st.info(t("solve.working"), icon="⏳")
+        st.caption(t("solve.working_hint", seconds=config.max_time_in_seconds))
     common.solve_and_store(team, config)
+    banner.empty()
 
 result = common.get_result()
 if result is None:

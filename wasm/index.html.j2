@@ -21,16 +21,35 @@
         height: 100%;
         margin: 0;
       }
+      /*
+        Fixed and outside #root on purpose. stlite mounts a React root into #root and replaces
+        whatever is in it within a second or two of stlite.js parsing -- long before the app is
+        usable -- and then shows its own developer-facing progress text for the remaining half
+        minute. This sits on top until Streamlit has actually painted something.
+      */
       #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
         display: grid;
         place-items: center;
         align-content: center;
         gap: 0.9rem;
-        height: 100%;
         padding: 1rem;
         text-align: center;
         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
         color: #555;
+        background: #fff;
+        transition: opacity 0.4s ease;
+      }
+      #boot.done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot .title {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: #ff4b4b;
       }
       #boot .spinner {
         width: 2rem;
@@ -49,6 +68,9 @@
         #boot .spinner {
           animation: none;
         }
+        #boot {
+          transition: none;
+        }
       }
       @media (prefers-color-scheme: dark) {
         #boot {
@@ -63,21 +85,102 @@
     </style>
   </head>
   <body>
-    <!--
-      stlite mounts a React root into #root and replaces these children on first paint. The
-      cold load pulls roughly 30 MB of Pyodide and wheels, so without this the coach stares at
-      a blank page for twenty seconds and cannot tell it from a broken deploy.
-
-      Both languages are spelled out here on purpose: this shell renders before Python exists,
-      so it cannot go through i18n.py's runtime language switch (SPEC.md 14).
-    -->
-    <div id="root">
-      <div id="boot">
-        <div class="spinner"></div>
-        <div>{{ loading_en }}</div>
-        <div>{{ loading_de }}</div>
-      </div>
+    <div id="root"></div>
+    <div id="boot">
+      <div class="title">💃 {{ title }}</div>
+      <div class="spinner"></div>
+      <div id="boot-message"></div>
+      <noscript id="boot-noscript"></noscript>
     </div>
+    <script>
+      // Deep links. A static host answers /survey with this shell, and stlite's client does not
+      // resolve the path the way Streamlit's own server does -- it boots the default page. Nor
+      // can Python look: under stlite st.context.url is the bare origin, no path, no query. So
+      // the path is copied into ?{{ page_param }}=, which the script *can* read, and
+      // common.initial_page switches to it once and clears the parameter (SPEC.md 14.7).
+      (function () {
+        var base = "{{ base_path }}";
+        if (location.pathname.indexOf(base) !== 0) return;
+        var page = location.pathname.slice(base.length).replace(/\/+$/, "");
+        // A page, not an asset and not a nested path: those are build bugs, not routes.
+        if (!page || page.indexOf("/") !== -1 || page.indexOf(".") !== -1) return;
+        var params = new URLSearchParams(location.search);
+        if (params.has("{{ page_param }}")) return;
+        params.set("{{ page_param }}", page);
+        // Back to the base path, not the deep one: st.switch_page resolves the page relative
+        // to wherever the address bar currently points, so leaving /survey in place turns it
+        // into /survey/survey. Streamlit puts the real path back a moment later.
+        history.replaceState(null, "", base + "?" + params.toString());
+      })();
+    </script>
+    <script>
+      // The shell renders before Python exists, so it cannot go through i18n.py's runtime
+      // language switch. Both tables are baked in here at build time and one is picked from
+      // ?lang= -- which app/persistence.py stamps into the URL -- falling back to the
+      // browser's own setting (SPEC.md 14).
+      (function () {
+        var strings = {{ loading_json }};
+        var wanted = new URLSearchParams(location.search).get("lang");
+        if (!strings[wanted]) {
+          wanted = (navigator.language || "en").slice(0, 2);
+        }
+        var table = strings[wanted] || strings["{{ default_language }}"];
+
+        var message = document.getElementById("boot-message");
+        var noscript = document.getElementById("boot-noscript");
+        noscript.textContent = table["noscript"];
+        message.textContent = table["start"];
+
+        // Staged, because a spinner that never says anything new reads as a hang. The steps
+        // are a rough description of what stlite is doing, not a measurement of it.
+        var steps = [
+          [4000, "download"],
+          [20000, "solver"],
+          [45000, "almost"],
+        ];
+        var timers = steps.map(function (step) {
+          return setTimeout(function () {
+            message.textContent = table[step[1]];
+          }, step[0]);
+        });
+
+        function finish() {
+          timers.forEach(clearTimeout);
+          var boot = document.getElementById("boot");
+          if (!boot) return;
+          boot.classList.add("done");
+          setTimeout(function () {
+            boot.remove();
+          }, 500);
+        }
+
+        var root = document.getElementById("root");
+        // Content inside Streamlit's main block is the only honest "it is up" signal. The
+        // containers themselves are not: stlite renders stAppViewContainer, stHeader and an
+        // empty stMain within a few hundred milliseconds and then spends the next several
+        // seconds on its own "Loading Pyodide / Unpacking archives" text. Measured in Chrome.
+        var painted = function () {
+          var main = root.querySelector('[data-testid="stMain"]');
+          return !!(main && main.innerText.trim().length > 0);
+        };
+        if (painted()) {
+          finish();
+        } else {
+          var observer = new MutationObserver(function () {
+            if (painted()) {
+              observer.disconnect();
+              finish();
+            }
+          });
+          observer.observe(root, { childList: true, subtree: true, characterData: true });
+          // A broken deploy should show the coach a broken app, not a spinner forever.
+          setTimeout(function () {
+            observer.disconnect();
+            finish();
+          }, 120000);
+        }
+      })();
+    </script>
     <script type="module">
       import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@{{ stlite_version }}/build/stlite.js";
 
@@ -96,6 +199,20 @@
         },
         document.getElementById("root"),
       );
+    </script>
+    <script>
+      // Registered last so it never delays the mount. The worker Pyodide runs in inherits this
+      // page's controller, so the ~30 MB of runtime and wheels goes through the cache too --
+      // verified in Chrome, and the reason offline works at all (SPEC.md 14.7).
+      // Registered immediately rather than on window.load: the point is to be controlling
+      // before Pyodide starts pulling, and registration does not block anything.
+      if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+        navigator.serviceWorker
+          .register("{{ base_path }}sw.js", { scope: "{{ base_path }}" })
+          .catch(function () {
+            // A blocked worker costs the cache, never the app.
+          });
+      }
     </script>
   </body>
 </html>

@@ -221,4 +221,11 @@ pages = [
     st.Page("pages/analysis.py", title=t("nav.analysis"), icon="📊"),
 ]
 
-st.navigation({t("nav.section"): pages}).run()
+navigation = st.navigation({t("nav.section"): pages})
+# A deep link into the browser build arrives on the default page: the static host answered
+# /survey with the shell, and stlite's client does not resolve the path the way Streamlit's
+# own server does. Verified in Chrome -- see common.initial_page (SPEC.md 14.7).
+requested = common.initial_page(pages, navigation)
+if requested is not None:
+    st.switch_page(requested)
+navigation.run()

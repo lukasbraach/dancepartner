@@ -19,13 +19,23 @@ are about to touch; this file only lists the rules that bite fastest.
 
 * `src/dancepartner/` never imports `streamlit`. The UI (`app/`) depends on the core, never the
   reverse; `streamlit` stays an extra, not a runtime dependency.
-* Only `solver.py` and `cli.py` may import `ortools` and `typer`. `__init__.py` re-exports the
-  three solver names lazily (PEP 562 `__getattr__`) — **never make that import eager.** Importing
-  any submodule runs `__init__`, so an eager one would drag CP-SAT into the browser build, which
-  has no WebAssembly wheel for it, and `dancepartner.model` would stop importing there entirely
-  (SPEC §14.2). Nothing in `app/` imports `dancepartner.solver` at module level either; it goes
-  behind `common.SOLVER_AVAILABLE`. `tests/test_wasm_deps.py` and the `wasm-parity` CI job
-  enforce both.
+* Two solver backends, one model: `cpsat.py` (ortools) and `highs.py` (highspy, the only one
+  with a WebAssembly wheel, so the browser uses it). `solver.py` dispatches and **imports
+  neither**; `results.py` holds what they share. Only `cpsat.py`/`cli.py` may import
+  `ortools`/`typer`, only `highs.py` and `_milp.py` may import `highspy`.
+* `__init__.py` re-exports `solve` lazily (PEP 562 `__getattr__`) — **never make that eager.**
+  Importing any submodule runs `__init__`, so an eager backend import would drag CP-SAT into the
+  browser build and `dancepartner.model` would stop importing there (SPEC §14.2). `app/` may
+  import `dancepartner.solver` at module level but never a backend. `tests/test_wasm_deps.py`
+  and the `wasm-parity` CI job enforce it.
+* The backends must agree. That is checked by running the **existing** suite against both
+  (`pytest --backend=highs`, the `highs-backend` CI job), not by a second set of tests —
+  `assert_result_valid` re-derives every constraint independently of the solver. Compare
+  **stage value vectors**, never assignments: ties break differently and both are correct.
+  `@pytest.mark.cpsat_only` is for tests that measure CP-SAT's own search effort.
+* Keep every big-M in `highs.py` at its provable minimum and say why in a comment. An oversized
+  M is not a correctness bug, it is a silent performance one — `4 * bound` instead of
+  `2 * bound + 1` was the difference between a 4-second solve and a timeout.
 * Positions are labelled A–H, never 1–8. They are unordered and interchangeable.
 * Preferences are directed — never symmetrise. Hard vetoes are the one symmetric exception.
 * Integer arithmetic only in the objective (`SolverConfig.score_scale` exists so halving never
@@ -47,7 +57,7 @@ make check        # everything CI runs: ruff, mypy --strict, pytest + coverage, 
 make ui           # Streamlit UI       (make ui PORT=8600)
 make cli          # check/solve/explain (make cli TEAM=data/team.yaml DANCER=lukas-b)
 
-make wasm-serve   # build the browser bundle and serve it on :8000 (editor-only, no solver)
+make wasm-serve   # build the browser bundle and serve it on :8000 (solves with HiGHS)
 make wasm         # just build it, into wasm/dist, for the GitHub Pages base path
 make docker-build # the server image
 make docker-up    # app + Caddy from docker/compose.yaml (needs docker/.env)
@@ -59,7 +69,7 @@ and `dist/`, which is also why the bundle is written to `wasm/dist/`.
 
 A new runtime dependency goes in **two** places, or is documented as server-only: `pyproject.toml`
 plus `requirements-dev.txt`, and then either `wasm/requirements-wasm.txt` — pinned to exactly the
-version the Pyodide index carries — or the `ortools` treatment in SPEC §14.7.
+version the Pyodide index carries — or the `ortools` treatment in SPEC §14.9.
 
 `make` on its own lists all targets. The CLI is the reference interface:
 
@@ -95,6 +105,19 @@ version the Pyodide index carries — or the `ortools` treatment in SPEC §14.7.
   button: `st.query_params` reports the newest value after a back press in a `st.navigation` app
   (streamlit#13963) and `st.context.url` carries no query string at all. Both verified in a
   browser; don't re-litigate it without re-testing.
+* The browser build has three things that are not obvious and are all verified in Chrome, not
+  reasoned about (SPEC §14.7, §14.8). **The boot overlay lives outside `#root`** — stlite replaces
+  `#root`'s children within a second and takes over with its own progress text — and comes down on
+  *content inside* `[data-testid="stMain"]`, never on the containers, which appear empty almost
+  immediately. **Python cannot see the URL path**: under stlite `st.context.url` is the bare origin,
+  so the shell copies the path into `?page=` for `common.initial_page`. **There is no
+  `localStorage`**: Python runs in a Web Worker, which has none — the language preference goes on
+  the IDBFS mount beside the drafts.
+* A banner drawn immediately before the solve is never seen in the browser: under stlite the
+  delta reaches the page only when the Pyodide worker's event loop runs, and a run that blocks
+  right after writing never lets it. `common.flush_ui()` sleeps 50 ms to yield, and
+  `solve_and_store` calls it first thing. Deleting that sleep silently restores the bug — extra
+  reruns do **not** substitute for it, ending a run is not a yield.
 * Nothing bare at module level in `app/Home.py` — Streamlit's magic renders a stray string or
   expression in the entry script straight into the page. Use `#` comments for constants there.
 * `wasm/build_static.py` is the third consumer of the `i18n.py` tables — the browser shell renders
