@@ -18,12 +18,16 @@ from __future__ import annotations
 import streamlit as st
 
 import common
+import persistence
 from dancepartner.feasibility import check_feasibility
 from dancepartner.i18n import Language, t
 from dancepartner.model import DEFAULT_N_POSITIONS, Role
 from dancepartner.storage import MalformedYamlError, StorageError, dump_team, parse_team
 
 common.sync_language()
+# st.navigation runs this file on every rerun whichever page is showing, so this one call
+# covers all five pages (SPEC.md 14.4). It is a no-op once a team is loaded.
+common.restore_draft()
 st.set_page_config(page_title=t("ui.title"), page_icon="💃", layout="wide")
 
 
@@ -140,10 +144,22 @@ def _render_save() -> None:
     ):
         common.mark_saved()
 
+    # The draft is the reason a reload is survivable; the download is still the only export.
+    st.caption(t("ui.draft.hint"))
+    if persistence.has_draft() and st.button(t("ui.draft.discard")):
+        persistence.clear_draft()
+        st.success(t("ui.draft.discarded"))
+
 
 def render_home() -> None:
     """The start page: load or create a team, see the pre-check, save explicitly."""
     common.page_header("ui.title", "ui.subtitle")
+    if common.draft_was_restored():
+        st.info(t("ui.draft.restored"))
+    # Editing works everywhere; solving does not. Say which build this is up front, rather
+    # than letting the coach find out two pages later (SPEC.md 14).
+    if not common.SOLVER_AVAILABLE:
+        st.info(t("ui.solver.editor_only"))
     _render_load()
     _render_summary()
     _render_save()

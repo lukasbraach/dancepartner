@@ -1,0 +1,75 @@
+name: Docker
+
+# The server target (SPEC.md 14). Tags publish to GHCR; pull requests build and smoke-test the
+# image without pushing anything.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Mutually exclusive: a PR loads the image locally to smoke-test it, everything else
+          # pushes it.
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The image actually serves the app
+        if: github.event_name == 'pull_request'
+        run: |
+          tag="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+          docker run -d --name dp -p 8501:8501 "$tag"
+          for _ in $(seq 1 60); do
+            if [ "$(curl -fsS http://localhost:8501/_stcore/health || true)" = "ok" ]; then
+              echo "healthy"; break
+            fi
+            sleep 2
+          done
+          test "$(curl -fsS http://localhost:8501/_stcore/health)" = "ok"
+          # The lazy re-export in dancepartner/__init__.py has to still resolve in the image --
+          # this is the server target, where solving is the entire point (SPEC.md 14).
+          docker exec dp python -c "from dancepartner import solve; print(solve)"
+          docker rm -f dp

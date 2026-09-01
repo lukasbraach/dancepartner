@@ -1,0 +1,63 @@
+# The server target (SPEC.md 14.5): the app on a private network, Caddy as the only way in.
+#
+#   cp docker/.env.example docker/.env   # then fill it in
+#   docker compose -f docker/compose.yaml up -d --build
+
+name: dancepartner
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/lukasbraach/dancepartner:${DP_TAG:-latest}
+    restart: unless-stopped
+    # No published port. Caddy terminates TLS and does the authentication; the app has none and
+    # must keep having none (SPEC.md 13).
+    expose:
+      - "8501"
+    environment:
+      DANCEPARTNER_LANG: ${DANCEPARTNER_LANG:-en}
+    # SPEC.md 14.5 promises no survey data reaches this server's disk. read_only is what makes
+    # that enforceable rather than aspirational: drafts live in process memory, and there is no
+    # writable path for anything to fall back to. Verify with `docker diff` after a full run --
+    # if something does need to write, add a tmpfs line, never drop read_only.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /home/appuser/.streamlit:size=1m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - edge
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    # env_file rather than ${...} interpolation, and this is not a style choice: a bcrypt hash
+    # begins with $2a$, and Compose would try to expand the $2a as a variable and hand Caddy a
+    # mangled hash. Values read through env_file are passed to the container untouched.
+    env_file:
+      - .env
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - edge
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:

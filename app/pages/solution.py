@@ -19,10 +19,16 @@ from dancepartner.model import (
     SolverConfig,
 )
 from dancepartner.reporting import exchange_groups, group_numbers, satisfaction_ratio
-from dancepartner.solver import InfeasibleInstanceError
 
 common.page_header("ui.solve.header")
 team = common.require_team()
+
+# The browser build has no solver, so this page cannot do its job. Say so rather than failing,
+# and say it before the configuration widgets render -- otherwise the coach picks settings for
+# a run that cannot happen (SPEC.md 14).
+if not common.SOLVER_AVAILABLE:
+    st.info(t("ui.solver.unavailable"))
+    st.stop()
 current = common.get_config()
 
 # -- configuration -------------------------------------------------------------------------
@@ -127,14 +133,7 @@ common.set_config(config)
 # -- run -------------------------------------------------------------------------------------
 
 if st.button(t("ui.solve.run"), type="primary"):
-    # The configured time limit is what keeps the UI from hanging (SPEC.md 10).
-    with st.spinner(t("solve.running")):
-        try:
-            common.set_result(common.cached_solve(team, config))
-        except InfeasibleInstanceError as exc:
-            st.error(t("solve.infeasible_precheck"))
-            common.show_issues(list(exc.issues))
-            st.stop()
+    common.solve_and_store(team, config)
 
 result = common.get_result()
 if result is None:

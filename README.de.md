@@ -307,9 +307,67 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 
 Gespeichert wird nur auf Knopfdruck, und zwar als Download — die App hat keinen eigenen
 beschreibbaren Pfad mehr, sobald sie im Browser läuft. PyYAML kann Kommentare nicht erhalten;
-ein Autosave würde sie aus einer von Hand gepflegten Teamdatei stillschweigend entfernen. Echte Daten gehören nach
-`data/team.yaml`: Der Pfad steht in `.gitignore`, versehentlich eingecheckte Befragungen wären
-ein echtes Problem.
+ein Autosave würde sie aus einer von Hand gepflegten Teamdatei stillschweigend entfernen.
+
+Was die App von sich aus behält, ist ein **Entwurf**: das Team so, wie es gerade aussieht, damit
+ein Neuladen nicht einen Abend Umfrageerfassung kostet. Ein Entwurf ist keine Speicherung — er
+räumt die Warnung über ungespeicherte Änderungen nicht weg und wird nie in die Datei geschrieben,
+aus der das Team stammt. In der Browser-Version liegt er im IndexedDB dieses Browsers, auf einem
+Server im Arbeitsspeicher, adressiert über das `?draft=`-Merkmal in der URL. Beides erreicht keine
+Festplatte.
+
+Echte Daten gehören nach `data/team.yaml`: Der Pfad steht in `.gitignore`, versehentlich
+eingecheckte Befragungen wären ein echtes Problem.
+
+## Betrieb
+
+Dieselbe Oberfläche läuft auf drei Wegen. Sie unterscheiden sich in einem Punkt, der zählt, und der
+gehört klar gesagt: **Die Browser-Version kann keine Verpartnerung berechnen.** Für OR-Tools gibt
+es keine WebAssembly-Fassung, dort ist also kein Solver. Alles bis zum Rechnen funktioniert.
+
+| | `make ui` lokal | Browser (GitHub Pages) | Server (Docker) |
+|---|---|---|---|
+| Team laden, anlegen, hochladen, herunterladen | ✅ | ✅ | ✅ |
+| Mannschaft und Umfrage bearbeiten | ✅ | ✅ | ✅ |
+| Vorprüfung | ✅ | ✅ | ✅ |
+| **Verpartnerung berechnen** | ✅ | ❌ kein OR-Tools in WebAssembly | ✅ |
+| **Analyse, Tauschgruppen, Auswahlliste** | ✅ | ❌ braucht eine Lösung | ✅ |
+| Die Kommandozeile | ✅ | ❌ | ✅ per `docker exec` |
+| Neuladen behält das Team | ✅ im Speicher | ✅ IndexedDB, auf dem Gerät | ✅ im Speicher, über `?draft=` |
+| Umfragedaten verlassen den Rechner | nein | nein — sie verlassen das Gerät nicht | ja, zu Ihrem Server |
+| Was eine Trainerin installieren muss | eine Python-Umgebung | nichts, nur eine URL | nichts, eine URL und ein Passwort |
+
+Wo die Browser-Version etwas nicht kann, steht das mit Begründung auf der Seite. Nichts wird
+versteckt.
+
+### Die Browser-Version
+
+```bash
+make wasm-serve     # bauen und auf http://localhost:8000 ausliefern
+make wasm           # nur bauen, nach wasm/dist, für den Pages-Pfad
+```
+
+`.github/workflows/pages.yml` veröffentlicht sie bei jedem Push auf `main`. Der erste Aufruf lädt
+rund 30 MB Pyodide und dauert einen Moment — dafür gibt es eine Ladeanzeige, denn eine leere Seite
+über zwanzig Sekunden ist von einem kaputten Deployment nicht zu unterscheiden. Sie lässt sich als
+Web-App installieren (ein Manifest mit richtigen Icons), hat aber keinen Service Worker und
+funktioniert daher nicht offline.
+
+### Die Server-Version
+
+```bash
+cp docker/.env.example docker/.env     # und dann ausfüllen
+docker run --rm caddy:2-alpine caddy hash-password --plaintext 'das-passwort'
+make docker-up
+```
+
+Caddy übernimmt TLS und die Anmeldung — Basic Auth als Platzhalter, das Caddyfile markiert die
+Stelle, an die OIDC gehört. Die Anmeldung wandert nie in die App. Der Container läuft als
+Nicht-Root-Benutzer auf einem schreibgeschützten Dateisystem: Umfrageantworten liegen in seinem
+Arbeitsspeicher und erreichen seine Festplatte nie.
+
+Die Umgebungsvariablen sind in `docker/.env.example` dokumentiert; keine davon hat im Repository
+einen echten Wert.
 
 ## Entwicklung
 

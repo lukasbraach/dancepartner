@@ -181,6 +181,26 @@ _STRINGS_EN: dict[str, str] = {
     "ui.no_team": "No team loaded yet — please load or create a team on “Home” first.",
     "ui.no_solution_yet": "No solution computed yet — please solve on “Solution” first.",
     "ui.unsaved": "Unsaved changes. They will be lost unless you download the team.",
+    # -- UI: what this deployment can do (SPEC.md 14) ------------------------------------
+    "ui.solver.unavailable": (
+        "Computing an assignment is not available in the browser version: there is no "
+        "WebAssembly build of the solver (OR-Tools). Editing the team, recording the survey "
+        "and the feasibility pre-check all work here — to compute an assignment, download "
+        "the team and run it locally, or use the hosted version."
+    ),
+    "ui.solver.editor_only": (
+        "Browser version: teams and surveys can be edited here, an assignment cannot be computed."
+    ),
+    "ui.loading": "Loading the app — the first visit takes a moment.",
+    "ui.draft.restored": (
+        "Restored a draft from this browser. A draft is not a file — download the team to keep it."
+    ),
+    "ui.draft.hint": (
+        "Changes stay in this browser, so reloading the page does not lose them. Nothing is "
+        "written to disk."
+    ),
+    "ui.draft.discard": "Discard browser draft",
+    "ui.draft.discarded": "Draft discarded.",
     # -- UI: Home (load / create / feasibility) ------------------------------------------
     "ui.load.header": "Load team",
     "ui.load.upload": "Upload file",
@@ -483,6 +503,29 @@ _STRINGS_DE: dict[str, str] = {
     "ui.unsaved": (
         "Ungespeicherte Änderungen. Sie gehen verloren, wenn Sie das Team nicht herunterladen."
     ),
+    # -- UI: was diese Installation kann (SPEC.md 14) -------------------------------------
+    "ui.solver.unavailable": (
+        "Das Berechnen einer Verpartnerung steht in der Browser-Version nicht zur Verfügung: "
+        "Für den Solver (OR-Tools) gibt es keine WebAssembly-Fassung. Team bearbeiten, "
+        "Umfrage erfassen und die Vorprüfung funktionieren hier — für eine Verpartnerung "
+        "laden Sie das Team bitte herunter und rechnen lokal, oder nutzen Sie die gehostete "
+        "Version."
+    ),
+    "ui.solver.editor_only": (
+        "Browser-Version: Teams und Umfragen lassen sich hier bearbeiten, eine Verpartnerung "
+        "nicht berechnen."
+    ),
+    "ui.loading": "Die App wird geladen — der erste Besuch dauert einen Moment.",
+    "ui.draft.restored": (
+        "Ein Entwurf aus diesem Browser wurde wiederhergestellt. Ein Entwurf ist keine Datei "
+        "— bitte laden Sie das Team herunter, um es zu behalten."
+    ),
+    "ui.draft.hint": (
+        "Änderungen bleiben in diesem Browser erhalten, ein Neuladen verliert sie also nicht. "
+        "Auf die Festplatte wird nichts geschrieben."
+    ),
+    "ui.draft.discard": "Browser-Entwurf verwerfen",
+    "ui.draft.discarded": "Entwurf verworfen.",
     # -- UI: Start (load / create / feasibility) -----------------------------------------
     "ui.load.header": "Team laden",
     "ui.load.upload": "Datei hochladen",

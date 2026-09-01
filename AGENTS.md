@@ -19,6 +19,13 @@ are about to touch; this file only lists the rules that bite fastest.
 
 * `src/dancepartner/` never imports `streamlit`. The UI (`app/`) depends on the core, never the
   reverse; `streamlit` stays an extra, not a runtime dependency.
+* Only `solver.py` and `cli.py` may import `ortools` and `typer`. `__init__.py` re-exports the
+  three solver names lazily (PEP 562 `__getattr__`) — **never make that import eager.** Importing
+  any submodule runs `__init__`, so an eager one would drag CP-SAT into the browser build, which
+  has no WebAssembly wheel for it, and `dancepartner.model` would stop importing there entirely
+  (SPEC §14.2). Nothing in `app/` imports `dancepartner.solver` at module level either; it goes
+  behind `common.SOLVER_AVAILABLE`. `tests/test_wasm_deps.py` and the `wasm-parity` CI job
+  enforce both.
 * Positions are labelled A–H, never 1–8. They are unordered and interchangeable.
 * Preferences are directed — never symmetrise. Hard vetoes are the one symmetric exception.
 * Integer arithmetic only in the objective (`SolverConfig.score_scale` exists so halving never
@@ -39,7 +46,20 @@ make install      # venv + '.[dev]' + pre-commit hooks
 make check        # everything CI runs: ruff, mypy --strict, pytest + coverage, CLI smoke test
 make ui           # Streamlit UI       (make ui PORT=8600)
 make cli          # check/solve/explain (make cli TEAM=data/team.yaml DANCER=lukas-b)
+
+make wasm-serve   # build the browser bundle and serve it on :8000 (editor-only, no solver)
+make wasm         # just build it, into wasm/dist, for the GitHub Pages base path
+make docker-build # the server image
+make docker-up    # app + Caddy from docker/compose.yaml (needs docker/.env)
 ```
+
+Deployment lives in `wasm/` (the stlite bundle for GitHub Pages) and `docker/` (the server image
+and its reverse proxy) — see SPEC §14. Note `wasm/`, not `build/`: `.gitignore` swallows `build/`
+and `dist/`, which is also why the bundle is written to `wasm/dist/`.
+
+A new runtime dependency goes in **two** places, or is documented as server-only: `pyproject.toml`
+plus `requirements-dev.txt`, and then either `wasm/requirements-wasm.txt` — pinned to exactly the
+version the Pyodide index carries — or the `ortools` treatment in SPEC §14.7.
 
 `make` on its own lists all targets. The CLI is the reference interface:
 
@@ -65,7 +85,14 @@ make cli          # check/solve/explain (make cli TEAM=data/team.yaml DANCER=luk
   Python blocks in Markdown.
 * `storage.py` writes canonical YAML with `sort_keys=False` and a fixed key order; never let
   PyYAML sort keys. Dancer order is significant (it defines the position labels).
-* The UI saves only on an explicit button, never autosave — PyYAML drops comments on save.
+* The UI saves the coach's *file* only on an explicit button, never autosave — PyYAML drops
+  comments on save. It does keep a **draft** (browser IndexedDB, or server RAM keyed by
+  `?draft=`) so a reload does not cost an evening of survey entry. A draft is not a save: it
+  touches no file of the coach's and never clears the unsaved-changes warning. See
+  `app/persistence.py` and SPEC §14.4.
+* `wasm/build_static.py` is the third consumer of the `i18n.py` tables — the browser shell renders
+  before Python exists, so its loading message is baked in at build time. Both key-scanner tests
+  glob it alongside `app/`.
 * `data/team.yaml` is gitignored. Never commit real survey data; only the example files are
   tracked.
 * `CLAUDE.md` is a symlink to this file — edit `AGENTS.md`.

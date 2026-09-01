@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ description }}" />
+    <meta name="theme-color" content="#ff4b4b" />
+    <link rel="manifest" href="{{ base_path }}manifest.webmanifest" />
+    <link rel="icon" href="{{ base_path }}icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="{{ base_path }}icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@stlite/browser@{{ stlite_version }}/build/stlite.css"
+    />
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+      }
+      #boot {
+        display: grid;
+        place-items: center;
+        align-content: center;
+        gap: 0.9rem;
+        height: 100%;
+        padding: 1rem;
+        text-align: center;
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #555;
+      }
+      #boot .spinner {
+        width: 2rem;
+        height: 2rem;
+        border: 3px solid #e6e6e6;
+        border-top-color: #ff4b4b;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot .spinner {
+          animation: none;
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        #boot {
+          background: #0e1117;
+          color: #b9bcc4;
+        }
+        #boot .spinner {
+          border-color: #2b2f3a;
+          border-top-color: #ff4b4b;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      stlite mounts a React root into #root and replaces these children on first paint. The
+      cold load pulls roughly 30 MB of Pyodide and wheels, so without this the coach stares at
+      a blank page for twenty seconds and cannot tell it from a broken deploy.
+
+      Both languages are spelled out here on purpose: this shell renders before Python exists,
+      so it cannot go through i18n.py's runtime language switch (SPEC.md 14).
+    -->
+    <div id="root">
+      <div id="boot">
+        <div class="spinner"></div>
+        <div>{{ loading_en }}</div>
+        <div>{{ loading_de }}</div>
+      </div>
+    </div>
+    <script type="module">
+      import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@{{ stlite_version }}/build/stlite.js";
+
+      mount(
+        {
+          entrypoint: "app/Home.py",
+          files: {{ files_json }},
+          requirements: {{ requirements_json }},
+          // The draft lives here, in IndexedDB, and never leaves the device (SPEC.md 14.4).
+          // stlite flushes the mount after every script run, so Python just writes the file.
+          idbfsMountpoints: ["{{ idbfs_mountpoint }}"],
+          streamlitConfig: {
+            "browser.gatherUsageStats": false,
+            "client.toolbarMode": "minimal",
+          },
+        },
+        document.getElementById("root"),
+      );
+    </script>
+  </body>
+</html>

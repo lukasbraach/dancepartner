@@ -10,11 +10,13 @@ The dependency runs one way only. ``dancepartner`` never imports ``streamlit``; 
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import streamlit as st
 
+import persistence
 from dancepartner.i18n import Language, get_language, set_language, t
 from dancepartner.model import (
     DEFAULT_N_POSITIONS,
@@ -30,8 +32,19 @@ from dancepartner.model import (
     Tier,
 )
 from dancepartner.scoring import DancerSatisfaction, Solution
-from dancepartner.solver import SolveResult, solve
 from dancepartner.storage import dump_team
+
+if TYPE_CHECKING:  # Importing the solver for real would pull in ortools -- see SOLVER_AVAILABLE.
+    from dancepartner.solver import SolveResult
+
+SOLVER_AVAILABLE: Final = importlib.util.find_spec("ortools") is not None
+"""Whether an assignment can be computed here.
+
+Asked as a capability rather than as a platform test: ``find_spec`` locates the package without
+importing it, so this costs nothing and stays true in an environment we did not anticipate.
+ortools has no WebAssembly wheel, so the browser build (SPEC.md 14) sets this ``False`` and the
+two solving pages say so instead of failing.
+"""
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
 EXAMPLE_TEAM: Final = REPO_ROOT / "data" / "team.example.yaml"
@@ -49,6 +62,8 @@ _DIRTY: Final = "dirty"
 _RESULT: Final = "result"
 _CONFIG: Final = "config"
 LANGUAGE_KEY: Final = "language"
+_RESTORED: Final = "draft_restored"
+_RESTORED_NOTICE: Final = "draft_restored_notice"
 
 
 def sync_language() -> None:
@@ -83,6 +98,40 @@ def set_team(team: Team, *, dirty: bool = True) -> None:
     st.session_state[_DIRTY] = dirty
     # A solution describes the team it was computed for and nothing else.
     st.session_state.pop(_RESULT, None)
+    # Not a save -- a draft, so a reload does not cost the coach an evening (SPEC.md 14.4).
+    # It never raises, and it never touches the file the team came from.
+    persistence.save_draft(team)
+
+
+def restore_draft() -> None:
+    """Seed the session from this browser's draft, once per session and only if empty.
+
+    Called from Home.py, which ``st.navigation`` runs on every rerun whichever page is shown,
+    so one call site covers all five. The ``get_team()`` guard is what keeps it out of the way
+    of anything that has already put a team in session state -- a page the coach navigated to,
+    or a test that seeded one directly.
+
+    A restored draft is dirty by definition: it is not the file on the coach's disk, and the
+    unsaved-changes warning has to stay up (SPEC.md 14.4).
+    """
+    # Re-stamp first, and on every rerun: st.navigation strips the query string on each page
+    # change, and a reload from a stripped URL would restore nothing (SPEC.md 14.4).
+    persistence.stamp_url()
+    if st.session_state.get(_RESTORED):
+        return
+    st.session_state[_RESTORED] = True
+    if get_team() is not None:
+        return
+    team = persistence.load_draft()
+    if team is not None:
+        st.session_state[_TEAM] = team
+        st.session_state[_DIRTY] = True
+        st.session_state[_RESTORED_NOTICE] = True
+
+
+def draft_was_restored() -> bool:
+    """Whether this session started from a draft, consumed once so the notice shows once."""
+    return bool(st.session_state.pop(_RESTORED_NOTICE, False))
 
 
 def is_dirty() -> bool:
@@ -107,8 +156,17 @@ def set_config(config: SolverConfig) -> None:
 
 
 def get_result() -> SolveResult | None:
-    """The most recent solve for the current team, or ``None``."""
+    """The most recent solve for the current team, or ``None``.
+
+    The ``SolveResult`` import sits after the ``None`` check on purpose: a result can only be
+    in session state once a solve has run, so on the browser build -- which has no solver and
+    can never hold a result -- this never reaches ``dancepartner.solver`` (SPEC.md 14).
+    """
     result = st.session_state.get(_RESULT)
+    if result is None:
+        return None
+    from dancepartner.solver import SolveResult
+
     return result if isinstance(result, SolveResult) else None
 
 
@@ -148,11 +206,36 @@ def require_result() -> SolveResult:
 def cached_solve(team: Team, config: SolverConfig) -> SolveResult:
     """Solve, memoised on ``(team, config)`` as SPEC.md 10 asks.
 
+    ``solve`` is imported here rather than at module level: it is the one thing in the core
+    that reaches ortools, which the browser build has no wheel for (SPEC.md 14).
+
     Raises:
         InfeasibleInstanceError: The counting pre-checks rejected the instance. Callers
             render ``error.issues`` from it; see :func:`show_issues`.
     """
+    from dancepartner.solver import solve
+
     return solve(team, config)
+
+
+def solve_and_store(team: Team, config: SolverConfig) -> None:
+    """Run the cached solve into session state, or show the pre-check issues and stop.
+
+    Lives here rather than on the page because catching ``InfeasibleInstanceError`` means
+    naming it, and naming it means importing the solver -- which the browser build cannot do.
+    Every solver reference in the UI therefore sits behind :data:`SOLVER_AVAILABLE`, in this
+    module.
+    """
+    from dancepartner.solver import InfeasibleInstanceError
+
+    # The configured time limit is what keeps the UI from hanging (SPEC.md 10).
+    with st.spinner(t("solve.running")):
+        try:
+            set_result(cached_solve(team, config))
+        except InfeasibleInstanceError as exc:
+            st.error(t("solve.infeasible_precheck"))
+            show_issues(list(exc.issues))
+            st.stop()
 
 
 # -- formatting ---------------------------------------------------------------------------

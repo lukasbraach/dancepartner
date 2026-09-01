@@ -4,8 +4,17 @@
 # hangs `make ui` and CI alike. It also stops Streamlit from opening a browser by itself --
 # `make ui` prints the URL instead.
 #
-# gatherUsageStats: this app handles a team's survey answers. Nothing about it should leave
-# the machine it runs on.
+# gatherUsageStats: this app handles a team's survey answers, and none of them are ever
+# reported to Streamlit's telemetry -- on any of the three ways this runs.
+#
+# Where the answers themselves live does depend on which of the three it is, so this file no
+# longer claims they never leave the machine: that holds locally and in the browser build, but
+# a hosted instance keeps them in its own memory by definition. SPEC.md 14.5 states the posture
+# per target rather than making one promise that is only two-thirds true.
+#
+# These settings are the *local* ones, the ones `make ui` reads. The container sets its own
+# through environment variables (see docker/Dockerfile) -- binding 0.0.0.0 belongs to a server,
+# not to a laptop.
 
 [server]
 headless = true

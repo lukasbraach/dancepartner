@@ -1,0 +1,22 @@
+# Wheels micropip installs into the browser build, on top of what stlite already brings.
+#
+# stlite carries its own Streamlit wheel (streamlit 1.57.0, cp313) and the whole Pyodide
+# distribution behind it, so only what the *core* needs goes here. The versions are pinned
+# exactly, not with >=, and that is load-bearing: pydantic_core is a Rust extension, and the
+# only wasm32 wheel of it that exists anywhere is the one Pyodide builds. Ask for any other
+# version and micropip falls through to PyPI, finds no wasm wheel, and the app dies on boot
+# with a stack trace only visible in the browser console.
+#
+# The chain these pins hang off, all pinned in wasm/build_static.py:
+#   @stlite/browser 1.8.1  ->  Pyodide 0.29.3  ->  CPython 3.13.2  ->  streamlit 1.57.0
+#
+# ortools is deliberately absent: there is no WebAssembly build of CP-SAT, which is the whole
+# reason the browser target cannot compute an assignment (SPEC.md 14).
+#
+# Regenerate the vendored index this is checked against with:
+#   curl -sS https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide-lock.json \
+#     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({n: m["version"] for n, m in sorted(d["packages"].items())}, indent=2))'
+#
+# tests/test_wasm_deps.py enforces every sentence above.
+pydantic==2.12.5
+pyyaml==6.0.2

@@ -1,0 +1,25 @@
+# Deny by default, then allow back exactly what the image needs.
+#
+# The inverse -- listing what to exclude -- silently starts shipping anything a future directory
+# adds, and one of the things this repository can grow is real survey data. data/team.yaml is a
+# team's actual answers; baking it into an image that gets pushed to a registry would be the
+# worst failure available here. So: nothing is in the build context unless it is named below.
+*
+
+# The package and its metadata. README.md and LICENSE are not documentation here -- hatchling
+# reads both out of pyproject.toml during the install and fails without them.
+!pyproject.toml
+!requirements-dev.txt
+!README.md
+!LICENSE
+!src/
+
+# The interface, the example team, and the local Streamlit settings.
+!app/
+!data/team.example.yaml
+!.streamlit/
+
+# Re-exclude what would otherwise ride along inside the directories allowed above.
+**/__pycache__/
+**/*.py[cod]
+.streamlit/secrets.toml

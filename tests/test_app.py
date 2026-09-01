@@ -250,7 +250,8 @@ def test_solution_page_passes_the_chosen_aggregation_to_the_solver() -> None:
     at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
     default_config = at.session_state["config"]
     assert default_config.aggregation is ScoreAggregation.BEST
-    at.selectbox[1].set_value(ScoreAggregation.SUM).run()
+    # 0 is the objective, 1 the preference scope, 2 the aggregation.
+    at.selectbox[2].set_value(ScoreAggregation.SUM).run()
     chosen_config = at.session_state["config"]
     assert chosen_config.aggregation is ScoreAggregation.SUM
 
@@ -450,7 +451,14 @@ def test_the_ui_inlines_no_german_literal() -> None:
 
 
 def test_every_ui_key_is_actually_used() -> None:
-    source = "\n".join(p.read_text(encoding="utf-8") for p in (REPO_ROOT / "app").rglob("*.py"))
+    # wasm/build_static.py is the third consumer of the tables: the browser shell renders
+    # before Python exists, so its loading message cannot go through t() at runtime and is
+    # baked into the HTML at build time instead (SPEC.md 14).
+    sources = [
+        *(REPO_ROOT / "app").rglob("*.py"),
+        REPO_ROOT / "wasm" / "build_static.py",
+    ]
+    source = "\n".join(p.read_text(encoding="utf-8") for p in sources)
     # The pages quote keys both ways: t("x") normally, t('x') inside an f-string.
     dynamic = ("ui.objective.", "ui.aggregation.", "ui.scope.")
     unused = [

@@ -531,7 +531,13 @@ def test_no_string_key_is_missing_from_i18n() -> None:
     # unused. Key-set parity between the tables is covered by test_i18n.py, so scanning the
     # English table covers both.
     root = Path(__file__).resolve().parents[1]
-    sources = [*(root / "src" / "dancepartner").glob("*.py"), *(root / "app").rglob("*.py")]
+    # wasm/build_static.py counts too: it bakes the browser shell's loading message into the
+    # generated HTML, which renders before Python exists (SPEC.md 14).
+    sources = [
+        *(root / "src" / "dancepartner").glob("*.py"),
+        *(root / "app").rglob("*.py"),
+        root / "wasm" / "build_static.py",
+    ]
     source = "\n".join(p.read_text(encoding="utf-8") for p in sources)
     dynamic_prefixes = (
         "feasibility.",

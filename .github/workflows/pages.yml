@@ -1,0 +1,74 @@
+name: Pages
+
+# The browser target (SPEC.md 14): a static stlite bundle, editor-only, on GitHub Pages.
+# Pull requests build and upload the artifact but do not deploy -- a broken template is much
+# cheaper to find here than on the live site.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: pages-build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e . --no-deps
+
+      - name: Build
+        run: python wasm/build_static.py --out dist --base-path "/${{ github.event.repository.name }}/"
+
+      - name: The bundle carries no solver
+        # Belt and braces: build_static.py already refuses to write a bundle that imports
+        # ortools, but the whole target is premised on this, so it is worth asserting twice.
+        run: |
+          ! grep -q "from ortools" dist/index.html
+          ! grep -q "import ortools" dist/index.html
+
+      - name: The vendored Pyodide index is still accurate
+        # The one networked check in the project. It fails the day a stlite bump moves pydantic
+        # out from under wasm/requirements-wasm.txt -- which would otherwise surface as a white
+        # page and a micropip error only visible in a coach's browser console.
+        run: python wasm/build_static.py --check-lock
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # Never cancel a deployment in flight, unlike the build above.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

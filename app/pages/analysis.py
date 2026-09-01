@@ -26,6 +26,13 @@ from dancepartner.reporting import (
 
 common.page_header("ui.analysis.header")
 team = common.require_team()
+
+# The browser build has no solver, so this page cannot do its job. Say so rather than failing,
+# and say it before require_result() -- otherwise the coach is told "no solution computed yet",
+# which misstates the cause (SPEC.md 14).
+if not common.SOLVER_AVAILABLE:
+    st.info(t("ui.solver.unavailable"))
+    st.stop()
 result = common.require_result()
 config = common.get_config()
 

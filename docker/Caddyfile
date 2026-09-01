@@ -1,0 +1,54 @@
+{
+	email {$DP_TLS_EMAIL}
+}
+
+{$DP_DOMAIN} {
+	encode zstd gzip
+
+	# -- authentication ---------------------------------------------------------------------
+	# A placeholder, deliberately. Generate the hash with:
+	#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'the-password'
+	#
+	# OIDC replaces THIS BLOCK and nothing else. The application knows nothing about identity
+	# and must keep knowing nothing (SPEC.md 13), so the two ways in are both proxy-side:
+	#
+	#   (a) an identity-aware proxy in front of this one:
+	#         forward_auth oauth2-proxy:4180 {
+	#             uri /oauth2/auth
+	#             copy_headers X-Auth-Request-Email X-Auth-Request-User
+	#         }
+	#   (b) the caddy-security plugin, which needs a custom Caddy build:
+	#         authenticate with dancepartner_portal
+	basic_auth {
+		{$DP_BASIC_USER} {$DP_BASIC_HASH}
+	}
+
+	# -- the app ----------------------------------------------------------------------------
+	reverse_proxy app:8501 {
+		# Caddy upgrades /_stcore/stream to a WebSocket on its own; reverse_proxy passes
+		# Connection and Upgrade through without being told to. What it does not do on its own
+		# is keep the connection open: Streamlit holds that socket for the whole session, and a
+		# solve of a 24-dancer instance holds an ordinary request for about twelve seconds.
+		# Anything near the usual 60s drops coaches mid-edit, which looks like a broken app.
+		transport http {
+			dial_timeout 10s
+			read_timeout 300s
+			write_timeout 300s
+		}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# The draft token rides in ?draft= (SPEC.md 14.5). It is not a credential -- basic_auth
+	# above is what gates the site -- but it does address one coach's working copy, so it has
+	# no business sitting in a log file for months.
+	log {
+		format filter {
+			wrap console
+			fields {
+				request>uri query {
+					delete draft
+				}
+			}
+		}
+	}
+}

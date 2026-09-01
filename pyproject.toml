@@ -28,6 +28,8 @@ dev = [
     "pre-commit>=3.7",
     "types-pyyaml>=6.0",
     "streamlit>=1.40",  # tests/test_app.py drives the UI through streamlit.testing.
+    "jinja2>=3.1",  # wasm/build_static.py renders the browser shell.
+    "pillow>=10.0",  # wasm/make_icons.py draws the PWA icons.
 ]
 
 [project.scripts]
@@ -39,7 +41,7 @@ packages = ["src/dancepartner"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests", "app"]
+src = ["src", "tests", "app", "wasm"]
 # SPEC.md contains illustrative Python blocks; ruff reformats fenced code in Markdown and
 # the spec is not ours to reformat.
 extend-exclude = ["*.md"]
@@ -60,7 +62,7 @@ convention = "google"
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests", "app"]
+files = ["src", "tests", "app", "wasm"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]

@@ -620,3 +620,113 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
   tracked.
 * Ask before changing anything in §3 or §6 — the glossary and the hard constraints are the parts
   the team has actually agreed on. (The English-vocabulary rename in §2.1 was agreed this way.)
+
+---
+
+## 14. Deployment
+
+Three ways to run the same `app/`: `make ui` on a laptop, a Docker image behind Caddy on a private
+server, and a static [stlite](https://stlite.net) bundle on GitHub Pages. §1–§13 describe the tool;
+this section describes where it runs and what changes when it does.
+
+### 14.1 Two targets, one codebase
+
+Neither target adds a runtime dependency, restructures `app/`, or introduces a backend. In
+particular there is no `DataSource` abstraction over "local file vs S3 vs database": there is no
+database (§9), no multi-tenancy (§13), and the core/UI split already lives in `src/` vs `app/`. The
+only real difference between the targets is whether the solver exists, and that is one boolean.
+
+### 14.2 Why the browser cannot solve
+
+`ortools` has no WebAssembly wheel. Every wheel published to PyPI is macOS, Linux or Windows
+specific — there is no `py3-none-any` fallback — and Pyodide's distribution does not carry it.
+`pydantic` and `pyyaml` are both there, so everything else in the core runs unchanged.
+
+This is why `dancepartner/__init__.py` resolves `solve`, `SolveResult` and `InfeasibleInstanceError`
+through a PEP 562 `__getattr__` instead of importing them. Importing any submodule runs the package
+`__init__` first, so an eager `from .solver import ...` would mean that `from dancepartner.model
+import Team` pulls in CP-SAT — and the browser build could not import the data model at all. §5's
+import-direction rule gains one clause: **`solver` is reachable from `__init__` only lazily, and
+`app/` never imports it at module level.** `tests/test_wasm_deps.py` and the `wasm-parity` CI job
+enforce both halves.
+
+### 14.3 Degrading explicitly
+
+`app/common.py` exposes `SOLVER_AVAILABLE`, asked as a capability
+(`importlib.util.find_spec("ortools")`) rather than as a platform test. Where it is false, Solution
+and Analysis render `ui.solver.unavailable` and stop, and Home says so up front. Neither page leaves
+`st.navigation`: a missing menu entry is a worse lie than a page that explains itself. Analysis
+checks the capability *before* `require_result()`, or the coach would be told "no solution computed
+yet", which misstates the cause.
+
+### 14.4 Drafts
+
+§9 said the UI writes nothing at all. That is amended to: **the UI never writes the coach's file; a
+draft it may.** `st.download_button` is still the only export, and a draft never clears the
+unsaved-changes warning — it is not a save and is never presented as one.
+
+The rule existed because PyYAML drops comments, so an autosave would quietly strip the documentation
+out of a hand-written team file. A draft touches no file of the coach's, so that reasoning does not
+reach it — and losing an evening of survey entry to an accidental reload is a real cost the rule was
+never meant to impose.
+
+`app/persistence.py` keeps one, with a backend per target because a reload means different things:
+
+* **Browser** — a YAML file on an stlite `idbfsMountpoints` directory, which is IndexedDB. A reload
+  restarts the whole Pyodide worker, so nothing in Python memory could survive; the mount does.
+  stlite flushes it after every script run, so Python just writes the file. The mountpoint must be a
+  single top-level directory: stlite mounts with a bare `FS.mkdir`, and a nested path fails the
+  entire boot with an `ErrnoError` before Streamlit renders. `build_static.IDBFS_MOUNTPOINT` and
+  `persistence.MOUNTPOINT` are held together by a test.
+* **Server** — a `secrets.token_urlsafe(16)` in `?draft=`, the one piece of state a refresh keeps by
+  itself, keying an in-RAM `st.cache_resource` store with a 12 h TTL and LRU eviction. Process
+  memory only: unlike `st.cache_data` there is no `persist=` to turn on by accident.
+
+Both are best effort and swallow their own failures. A private window with IndexedDB disabled
+degrades to "a reload loses the team", which is where this project started.
+
+### 14.5 Where the data actually is
+
+Stated per target, because the honest answer differs:
+
+* **Local** — nothing leaves the machine.
+* **Browser** — nothing leaves the device. The only network traffic is the stlite and Pyodide
+  fetch from jsDelivr, which carries no team data. The IndexedDB draft stays in that browser
+  profile until it is discarded or the profile is cleared.
+* **Server** — survey answers live in that server's memory for the session, and for up to the 12 h
+  draft TTL. Nothing reaches its disk: the container runs `read_only`, with tmpfs for `/tmp` alone.
+  The draft token appears in the URL bar, in browser history, and would appear in Caddy's access
+  log if the Caddyfile did not strip it. Anyone with that URL, inside the authenticated perimeter,
+  can read that draft. It is not the security boundary — Caddy's authentication is, and TLS and
+  authentication are Caddy's job in full. The app has none and must keep having none (§13).
+
+### 14.6 The config comment
+
+`.streamlit/config.toml` used to say "Nothing about it should leave the machine it runs on." That is
+true of the local and browser targets and false of the server one. The telemetry claim it was
+attached to — that nothing is reported to Streamlit's usage statistics — holds everywhere; the
+data-location claim is 14.5's business, and the comment now points there instead of asserting it.
+
+### 14.7 Pinned versions
+
+    @stlite/browser 1.8.1  ->  Pyodide 0.29.3  ->  CPython 3.13.2  ->  streamlit 1.57.0
+
+Pinned in `wasm/build_static.py`, never a floating CDN tag: a stlite bump moves Pyodide, and Pyodide
+is what decides which `pydantic` exists. Note the last link — the browser runs streamlit 1.57, not
+the 1.62 in `requirements-dev.txt`.
+
+Moving the pin means: bump `STLITE_VERSION`, re-derive the Pyodide version, regenerate
+`wasm/pyodide-lock.trimmed.json` (the command is in the header of `wasm/requirements-wasm.txt`), and
+re-pin `requirements-wasm.txt` to whatever that Pyodide carries. `build_static.py --check-lock`
+catches a stale index in CI; `wasm-parity` catches a pydantic that behaves differently.
+
+A new runtime dependency clears three gates, not one:
+
+1. `pyproject.toml`, then re-freeze `requirements-dev.txt`.
+2. If `src/dancepartner/` imports it outside `solver.py`/`cli.py`, it must exist in the Pyodide
+   index — add it to `requirements-wasm.txt` pinned to *exactly* that version. A pure-Python
+   `py3-none-any` wheel from PyPI also works; a compiled extension does not, unless Pyodide builds
+   it.
+3. If it cannot run in the browser, it gets the `ortools` treatment: confined to one module, lazily
+   re-exported, excluded from the bundle, and gated in the UI behind a flag beside
+   `SOLVER_AVAILABLE`. Never a bare module-level import in something the editor pages need.

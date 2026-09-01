@@ -25,6 +25,11 @@ _APP = Path(__file__).resolve().parents[1] / "app"
 if str(_APP) not in sys.path:
     sys.path.insert(0, str(_APP))
 
+# wasm/build_static.py is a script, not a package; tests/test_static_build.py imports it.
+_WASM = Path(__file__).resolve().parents[1] / "wasm"
+if str(_WASM) not in sys.path:
+    sys.path.insert(0, str(_WASM))
+
 
 @pytest.fixture(autouse=True)
 def _english_default() -> Iterator[None]:

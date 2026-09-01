@@ -52,6 +52,17 @@ jobs:
           # `check` -- a full solve of it takes ~12 s, which is not worth the CI minute.
           dancepartner check data/team.large.example.yaml
 
+      - name: The core runs without the solver
+        # SPEC.md 14: the browser build imports the data model with no ortools present. That
+        # combination exists nowhere else in CI, and the failure mode -- an eager
+        # `from .solver import ...` creeping back into dancepartner/__init__.py -- is invisible
+        # until a coach opens the Pages site and gets a white page.
+        run: |
+          pip uninstall -y ortools
+          python -c "import dancepartner; from dancepartner.model import Team; print(Team)"
+          python -c "import dancepartner; assert 'solve' in dir(dancepartner)"
+          pip install -c requirements-dev.txt ortools
+
       - name: The core runs without the UI
         # SPEC.md 5: a reviewer must be able to delete app/ and still run everything from the
         # CLI. Prove it rather than trusting the import graph.
@@ -60,3 +71,29 @@ jobs:
           pip uninstall -y streamlit
           dancepartner solve data/team.example.yaml
           mv /tmp/app-moved app
+
+  wasm-parity:
+    # SPEC.md 14: the browser target runs this core on CPython 3.13 against pydantic 2.12.5,
+    # neither of which the job above exercises, and with no ortools at all. A validator that
+    # silently stops firing on the older pydantic would corrupt teams rather than crash, which
+    # is the worst failure mode available here -- so it gets its own job rather than a comment.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13" # Pyodide 0.29.3, which @stlite/browser 1.8.1 loads, is 3.13.2
+
+      - name: Install exactly what the browser has
+        run: |
+          python -m pip install --upgrade pip
+          # The versions in wasm/requirements-wasm.txt, and deliberately no ortools.
+          pip install -r wasm/requirements-wasm.txt pytest
+          pip install -e . --no-deps
+
+      - name: The browser-safe core behaves
+        # Exactly the modules that import neither dancepartner.solver nor tests/helpers.py.
+        run: |
+          pytest tests/test_model.py tests/test_storage.py tests/test_scoring.py \
+                 tests/test_feasibility.py tests/test_i18n.py tests/test_wasm_deps.py
