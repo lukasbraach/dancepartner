@@ -90,6 +90,13 @@ version the Pyodide index carries — or the `ortools` treatment in SPEC §14.7.
   `?draft=`) so a reload does not cost an evening of survey entry. A draft is not a save: it
   touches no file of the coach's and never clears the unsaved-changes warning. See
   `app/persistence.py` and SPEC §14.4.
+* Loads mint a new draft version, edits overwrite the current one — `set_team(..., new_draft=True)`
+  on Home's three load paths only. The history is a list on the page, **not** the browser back
+  button: `st.query_params` reports the newest value after a back press in a `st.navigation` app
+  (streamlit#13963) and `st.context.url` carries no query string at all. Both verified in a
+  browser; don't re-litigate it without re-testing.
+* Nothing bare at module level in `app/Home.py` — Streamlit's magic renders a stray string or
+  expression in the entry script straight into the page. Use `#` comments for constants there.
 * `wasm/build_static.py` is the third consumer of the `i18n.py` tables — the browser shell renders
   before Python exists, so its loading message is baked in at build time. Both key-scanner tests
   glob it alongside `app/`.

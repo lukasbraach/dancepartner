@@ -292,6 +292,11 @@ to the file the team came from. In the browser version it lives in that browser'
 memory, keyed by the
 `?draft=` token in the URL. Neither one reaches a disk.
 
+Loading a team keeps the previous one, so trying the example does not throw away what you had. Editing overwrites the
+current version rather than piling up another; the last ten are listed under "Earlier versions" on the start page, with
+a button back to each. That list is there rather than the browser's back button because Streamlit cannot see which
+version a back press points at ([streamlit#13963](https://github.com/streamlit/streamlit/issues/13963)).
+
 Real data belongs in `data/team.yaml`: the path is in `.gitignore`, and accidentally committed surveys would be a real
 problem.
 
@@ -310,6 +315,7 @@ Everything up to the solve works.
 | **Analysis, exchange groups, shortlist** | ✅                   | ❌ needs a solution             | ✅                            |
 | The CLI                                  | ✅                   | ❌                              | ✅ via `docker exec`          |
 | A reload keeps the team                  | ✅ in memory         | ✅ IndexedDB, on the device     | ✅ in memory, via `?draft=`   |
+| Earlier versions to go back to | ✅ this session | ✅ last 10, across reloads | ✅ last 10, this session |
 | Survey data leaves the machine           | no                   | no — it never leaves the device | yes, to your server           |
 | What a coach has to install              | a Python environment | nothing, just a URL             | nothing, a URL and a password |
 

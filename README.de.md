@@ -316,6 +316,13 @@ aus der das Team stammt. In der Browser-Version liegt er im IndexedDB dieses Bro
 Server im Arbeitsspeicher, adressiert über das `?draft=`-Merkmal in der URL. Beides erreicht keine
 Festplatte.
 
+Ein geladenes Team lässt das vorherige stehen, ein Blick ins Beispiel wirft also nicht weg, was
+Sie hatten. Bearbeiten überschreibt den aktuellen Stand, statt einen weiteren anzulegen; die
+letzten zehn stehen auf der Startseite unter »Frühere Stände«, mit je einer Schaltfläche zurück.
+Diese Liste gibt es anstelle des Zurück-Knopfes im Browser, weil Streamlit nicht erkennen kann,
+auf welchen Stand ein Zurück-Schritt zeigt
+([streamlit#13963](https://github.com/streamlit/streamlit/issues/13963)).
+
 Echte Daten gehören nach `data/team.yaml`: Der Pfad steht in `.gitignore`, versehentlich
 eingecheckte Befragungen wären ein echtes Problem.
 
@@ -334,6 +341,7 @@ es keine WebAssembly-Fassung, dort ist also kein Solver. Alles bis zum Rechnen f
 | **Analyse, Tauschgruppen, Auswahlliste** | ✅ | ❌ braucht eine Lösung | ✅ |
 | Die Kommandozeile | ✅ | ❌ | ✅ per `docker exec` |
 | Neuladen behält das Team | ✅ im Speicher | ✅ IndexedDB, auf dem Gerät | ✅ im Speicher, über `?draft=` |
+| Frühere Stände abrufbar | ✅ diese Sitzung | ✅ letzte 10, auch nach Neuladen | ✅ letzte 10, diese Sitzung |
 | Umfragedaten verlassen den Rechner | nein | nein — sie verlassen das Gerät nicht | ja, zu Ihrem Server |
 | Was eine Trainerin installieren muss | eine Python-Umgebung | nichts, nur eine URL | nichts, eine URL und ein Passwort |
 

@@ -15,6 +15,9 @@ SPEC.md 5 lists the pages as ``1_Team.py`` / ``2_Umfrage.py`` / ``3_Loesung.py``
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Final
+
 import streamlit as st
 
 import common
@@ -45,8 +48,15 @@ def _load_example() -> None:
     except ValueError as exc:  # pydantic ValidationError -- a SPEC.md 6 rule broke.
         st.error(t("error.invalid_team", detail=exc))
     else:
-        # Freshly loaded means it matches the file: not dirty.
-        common.set_team(team, dirty=False)
+        # Freshly loaded means it matches the file: not dirty. A load starts a new version,
+        # so whatever was open before stays in the history (SPEC.md 14.4).
+        common.set_team(team, dirty=False, new_draft=True)
+
+
+# The file_id already loaded, so the uploader acts once per file rather than once per rerun.
+# A comment, not a docstring: Streamlit's magic renders a bare string at module level of the
+# entry script straight into the page.
+_LAST_UPLOAD: Final = "last_upload_id"
 
 
 def _load_uploaded(data: bytes) -> None:
@@ -61,8 +71,9 @@ def _load_uploaded(data: bytes) -> None:
         st.error(t("error.invalid_team", detail=exc))
     else:
         # An upload matches the file the coach just picked, so it starts clean; the download
-        # button is the only way back out (there is no path on this machine to overwrite).
-        common.set_team(team, dirty=False)
+        # button is the only way back out (there is no path on this machine to overwrite). A
+        # load starts a new version, so what was open before stays in the history (SPEC.md 14.4).
+        common.set_team(team, dirty=False, new_draft=True)
 
 
 def _render_load() -> None:
@@ -73,7 +84,11 @@ def _render_load() -> None:
     with from_upload:
         st.markdown(f"**{t('ui.load.upload')}**")
         upload = st.file_uploader(t("ui.load.uploader"), type=["yaml", "yml"])
-        if upload is not None:
+        # `upload is not None` stays true for as long as the file sits in the widget, so this
+        # branch re-fires on every rerun. Acting on it unguarded would mint a fresh version --
+        # and re-clobber the coach's edits with the file -- once per rerun.
+        if upload is not None and st.session_state.get(_LAST_UPLOAD) != upload.file_id:
+            st.session_state[_LAST_UPLOAD] = upload.file_id
             _load_uploaded(upload.getvalue())
 
         st.markdown(f"**{t('ui.load.create')}**")
@@ -81,7 +96,7 @@ def _render_load() -> None:
             t("ui.load.n_positions"), min_value=1, max_value=26, value=DEFAULT_N_POSITIONS
         )
         if st.button(t("ui.load.create_button"), use_container_width=True):
-            common.set_team(common.empty_team(int(n_positions)))
+            common.set_team(common.empty_team(int(n_positions)), new_draft=True)
 
     with from_example:
         st.markdown(f"**{t('ui.load.example')}**")
@@ -146,9 +161,35 @@ def _render_save() -> None:
 
     # The draft is the reason a reload is survivable; the download is still the only export.
     st.caption(t("ui.draft.hint"))
+    _render_history()
     if persistence.has_draft() and st.button(t("ui.draft.discard")):
         persistence.clear_draft()
         st.success(t("ui.draft.discarded"))
+
+
+def _render_history() -> None:
+    """Earlier versions, and a way back to one.
+
+    The browser's back button would be the obvious control here and is not available: in a
+    ``st.navigation`` app a back press leaves ``st.query_params`` reporting the newest value
+    (streamlit#13963), so the app cannot tell which version the URL points at. An explicit list
+    does not depend on that, and it works the same on both targets -- see app/persistence.py.
+    """
+    entries = persistence.history()
+    if not entries:
+        return
+    with st.expander(t("ui.draft.history")):
+        st.caption(t("ui.draft.history_hint"))
+        for entry in entries:
+            label, button = st.columns([3, 1])
+            when = datetime.fromtimestamp(entry.saved_at).strftime("%H:%M")
+            label.write(t("ui.draft.entry", n=entry.n_dancers, when=when))
+            if button.button(t("ui.draft.restore"), key=f"restore_{entry.token}"):
+                if common.restore_version(entry.token):
+                    st.success(t("ui.draft.restored_version"))
+                    st.rerun()
+                else:
+                    st.warning(t("ui.draft.gone"))
 
 
 def render_home() -> None:

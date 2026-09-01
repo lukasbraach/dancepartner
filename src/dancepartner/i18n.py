@@ -201,6 +201,15 @@ _STRINGS_EN: dict[str, str] = {
     ),
     "ui.draft.discard": "Discard browser draft",
     "ui.draft.discarded": "Draft discarded.",
+    "ui.draft.history": "Earlier versions",
+    "ui.draft.history_hint": (
+        "Loading a team keeps the previous one here. Editing overwrites the current version "
+        "rather than adding another."
+    ),
+    "ui.draft.entry": "{n} dancers · {when}",
+    "ui.draft.restore": "Restore",
+    "ui.draft.restored_version": "Earlier version restored.",
+    "ui.draft.gone": "That version has expired.",
     # -- UI: Home (load / create / feasibility) ------------------------------------------
     "ui.load.header": "Load team",
     "ui.load.upload": "Upload file",
@@ -526,6 +535,15 @@ _STRINGS_DE: dict[str, str] = {
     ),
     "ui.draft.discard": "Browser-Entwurf verwerfen",
     "ui.draft.discarded": "Entwurf verworfen.",
+    "ui.draft.history": "Frühere Stände",
+    "ui.draft.history_hint": (
+        "Ein geladenes Team lässt das vorherige hier stehen. Bearbeiten überschreibt den "
+        "aktuellen Stand, statt einen weiteren anzulegen."
+    ),
+    "ui.draft.entry": "{n} Tänzer:innen · {when}",
+    "ui.draft.restore": "Wiederherstellen",
+    "ui.draft.restored_version": "Früherer Stand wiederhergestellt.",
+    "ui.draft.gone": "Dieser Stand ist abgelaufen.",
     # -- UI: Start (load / create / feasibility) -----------------------------------------
     "ui.load.header": "Team laden",
     "ui.load.upload": "Datei hochladen",

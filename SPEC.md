@@ -672,18 +672,37 @@ never meant to impose.
 
 `app/persistence.py` keeps one, with a backend per target because a reload means different things:
 
-* **Browser** — a YAML file on an stlite `idbfsMountpoints` directory, which is IndexedDB. A reload
-  restarts the whole Pyodide worker, so nothing in Python memory could survive; the mount does.
-  stlite flushes it after every script run, so Python just writes the file. The mountpoint must be a
-  single top-level directory: stlite mounts with a bare `FS.mkdir`, and a nested path fails the
-  entire boot with an `ErrnoError` before Streamlit renders. `build_static.IDBFS_MOUNTPOINT` and
-  `persistence.MOUNTPOINT` are held together by a test.
+* **Browser** — one YAML file per version on an stlite `idbfsMountpoints` directory, which is
+  IndexedDB. A reload restarts the whole Pyodide worker, so nothing in Python memory could survive;
+  the mount does. stlite flushes it after every script run, so Python just writes the file. The
+  mountpoint must be a single top-level directory: stlite mounts with a bare `FS.mkdir`, and a
+  nested path fails the entire boot with an `ErrnoError` before Streamlit renders.
+  `build_static.IDBFS_MOUNTPOINT` and `persistence.MOUNTPOINT` are held together by a test.
 * **Server** — a `secrets.token_urlsafe(16)` in `?draft=`, the one piece of state a refresh keeps by
   itself, keying an in-RAM `st.cache_resource` store with a 12 h TTL and LRU eviction. Process
   memory only: unlike `st.cache_data` there is no `persist=` to turn on by accident.
 
 Both are best effort and swallow their own failures. A private window with IndexedDB disabled
 degrades to "a reload loses the team", which is where this project started.
+
+#### Versions
+
+Each **load** — an upload, the example, a fresh team — mints a new token and leaves the previous
+draft in place; each **edit** overwrites the current one. So loading something else does not destroy
+what was open, and a survey keystroke does not add a history entry. `MAX_HISTORY` (10) versions are
+kept per browser; the browser build prunes the mount, which nothing else garbage-collects.
+
+The history is offered as a list on Home, not through the browser's back button, and that is not a
+UX preference. **streamlit#13963**: in a `st.navigation` app a back press changes the URL and reruns
+the script, but `st.query_params` still reports the *newest* value, so the app cannot tell which
+version the URL points at. `st.context.url` is no way out — it carries no query string at all. Both
+verified in a browser against 1.62; the browser build's bundled 1.57 is older still. If that bug is
+ever fixed, back-navigation becomes a second trigger for the same stored history.
+
+The two targets differ in what survives a reload, and the difference is worth stating plainly: the
+browser build reads its history off the mount, so all of it comes back; the server build keeps the
+history in session state, so a reload restores the current version through the URL but not the
+older ones.
 
 ### 14.5 Where the data actually is
 

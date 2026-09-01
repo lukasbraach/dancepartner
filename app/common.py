@@ -86,14 +86,19 @@ def get_team() -> Team | None:
     return team if isinstance(team, Team) else None
 
 
-def set_team(team: Team, *, dirty: bool = True) -> None:
+def set_team(team: Team, *, dirty: bool = True, new_draft: bool = False) -> None:
     """Replace the working team, invalidating any solution computed for the old one.
 
     Args:
         team: The new instance.
         dirty: Whether it now differs from the file it came from. A freshly loaded or
             uploaded team is clean; anything edited in the browser is not.
+        new_draft: Begin a new version rather than overwriting the current one. True for the
+            three *load* paths on Home, false for every edit -- otherwise each keystroke on the
+            survey page would push another entry into the history (SPEC.md 14.4).
     """
+    if new_draft:
+        persistence.mint_new()
     st.session_state[_TEAM] = team
     st.session_state[_DIRTY] = dirty
     # A solution describes the team it was computed for and nothing else.
@@ -127,6 +132,21 @@ def restore_draft() -> None:
         st.session_state[_TEAM] = team
         st.session_state[_DIRTY] = True
         st.session_state[_RESTORED_NOTICE] = True
+
+
+def restore_version(token: str) -> bool:
+    """Load an earlier version back into the session. False when it has expired.
+
+    Not a mint: the restored version becomes current again, so editing from here overwrites it
+    rather than starting a third branch.
+    """
+    team = persistence.restore(token)
+    if team is None:
+        return False
+    st.session_state[_TEAM] = team
+    st.session_state[_DIRTY] = True
+    st.session_state.pop(_RESULT, None)
+    return True
 
 
 def draft_was_restored() -> bool:
