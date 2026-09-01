@@ -15,23 +15,21 @@ SPEC.md 5 lists the pages as ``1_Team.py`` / ``2_Umfrage.py`` / ``3_Loesung.py``
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import streamlit as st
 
 import common
 from dancepartner.feasibility import check_feasibility
 from dancepartner.i18n import Language, t
 from dancepartner.model import DEFAULT_N_POSITIONS, Role
-from dancepartner.storage import MalformedYamlError, StorageError, parse_team, save_team
+from dancepartner.storage import MalformedYamlError, StorageError, dump_team, parse_team
 
 common.sync_language()
 st.set_page_config(page_title=t("ui.title"), page_icon="💃", layout="wide")
 
 
-def _load_from_path(raw: str) -> None:
-    """Load a team from a path typed by the coach, reporting failures through i18n."""
-    path = Path(raw).expanduser()
+def _load_example() -> None:
+    """Load the bundled example team, reporting failures through i18n."""
+    path = common.EXAMPLE_TEAM
     try:
         team = parse_team(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -44,11 +42,10 @@ def _load_from_path(raw: str) -> None:
         st.error(t("error.invalid_team", detail=exc))
     else:
         # Freshly loaded means it matches the file: not dirty.
-        common.set_team(team, path=path, dirty=False)
-        st.success(t("ui.load.loaded", path=path))
+        common.set_team(team, dirty=False)
 
 
-def _load_uploaded(data: bytes, name: str) -> None:
+def _load_uploaded(data: bytes) -> None:
     """Load a team from an uploaded file, reporting failures through i18n."""
     try:
         team = parse_team(data.decode("utf-8"))
@@ -59,10 +56,9 @@ def _load_uploaded(data: bytes, name: str) -> None:
     except ValueError as exc:
         st.error(t("error.invalid_team", detail=exc))
     else:
-        # An upload has no path on this machine, so it starts dirty: there is nothing to
-        # overwrite until the coach names a target.
-        common.set_team(team, dirty=True)
-        st.success(t("ui.load.loaded", path=name))
+        # An upload matches the file the coach just picked, so it starts clean; the download
+        # button is the only way back out (there is no path on this machine to overwrite).
+        common.set_team(team, dirty=False)
 
 
 def _render_load() -> None:
@@ -74,7 +70,7 @@ def _render_load() -> None:
         st.markdown(f"**{t('ui.load.upload')}**")
         upload = st.file_uploader(t("ui.load.uploader"), type=["yaml", "yml"])
         if upload is not None:
-            _load_uploaded(upload.getvalue(), upload.name)
+            _load_uploaded(upload.getvalue())
 
         st.markdown(f"**{t('ui.load.create')}**")
         n_positions = st.number_input(
@@ -87,7 +83,7 @@ def _render_load() -> None:
         st.markdown(f"**{t('ui.load.example')}**")
         st.caption(t("ui.load.example_hint"))
         if st.button(t("ui.load.example_button"), use_container_width=True):
-            _load_from_path(str(common.EXAMPLE_TEAM))
+            _load_example()
 
 
 def _render_summary() -> None:
@@ -122,7 +118,12 @@ def _render_summary() -> None:
 
 
 def _render_save() -> None:
-    """Explicit save. Never automatic -- see the note in common.py."""
+    """Explicit save, as a download. Never automatic -- see the note in common.py.
+
+    The app has no writable path of its own once it is served to a browser, and the load side
+    offers only an upload or the example, so a download is the honest counterpart. Pressing it
+    is what clears the unsaved-changes warning.
+    """
     team = common.get_team()
     if team is None:
         return
@@ -130,16 +131,14 @@ def _render_save() -> None:
     st.divider()
     st.subheader(t("ui.save.header"))
     st.caption(t("ui.save.comment_warning"))
-    target = st.text_input(t("ui.save.path"), value=common.team_path())
-    if st.button(t("ui.save.button"), type="primary", disabled=not target.strip()):
-        path = Path(target.strip()).expanduser()
-        try:
-            save_team(team, path)
-        except OSError as exc:
-            st.error(t("error.invalid_shape", detail=exc))
-        else:
-            common.mark_saved(path)
-            st.success(t("ui.saved_at", path=path))
+    if st.download_button(
+        t("ui.save.download"),
+        data=dump_team(team),
+        file_name=common.DOWNLOAD_NAME,
+        mime="application/yaml",
+        type="primary",
+    ):
+        common.mark_saved()
 
 
 def render_home() -> None:

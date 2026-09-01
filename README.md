@@ -122,10 +122,14 @@ INFEASIBLE says nothing.
 
 ```console
 $ dancepartner solve data/team.example.yaml --top 3
-Status: OPTIMAL — 0.02 s, 1113 branches.
+Status: OPTIMAL — 0.03 s, 934 branches.
 Objective in stages:
-  maximin: 0 (maximized)
-  sum: 60 (maximized)
+  leximin.1.floor: 0 (maximized)
+  leximin.1.count: 16 (maximized)
+  leximin.2.floor: 2 (maximized)
+  leximin.2.count: 14 (maximized)
+  leximin.3.floor: 4 (maximized)
+  leximin.3.count: 0 (maximized)
   coupled: 2 (minimized)
 
 2 equally good solution(s) found.
@@ -147,14 +151,16 @@ Positions:
 
 Three things matter here.
 
-**`maximin: 0` does not mean the computation failed.** Marie Günther did not submit a team
-survey, so her score is 0 and so is the achievable minimum. The stage did its best; the floor
-simply lies there.
+**`leximin.1.floor: 0` does not mean the computation failed.** Marie Günther did not submit a
+team survey, so her score is 0 and so is the achievable minimum. The stage did its best; the
+floor simply lies there — and `leximin.1.count: 16` is the point of the default objective: 16 of
+the 20 dancers are lifted *above* that floor, then round 2 raises the floor under the rest to 2,
+and round 3 to 4.
 
-**Scores count the best fulfilled wish, on the solver's ×2 scale.** With linear weighting a
-wish in tier *k* is worth `K − k + 1`, where `K` is the instance's highest tier; the result is
-doubled so the doubled-position normalization can halve without rounding. In this team tier 2
-is the deepest, so a fulfilled tier-1 wish earns 4 points — and by default that is also the
+**Scores count the best fulfilled wish, on the solver's ×2 scale.** A wish of rank *k* is
+worth `K − k + 1`, where `K` is the deepest rank in the instance; the result is doubled so the
+doubled-position normalization can halve without rounding. In this team the second wish is the
+deepest, so a fulfilled first wish earns 4 points — and by default that is also the
 maximum: satisfaction saturates once the strongest wish is granted (`--aggregation best`).
 Whoever has their top wish and no violated not-desired wish is 100 % satisfied, however many
 alternatives they listed. `--aggregation sum` restores the older adding-up semantics.
@@ -173,11 +179,11 @@ Lukas Brandt (Leader) — Position A
   Satisfaction: 100 %
   On the same position: Anna Brenner
   Fulfilled wishes:
-    Tier 1: Anna Brenner
+    Wish 1: Anna Brenner
   Unfulfilled wishes:
-    Tier 2: Lena Fricke, Mia Thalmann
+    Wish 2: Lena Fricke, Mia Thalmann
   Respected not-desired wishes:
-    Tier 1: Emma Köhler
+    No-go 1: Emma Köhler
 
   This placement is the same in all 2 solutions — there is nothing to choose here.
 ```
@@ -202,9 +208,9 @@ always hold.
 | `--objective` | Maximizes | When it makes sense |
 |---|---|---|
 | `weighted-sum` | the sum of all scores | Overall satisfaction counts, individual outliers are acceptable. |
-| `maximin-then-sum` | first the lowest score, then the sum | The default. Raises the floor first, wastes nothing afterwards. |
-| `leximin` | the sorted score vector, bottom up | The second- and third-unhappiest count too. |
-| `lexicographic-tiers` | tier by tier, the number of fulfilled wishes | One tier-1 wish outweighs any number of tier-2 wishes. |
+| `maximin-then-sum` | first the lowest score, then the sum | Raises the floor once, then stops caring about the worst-off. |
+| `leximin` | the sorted score vector, bottom up | **The default.** The second- and third-unhappiest count too. |
+| `lexicographic-tiers` | rank by rank, the number of fulfilled wishes | One first wish outweighs any number of second wishes. |
 
 `maximin-then-sum` and `leximin` are not the same. Both raise the minimum first, but
 `maximin-then-sum` then only maximizes the sum and may sacrifice the second-worst doing so.
@@ -212,17 +218,21 @@ always hold.
 they measurably differ is pinned down in `tests/test_objectives.py::divergent_instance`.
 
 Further knobs: `--aggregation` (best fulfilled wish — the default — or sum of all fulfilled
-wishes), `--weights` (linear or geometric), `--scope` (cross-role wishes only, or all),
-`--veto-tier N` (not-desired wishes up to tier N become hard constraints, `0` turns them off),
-`--top N`, `--near-optimal` and `--tier-slack`. `dancepartner solve --help` explains them all.
+wishes), `--scope` (all wishes — the default — or cross-role only), `--veto-tier N`
+(not-desired wishes up to rank N become hard constraints, `0` turns them off), `--top N`,
+`--near-optimal` and `--tier-slack`. `dancepartner solve --help` explains them all.
+
+`--near-optimal` widens the shortlist by a percentage of each stage optimum, so it only bites
+under `maximin-then-sum`, whose `sum` stage is large enough. Leximin's stage optima are
+single-dancer scores, where a few percent rounds to nothing.
 
 ## Performance
 
 Measured on an Apple Silicon laptop (arm64, macOS), Python 3.11.9, OR-Tools 9.15,
 `num_workers = 1` for reproducibility, best of three runs. The times are reported by
 `SolveResult.wall_time`, i.e. the sum over all solver stages. Both instances live in the
-repository: `data/team.example.yaml` (20 dancers, tiers up to 2) and
-`data/team.large.example.yaml` (24 dancers, tiers up to 3).
+repository: `data/team.example.yaml` (20 dancers, wishes down to rank 2) and
+`data/team.large.example.yaml` (24 dancers, down to rank 3).
 
 With the default best-wish aggregation, every objective is fast on both instances:
 
@@ -275,17 +285,19 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 
 `make ui` starts a home page and four working pages:
 
-* **Home**: load, upload, or create a team file; pre-check; save.
+* **Home**: upload or create a team, or load the example; pre-check; download the team as YAML.
 * **Team**: the dancers as a table with name, role, pole position, coaching need.
-* **Survey**: any number of tiers per person and direction; conflicts are reported immediately.
+* **Survey**: any number of ranks per person and direction; conflicts are reported immediately.
 * **Solution**: configure the objective, solve, the eight positions as cards — dancers who can
   be swapped freely at zero cost are numbered 1️⃣, 2️⃣, …
 * **Analysis**: satisfaction sorted ascending, the exchange groups of the selected solution,
   plus the comparison of the equally good solutions.
 
-Saving happens only at the press of a button. PyYAML cannot preserve comments; an autosave would
-silently strip them from a hand-maintained team file. Real data belongs in `data/team.yaml`: the
-path is in `.gitignore`, and accidentally committed surveys would be a real problem.
+Saving happens only at the press of a button, and takes the form of a download — the app has no
+writable path of its own once it is served to a browser. PyYAML cannot preserve comments; an
+autosave would silently strip them from a hand-maintained team file. Real data belongs in
+`data/team.yaml`: the path is in `.gitignore`, and accidentally committed surveys would be a real
+problem.
 
 ## Development
 

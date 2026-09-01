@@ -16,7 +16,6 @@ from dancepartner.model import Dancer, Role, Survey, Team
 
 common.page_header("ui.team.header")
 team = common.require_team()
-st.caption(t("ui.team.hint"))
 
 _ROLE_LABELS = {common.role_label(role): role for role in Role}
 

@@ -19,6 +19,7 @@ from dancepartner.i18n import Language, get_language, set_language, t
 from dancepartner.model import (
     DEFAULT_N_POSITIONS,
     Dancer,
+    Direction,
     Objective,
     PreferenceScope,
     Role,
@@ -27,7 +28,6 @@ from dancepartner.model import (
     Survey,
     Team,
     Tier,
-    WeightScheme,
 )
 from dancepartner.scoring import DancerSatisfaction, Solution
 from dancepartner.solver import SolveResult, solve
@@ -35,6 +35,8 @@ from dancepartner.storage import dump_team
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
 EXAMPLE_TEAM: Final = REPO_ROOT / "data" / "team.example.yaml"
+DOWNLOAD_NAME: Final = "team.yaml"
+"""File name offered by the save download. Not a path the app writes to -- see Home.py."""
 
 # -- session state ------------------------------------------------------------------------
 #
@@ -43,7 +45,6 @@ EXAMPLE_TEAM: Final = REPO_ROOT / "data" / "team.example.yaml"
 # out of any hand-written team file.
 
 _TEAM: Final = "team"
-_PATH: Final = "team_path"
 _DIRTY: Final = "dirty"
 _RESULT: Final = "result"
 _CONFIG: Final = "config"
@@ -70,26 +71,18 @@ def get_team() -> Team | None:
     return team if isinstance(team, Team) else None
 
 
-def set_team(team: Team, *, path: Path | None = None, dirty: bool = True) -> None:
+def set_team(team: Team, *, dirty: bool = True) -> None:
     """Replace the working team, invalidating any solution computed for the old one.
 
     Args:
         team: The new instance.
-        path: Where it came from, remembered as the default save target.
-        dirty: Whether it now differs from what is on disk. A freshly loaded team is clean.
+        dirty: Whether it now differs from the file it came from. A freshly loaded or
+            uploaded team is clean; anything edited in the browser is not.
     """
     st.session_state[_TEAM] = team
-    if path is not None:
-        st.session_state[_PATH] = str(path)
     st.session_state[_DIRTY] = dirty
     # A solution describes the team it was computed for and nothing else.
     st.session_state.pop(_RESULT, None)
-
-
-def team_path() -> str:
-    """The remembered save target; empty when the team was built in the browser."""
-    value = st.session_state.get(_PATH, "")
-    return value if isinstance(value, str) else ""
 
 
 def is_dirty() -> bool:
@@ -97,9 +90,8 @@ def is_dirty() -> bool:
     return bool(st.session_state.get(_DIRTY, False))
 
 
-def mark_saved(path: Path) -> None:
-    """Record that the working team now matches the file at ``path``."""
-    st.session_state[_PATH] = str(path)
+def mark_saved() -> None:
+    """Record that the coach has downloaded the current team."""
     st.session_state[_DIRTY] = False
 
 
@@ -182,12 +174,21 @@ def role_plural(role: Role) -> str:
     return t(f"role.{role.value}.plural")
 
 
-def tier_summary(team: Team, tiers: dict[int, list[str]]) -> str:
-    """Render a ``rank -> ids`` mapping as ``Tier 1: A, B; Tier 2: C``."""
+def rank_label(rank: int, direction: Direction) -> str:
+    """The user-facing name of one preference rank, e.g. "Wish 1" / "No-go 2"."""
+    return t(f"tier.{direction}", rank=rank)
+
+
+def tier_summary(team: Team, tiers: dict[int, list[str]], direction: Direction) -> str:
+    """Render a ``rank -> ids`` mapping as ``Wish 1: A, B; Wish 2: C``.
+
+    ``direction`` picks the rank wording: a not-desired list must not be labelled with the
+    word for a wish, which is the whole reason the label is not derived from the rank alone.
+    """
     if not tiers:
         return t("table.nothing")
     return "; ".join(
-        t("explain.entry", rank=rank, names=names(team, ids)).strip()
+        t("explain.entry", label=rank_label(rank, direction), names=names(team, ids)).strip()
         for rank, ids in sorted(tiers.items())
     )
 
@@ -247,11 +248,6 @@ def satisfaction_badges(satisfaction: DancerSatisfaction) -> str:
 def objective_label(objective: Objective) -> str:
     """Localized label for an objective."""
     return t(f"ui.objective.{objective.value}")
-
-
-def weights_label(scheme: WeightScheme) -> str:
-    """Localized label for a tier weight scheme."""
-    return t(f"ui.weights.{scheme.value}")
 
 
 def aggregation_label(aggregation: ScoreAggregation) -> str:

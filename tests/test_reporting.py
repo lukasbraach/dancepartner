@@ -7,7 +7,7 @@ here, once, by value.
 
 from __future__ import annotations
 
-from dancepartner.model import PreferenceScope, Role, SolverConfig, WeightScheme
+from dancepartner.model import PreferenceScope, Role, SolverConfig
 from dancepartner.reporting import (
     MAX_GROUP_SIZE,
     exchange_groups,
@@ -19,7 +19,7 @@ from dancepartner.reporting import (
     satisfaction_rows,
     unfulfilled_desired,
 )
-from dancepartner.scoring import build_solution, geometric_base
+from dancepartner.scoring import build_solution
 from dancepartner.solver import solve
 
 from .builders import desired, not_desired, team, tier
@@ -189,7 +189,7 @@ def test_satisfaction_ratio_is_none_for_a_neutral_dancer() -> None:
 def test_satisfaction_ratio_is_none_when_every_entry_is_out_of_scope() -> None:
     # A same-role wish under CROSS_ROLE_ONLY is data the model does not use.
     instance = team(3, 3, 3, desired("led0", tier(1, "led1")))
-    config = SolverConfig()
+    config = SolverConfig(scope=PreferenceScope.CROSS_ROLE_ONLY)
     solution = build_solution(
         instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
     )
@@ -208,17 +208,6 @@ def test_satisfaction_ratio_of_an_anti_only_survey_starts_at_one() -> None:
     assert satisfaction_ratio(instance, config, "led0", respected.per_dancer["led0"]) == 1.0
     # The one violated dislike wipes out the whole baseline: -2 on a denominator of 2.
     assert satisfaction_ratio(instance, config, "led0", violated.per_dancer["led0"]) == 0.0
-
-
-def test_satisfaction_ratio_uses_the_geometric_denominator() -> None:
-    instance = team(3, 3, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
-    config = SolverConfig(weights=WeightScheme.GEOMETRIC)
-    solution = build_solution(
-        instance, config, [["led0", "fol1"], ["led1", "fol0"], ["led2", "fol2"]]
-    )
-    base = geometric_base(instance, config)
-    ratio = satisfaction_ratio(instance, config, "led0", solution.per_dancer["led0"])
-    assert ratio == 1 / base
 
 
 # -- moved_dancers ------------------------------------------------------------------------

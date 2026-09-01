@@ -139,16 +139,20 @@ def test_home_reports_counting_obstructions() -> None:
     assert t("check.ok") not in texts(at)
 
 
-def test_home_saves_only_when_asked(tmp_path: Path) -> None:
-    target = tmp_path / "saved.yaml"
+def test_home_offers_the_team_as_a_download(tmp_path: Path) -> None:
+    # Saving is a download, never a write: the app has no path of its own once it is served
+    # to a browser, and an autosave would strip the comments out of a hand-written file.
+    stray = tmp_path / "saved.yaml"
     at = loaded(HOME).run()
-    assert not target.exists(), "rendering the page must never write"
-
-    at.text_input[-1].set_value(str(target)).run()
-    at.button[-1].click().run()
     assert not at.exception
-    assert target.exists()
-    assert load_team(target).dancers == at.session_state["team"].dancers
+    assert not stray.exists(), "rendering the page must never write"
+
+    assert at.download_button[0].label == t("ui.save.download")
+
+    # Pressing it is what clears the unsaved-changes warning; nothing else does.
+    at.session_state["dirty"] = True
+    at.download_button[0].click().run()
+    assert not at.exception
     assert at.session_state["dirty"] is False
 
 
@@ -181,13 +185,6 @@ def test_team_page_rejects_two_mutually_exclusive_flags() -> None:
     assert "validation error" not in rendered.lower(), "pydantic's raw message must not leak"
     # Nothing was written: the working team still has the flags it had.
     assert at.session_state["team"].dancers[0].is_pole_position is False
-
-
-def test_team_page_hint_names_the_ordering_rule() -> None:
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "team.py")).run()
-    # Roster order is load-bearing -- symmetry breaking numbers positions by leader index --
-    # so the page has to say so.
-    assert t("ui.team.hint") in texts(at)
 
 
 # -- Umfrage page -----------------------------------------------------------------------------
@@ -253,7 +250,7 @@ def test_solution_page_passes_the_chosen_aggregation_to_the_solver() -> None:
     at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
     default_config = at.session_state["config"]
     assert default_config.aggregation is ScoreAggregation.BEST
-    at.selectbox[2].set_value(ScoreAggregation.SUM).run()
+    at.selectbox[1].set_value(ScoreAggregation.SUM).run()
     chosen_config = at.session_state["config"]
     assert chosen_config.aggregation is ScoreAggregation.SUM
 
@@ -455,7 +452,7 @@ def test_the_ui_inlines_no_german_literal() -> None:
 def test_every_ui_key_is_actually_used() -> None:
     source = "\n".join(p.read_text(encoding="utf-8") for p in (REPO_ROOT / "app").rglob("*.py"))
     # The pages quote keys both ways: t("x") normally, t('x') inside an f-string.
-    dynamic = ("ui.objective.", "ui.weights.", "ui.aggregation.", "ui.scope.")
+    dynamic = ("ui.objective.", "ui.aggregation.", "ui.scope.")
     unused = [
         key
         for key in TABLES[Language.EN]

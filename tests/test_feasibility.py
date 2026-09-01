@@ -178,7 +178,8 @@ def test_same_role_vetoes_are_ignored_under_cross_role_only() -> None:
         not_desired("led0", tier(1, "led1", "led2", "led3")),
         **{"led0": {"needs_coaching": True}},
     )
-    assert check_feasibility(instance, SolverConfig()) == []
+    config = SolverConfig(scope=PreferenceScope.CROSS_ROLE_ONLY)
+    assert check_feasibility(instance, config) == []
 
 
 def test_veto_forces_singles() -> None:

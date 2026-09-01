@@ -133,7 +133,7 @@ def test_solve_prints_positions_and_the_satisfaction_table() -> None:
     assert result.exit_code == 0
     assert "Status: OPTIMAL" in result.stdout
     assert "Objective in stages:" in result.stdout
-    assert "maximin: 0 (maximized)" in result.stdout
+    assert "leximin.1.floor: 0 (maximized)" in result.stdout
     assert "coupled: 2 (minimized)" in result.stdout
     assert "Total score: 60" in result.stdout
     for label in "ABCDEFGH":
@@ -161,8 +161,8 @@ def test_solve_maps_the_aggregation_option_into_the_config(tmp_path: Path) -> No
     assert json.loads(default.read_text(encoding="utf-8"))["config"]["aggregation"] == "best"
 
 
-def test_solve_respects_objective_and_weight_options() -> None:
-    result = run("solve", EXAMPLE, "--objective", "weighted-sum", "--weights", "geometric")
+def test_solve_respects_the_objective_option() -> None:
+    result = run("solve", EXAMPLE, "--objective", "weighted-sum")
     assert result.exit_code == 0
     assert "maximin" not in result.stdout
     assert "sum:" in result.stdout
@@ -280,8 +280,9 @@ def test_solve_reports_a_truncated_shortlist(tmp_path: Path) -> None:
 
 
 def test_solve_near_optimal_widens_the_shortlist() -> None:
-    exact = run("solve", EXAMPLE, "--top", "20")
-    loose = run("solve", EXAMPLE, "--top", "20", "--near-optimal", "0.95")
+    staged = ("--objective", "maximin-then-sum")
+    exact = run("solve", EXAMPLE, "--top", "20", *staged)
+    loose = run("solve", EXAMPLE, "--top", "20", *staged, "--near-optimal", "0.95")
     assert loose.exit_code == 0
     assert "95 % of the optimum" in loose.stdout
     assert loose.stdout.count("Difference to solution 1:") > exact.stdout.count(
@@ -310,7 +311,7 @@ def test_solve_writes_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert f"Result written to {out}" in result.stdout
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["config"]["objective"] == "maximin_then_sum"
+    assert payload["config"]["objective"] == "leximin"
     assert payload["result"]["status"] == "OPTIMAL"
     assert len(payload["result"]["solutions"][0]["positions"]) == 8
     # Names must survive as UTF-8, not as \u escapes.
@@ -351,10 +352,12 @@ def test_explain_a_single_dancer(solved: Path) -> None:
     assert result.exit_code == 0
     assert "Lukas Brandt (Leader) — Position A" in result.stdout
     assert "Fulfilled wishes:" in result.stdout
-    assert "Tier 1: Anna Brenner" in result.stdout
+    # Ranks are named per direction: a wish is a wish, a not-desired entry is a no-go.
+    assert "Wish 1: Anna Brenner" in result.stdout
     assert "Unfulfilled wishes:" in result.stdout
     assert "Respected not-desired wishes:" in result.stdout
-    # BEST is the default: a fulfilled top-tier wish is full satisfaction.
+    assert "No-go 1: Emma Köhler" in result.stdout
+    # BEST is the default: a fulfilled first wish is full satisfaction.
     assert "Satisfaction: 100 %" in result.stdout
 
 
@@ -534,9 +537,9 @@ def test_no_string_key_is_missing_from_i18n() -> None:
         "feasibility.",
         "language.",
         "role.",
+        "tier.",
         "solve.sense.",
         "ui.objective.",
-        "ui.weights.",
         "ui.aggregation.",
         "ui.scope.",
     )

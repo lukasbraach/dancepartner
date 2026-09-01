@@ -17,7 +17,6 @@ from dancepartner.model import (
     Role,
     ScoreAggregation,
     SolverConfig,
-    WeightScheme,
 )
 from dancepartner.reporting import exchange_groups, group_numbers, satisfaction_ratio
 from dancepartner.solver import InfeasibleInstanceError
@@ -38,20 +37,17 @@ with left:
         format_func=common.objective_label,
         help=t("help.objective"),
     )
-    weights = st.selectbox(
-        t("ui.solve.weights"),
-        options=list(WeightScheme),
-        index=list(WeightScheme).index(current.weights),
-        format_func=common.weights_label,
-        help=t("help.weights"),
+    # 0 is the UI spelling of "no hard vetoes at all", matching the CLI's --veto-tier 0.
+    veto_tier = st.number_input(
+        t("ui.solve.veto_tier"),
+        min_value=0,
+        max_value=max(team.max_rank, 1),
+        value=current.veto_tier or 0,
+        help=t("help.veto_tier"),
     )
-    aggregation = st.selectbox(
-        t("ui.solve.aggregation"),
-        options=list(ScoreAggregation),
-        index=list(ScoreAggregation).index(current.aggregation),
-        format_func=common.aggregation_label,
-        help=t("help.aggregation"),
-    )
+
+    if veto_tier == 0:
+        st.caption(t("ui.solve.veto_none"))
 
 with middle:
     scope = st.selectbox(
@@ -61,18 +57,35 @@ with middle:
         format_func=common.scope_label,
         help=t("help.scope"),
     )
-    # 0 is the UI spelling of "no hard vetoes at all", matching the CLI's --veto-tier 0.
-    veto_tier = st.number_input(
-        t("ui.solve.veto_tier"),
-        min_value=0,
-        max_value=max(team.max_rank, 1),
-        value=current.veto_tier or 0,
-        help=t("help.veto_tier"),
-    )
-    if veto_tier == 0:
-        st.caption(t("ui.solve.veto_none"))
 
 with right:
+    aggregation = st.selectbox(
+        t("ui.solve.aggregation"),
+        options=list(ScoreAggregation),
+        index=list(ScoreAggregation).index(current.aggregation),
+        format_func=common.aggregation_label,
+        help=t("help.aggregation"),
+    )
+
+    normalize = st.checkbox(
+        t("ui.solve.normalize"), value=current.normalize_double, help=t("help.normalize")
+    )
+
+    prefer_coupled = st.checkbox(
+        t("ui.solve.prefer_coupled"),
+        value=current.prefer_coupled,
+        help=t("help.prefer_coupled"),
+    )
+
+with st.expander(t("ui.solve.advanced")):
+    near_optimal = st.slider(
+        t("ui.solve.near_optimal"),
+        min_value=0.5,
+        max_value=1.0,
+        value=float(current.near_optimal_ratio),
+        step=0.01,
+        help=t("help.near_optimal"),
+    )
     top = st.number_input(
         t("ui.solve.top"),
         min_value=1,
@@ -88,16 +101,6 @@ with right:
         step=1.0,
         help=t("help.time_limit"),
     )
-
-with st.expander(t("ui.solve.advanced")):
-    near_optimal = st.slider(
-        t("ui.solve.near_optimal"),
-        min_value=0.5,
-        max_value=1.0,
-        value=float(current.near_optimal_ratio),
-        step=0.01,
-        help=t("help.near_optimal"),
-    )
     tier_slack = st.number_input(
         t("ui.solve.tier_slack"),
         min_value=0,
@@ -106,18 +109,9 @@ with st.expander(t("ui.solve.advanced")):
         help=t("help.tier_slack"),
         disabled=objective is not Objective.LEXICOGRAPHIC_TIERS,
     )
-    normalize = st.checkbox(
-        t("ui.solve.normalize"), value=current.normalize_double, help=t("help.normalize")
-    )
-    prefer_coupled = st.checkbox(
-        t("ui.solve.prefer_coupled"),
-        value=current.prefer_coupled,
-        help=t("help.prefer_coupled"),
-    )
 
 config = SolverConfig(
     objective=objective,
-    weights=weights,
     aggregation=aggregation,
     scope=scope,
     veto_tier=int(veto_tier) if veto_tier else None,

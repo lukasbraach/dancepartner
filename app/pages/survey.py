@@ -15,12 +15,12 @@ import streamlit as st
 
 import common
 from dancepartner.i18n import t
-from dancepartner.model import Survey, Tier
+from dancepartner.model import Direction, Survey, Tier
 
 common.page_header("ui.survey.header")
 team = common.require_team()
 
-_DIRECTIONS = (
+_DIRECTIONS: tuple[tuple[Direction, str, str], ...] = (
     ("desired", "ui.survey.desired", "desired_tiers"),
     ("not_desired", "ui.survey.not_desired", "not_desired_tiers"),
 )
@@ -33,7 +33,7 @@ def _label(dancer_id: str) -> str:
     return f"{team.dancers_by_id[dancer_id].name} ({marker})"
 
 
-def _tier_count_key(dancer_id: str, direction: str) -> str:
+def _tier_count_key(dancer_id: str, direction: Direction) -> str:
     return f"n_tiers_{dancer_id}_{direction}"
 
 
@@ -45,7 +45,9 @@ def _existing(survey: Survey | None, attribute: str) -> list[list[str]]:
     return [sorted(tier.dancer_ids) for tier in sorted(tiers, key=lambda t: t.rank)]
 
 
-def _selected_tiers(dancer_id: str, direction: str, stored: list[list[str]]) -> list[list[str]]:
+def _selected_tiers(
+    dancer_id: str, direction: Direction, stored: list[list[str]]
+) -> list[list[str]]:
     """Render the multiselects for one direction and return what is currently selected."""
     count_key = _tier_count_key(dancer_id, direction)
     if count_key not in st.session_state:
@@ -60,7 +62,7 @@ def _selected_tiers(dancer_id: str, direction: str, stored: list[list[str]]) -> 
     for index in range(count):
         default = [i for i in stored[index] if i in options] if index < len(stored) else []
         chosen = st.multiselect(
-            t("ui.survey.tier", rank=index + 1),
+            common.rank_label(index + 1, direction),
             options=options,
             default=default,
             format_func=lambda i: team.dancers_by_id[i].name,
@@ -69,7 +71,7 @@ def _selected_tiers(dancer_id: str, direction: str, stored: list[list[str]]) -> 
         )
         selections.append(list(chosen))
         if not chosen:
-            st.caption(t("ui.survey.empty_tier", rank=index + 1))
+            st.caption(t("ui.survey.empty_tier", label=common.rank_label(index + 1, direction)))
 
     add, remove = st.columns(2)
     if add.button(t("ui.survey.add_tier"), key=f"add_{dancer_id}_{direction}"):

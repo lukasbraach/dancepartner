@@ -16,13 +16,12 @@ from itertools import permutations
 from pydantic import BaseModel, ConfigDict
 
 from .feasibility import veto_pairs
-from .model import Role, SolverConfig, Team, WeightScheme
+from .model import Role, SolverConfig, Team
 from .scoring import (
     DancerSatisfaction,
     Solution,
     build_satisfaction,
     build_weights,
-    geometric_base,
     tier_weight,
 )
 
@@ -119,8 +118,7 @@ def satisfaction_ratio(
     own = [weight for (source, _), weight in weights.items() if source == dancer_id]
     if not own:
         return None
-    base = geometric_base(team, config) if config.weights is WeightScheme.GEOMETRIC else None
-    top = tier_weight(1, "desired", team.max_rank, base) * config.score_scale
+    top = tier_weight(1, "desired", team.max_rank) * config.score_scale
     if any(weight > 0 for weight in own):
         return satisfaction.score / top
     return 1.0 + satisfaction.score / top

@@ -117,7 +117,12 @@ def test_ratio_one_admits_only_exact_optima() -> None:
 )
 def test_a_looser_ratio_widens_the_shortlist(ratio: float, expected_totals: set[int]) -> None:
     instance = load_team(EXAMPLE)
-    config = SolverConfig(max_solutions=200, near_optimal_ratio=ratio)
+    # The band is computed per stage from that stage's optimum, so it needs the large `sum`
+    # stage of MAXIMIN_THEN_SUM; leximin's floors are single-dancer scores, where a few
+    # percent rounds to nothing.
+    config = SolverConfig(
+        objective=Objective.MAXIMIN_THEN_SUM, max_solutions=200, near_optimal_ratio=ratio
+    )
     result = solve(instance, config)
     assert_result_valid(result, instance, config)
     assert {s.total_score for s in result.solutions} == expected_totals

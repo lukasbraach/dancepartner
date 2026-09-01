@@ -127,10 +127,14 @@ INFEASIBLE sagt gar nichts.
 
 ```console
 $ dancepartner solve data/team.example.yaml --top 3
-Status: OPTIMAL — 0.02 s, 1113 Verzweigungen.
+Status: OPTIMAL — 0.03 s, 934 Verzweigungen.
 Zielfunktion in Stufen:
-  maximin: 0 (maximiert)
-  sum: 60 (maximiert)
+  leximin.1.floor: 0 (maximiert)
+  leximin.1.count: 16 (maximiert)
+  leximin.2.floor: 2 (maximiert)
+  leximin.2.count: 14 (maximiert)
+  leximin.3.floor: 4 (maximiert)
+  leximin.3.count: 0 (maximiert)
   coupled: 2 (minimiert)
 
 2 gleichwertige Lösung(en) gefunden.
@@ -152,14 +156,16 @@ Positionen:
 
 Drei Dinge sind hier wichtig.
 
-**`maximin: 0` heißt nicht, dass die Rechnung schiefging.** Marie Günther hat keine Teambefragung
-abgegeben, also ist ihre Punktzahl 0 und das erreichbare Minimum ebenfalls. Die Stufe hat ihr
-Bestes getan; der Boden liegt eben dort.
+**`leximin.1.floor: 0` heißt nicht, dass die Rechnung schiefging.** Marie Günther hat keine
+Teambefragung abgegeben, also ist ihre Punktzahl 0 und das erreichbare Minimum ebenfalls. Die
+Stufe hat ihr Bestes getan; der Boden liegt eben dort — und `leximin.1.count: 16` ist genau der
+Zweck der voreingestellten Zielfunktion: 16 der 20 Tänzer:innen werden *über* diesen Boden
+gehoben, Runde 2 zieht den Boden für die übrigen auf 2, Runde 3 auf 4.
 
-**Die Punkte zählen den besten erfüllten Wunsch, auf der ×2-Skala des Solvers.** Bei linearer
-Gewichtung ist ein Wunsch in Tier *k* `K − k + 1` wert, wobei `K` das höchste Tier der Instanz
-ist; das Ergebnis wird verdoppelt, damit die Normalisierung der Doppelbesetzung ohne Rundung
-halbieren kann. In diesem Team geht Tier 2 am weitesten, ein erfüllter Tier-1-Wunsch bringt also
+**Die Punkte zählen den besten erfüllten Wunsch, auf der ×2-Skala des Solvers.** Ein Wunsch vom
+Rang *k* ist `K − k + 1` wert, wobei `K` der tiefste Rang der Instanz ist; das Ergebnis wird
+verdoppelt, damit die Normalisierung der Doppelbesetzung ohne Rundung halbieren kann. In diesem
+Team geht der 2. Wunsch am weitesten, ein erfüllter 1. Wunsch bringt also
 4 Punkte — und das ist in der Voreinstellung zugleich das Maximum: Die Zufriedenheit sättigt,
 sobald der stärkste Wunsch erfüllt ist (`--aggregation best`). Wer seinen Top-Wunsch hat und
 keinen verletzten Nicht-Wunsch, ist zu 100 % zufrieden, egal wie viele Alternativen er genannt
@@ -180,11 +186,11 @@ Lukas Brandt (Herr) — Position A
   Zufriedenheit: 100 %
   Auf derselben Position: Anna Brenner
   Erfüllte Wünsche:
-    Tier 1: Anna Brenner
+    1. Wunsch: Anna Brenner
   Nicht erfüllte Wünsche:
-    Tier 2: Lena Fricke, Mia Thalmann
+    2. Wunsch: Lena Fricke, Mia Thalmann
   Eingehaltene Nicht-Wünsche:
-    Tier 1: Emma Köhler
+    1. Nicht-Wunsch: Emma Köhler
 
   Diese Besetzung ist in allen 2 Lösungen gleich — hier gibt es nichts zu wählen.
 ```
@@ -210,9 +216,9 @@ Harte Nebenbedingungen gelten immer.
 | `--objective` | Maximiert | Wann sinnvoll |
 |---|---|---|
 | `weighted-sum` | die Summe aller Punkte | Die Gesamtzufriedenheit zählt, einzelne Ausreißer sind hinnehmbar. |
-| `maximin-then-sum` | erst die niedrigste Punktzahl, dann die Summe | Voreinstellung. Hebt zuerst den Boden, verschenkt danach nichts. |
-| `leximin` | den sortierten Punktevektor, von unten nach oben | Auch der Zweit- und Drittunzufriedenste zählt. |
-| `lexicographic-tiers` | Tier für Tier die Zahl erfüllter Wünsche | Ein Tier-1-Wunsch wiegt schwerer als beliebig viele Tier-2-Wünsche. |
+| `maximin-then-sum` | erst die niedrigste Punktzahl, dann die Summe | Hebt den Boden einmal und kümmert sich danach nicht mehr um die Unzufriedensten. |
+| `leximin` | den sortierten Punktevektor, von unten nach oben | **Voreinstellung.** Auch der Zweit- und Drittunzufriedenste zählt. |
+| `lexicographic-tiers` | Rang für Rang die Zahl erfüllter Wünsche | Ein 1. Wunsch wiegt schwerer als beliebig viele 2. Wünsche. |
 
 `maximin-then-sum` und `leximin` sind nicht dasselbe. Beide heben zuerst das Minimum, aber
 `maximin-then-sum` maximiert danach nur die Summe und darf dabei den Zweitschlechtesten opfern.
@@ -220,18 +226,22 @@ Harte Nebenbedingungen gelten immer.
 dem sich beide messbar unterscheiden, hält `tests/test_objectives.py::divergent_instance` fest.
 
 Weitere Stellschrauben: `--aggregation` (bester erfüllter Wunsch — die Voreinstellung — oder
-Summe aller erfüllten Wünsche), `--weights` (linear oder geometrisch), `--scope` (nur
-rollenübergreifende Wünsche oder alle), `--veto-tier N` (Nicht-Wünsche bis Tier N werden harte
-Bedingungen, `0` schaltet sie ab), `--top N`, `--near-optimal` und `--tier-slack`.
+Summe aller erfüllten Wünsche), `--scope` (alle Wünsche — die Voreinstellung — oder nur
+rollenübergreifende), `--veto-tier N` (Nicht-Wünsche bis Rang N werden harte Bedingungen,
+`0` schaltet sie ab), `--top N`, `--near-optimal` und `--tier-slack`.
 `dancepartner solve --help` erklärt alle.
+
+`--near-optimal` weitet die Auswahlliste um einen Prozentsatz je Stufenoptimum und greift
+daher nur unter `maximin-then-sum`, dessen `sum`-Stufe groß genug ist. Die Stufenoptima von
+leximin sind Einzelpunktzahlen, bei denen ein paar Prozent auf null abrunden.
 
 ## Performance
 
 Gemessen auf einem Apple-Silicon-Laptop (arm64, macOS), Python 3.11.9, OR-Tools 9.15,
 `num_workers = 1` für Reproduzierbarkeit, bester von drei Läufen. Die Zeiten meldet
 `SolveResult.wall_time`, also die Summe über alle Solver-Stufen. Beide Instanzen liegen im
-Repository: `data/team.example.yaml` (20 Tänzer:innen, Tiers bis 2) und
-`data/team.large.example.yaml` (24 Tänzer:innen, Tiers bis 3).
+Repository: `data/team.example.yaml` (20 Tänzer:innen, Wünsche bis Rang 2) und
+`data/team.large.example.yaml` (24 Tänzer:innen, bis Rang 3).
 
 Mit der voreingestellten Bester-Wunsch-Wertung ist jede Zielfunktion auf beiden Instanzen
 schnell:
@@ -286,16 +296,18 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 
 `make ui` startet eine Startseite und vier Arbeitsseiten:
 
-* **Start**: Teamdatei laden, hochladen oder neu anlegen, Vorprüfung, speichern.
+* **Start**: Team hochladen oder neu anlegen oder das Beispiel laden, Vorprüfung, Team als YAML
+  herunterladen.
 * **Team**: die Tänzer:innen als Tabelle mit Name, Rolle, Startanspruch, Coachingbedarf.
-* **Umfrage**: je Person und Richtung beliebig viele Tiers; Konflikte werden sofort gemeldet.
+* **Umfrage**: je Person und Richtung beliebig viele Ränge; Konflikte werden sofort gemeldet.
 * **Lösung**: Zielfunktion einstellen, rechnen, die acht Positionen als Karten — wer sich
   kostenfrei tauschen lässt, ist mit 1️⃣, 2️⃣, … nummeriert.
 * **Analyse**: Zufriedenheit aufsteigend sortiert, die Tauschgruppen der gewählten Lösung,
   dazu der Vergleich der gleichwertigen Lösungen.
 
-Gespeichert wird nur auf Knopfdruck. PyYAML kann Kommentare nicht erhalten; ein Autosave würde
-sie aus einer von Hand gepflegten Teamdatei stillschweigend entfernen. Echte Daten gehören nach
+Gespeichert wird nur auf Knopfdruck, und zwar als Download — die App hat keinen eigenen
+beschreibbaren Pfad mehr, sobald sie im Browser läuft. PyYAML kann Kommentare nicht erhalten;
+ein Autosave würde sie aus einer von Hand gepflegten Teamdatei stillschweigend entfernen. Echte Daten gehören nach
 `data/team.yaml`: Der Pfad steht in `.gitignore`, versehentlich eingecheckte Befragungen wären
 ein echtes Problem.
 

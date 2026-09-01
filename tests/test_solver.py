@@ -15,7 +15,6 @@ from dancepartner.model import (
     ScoreAggregation,
     SolverConfig,
     Team,
-    WeightScheme,
 )
 from dancepartner.solver import InfeasibleInstanceError, Sense, solve
 
@@ -313,15 +312,6 @@ def test_every_objective_solves_and_verifies(tiny: Team, objective: Objective) -
     assert_result_valid(result, tiny, config)
 
 
-@pytest.mark.parametrize("scheme", list(WeightScheme))
-def test_both_weight_schemes_find_the_same_assignment(scheme: WeightScheme) -> None:
-    instance = team(3, 3, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
-    config = SolverConfig(weights=scheme)
-    result = solve(instance, config)
-    assert_result_valid(result, instance, config)
-    assert share_position(result.best, "led0", "fol0")
-
-
 # -- normalisation ------------------------------------------------------------------------
 
 
@@ -442,7 +432,7 @@ def test_coupled_stage_never_costs_a_wish(uneven: Team) -> None:
 
 
 def test_prefer_coupled_off_omits_the_stage(small: Team) -> None:
-    config = SolverConfig(prefer_coupled=False)
+    config = SolverConfig(objective=Objective.MAXIMIN_THEN_SUM, prefer_coupled=False)
     result = solve(small, config)
     assert_result_valid(result, small, config)
     assert [stage.name for stage in result.stages] == ["maximin", "sum"]

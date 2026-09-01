@@ -17,7 +17,6 @@ from .model import (
     Survey,
     Team,
     Tier,
-    WeightScheme,
     position_label,
     position_labels,
 )
@@ -60,7 +59,6 @@ __all__ = [
     "Survey",
     "Team",
     "Tier",
-    "WeightScheme",
     "build_satisfaction",
     "build_solution",
     "build_weights",

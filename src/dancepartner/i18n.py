@@ -99,7 +99,7 @@ _STRINGS_EN: dict[str, str] = {
     "solve.scale_note": "Scores are on the solver's ×2 scale (doubled-position normalization).",
     "solve.scale_note_best": (
         "Scores count the best fulfilled wish per dancer, on the solver's ×2 scale; "
-        "100 % satisfaction = top-tier wish fulfilled, nothing violated."
+        "100 % satisfaction = first wish fulfilled, nothing violated."
     ),
     "solve.positions": "Positions:",
     "solve.position": "  Position {label}{doubled}",
@@ -127,12 +127,16 @@ _STRINGS_EN: dict[str, str] = {
     "solve.written": "Result written to {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Satisfaction (least satisfied first):",
+    # Ranks are named, never numbered "Tier N": the coach reads wishes, not tiers. Composed
+    # into table.* and explain.entry, so the wording lives in exactly one place per language.
+    "tier.desired": "Wish {rank}",
+    "tier.not_desired": "No-go {rank}",
     "table.columns": "{name:<20} {score:>7}  {wishes}",
     "table.col_name": "Dancer",
     "table.col_score": "Score",
     "table.col_wishes": "Fulfilled / violated",
-    "table.fulfilled": "Tier {rank}: {names}",
-    "table.violated": "violated Tier {rank}: {names}",
+    "table.fulfilled": "{label}: {names}",
+    "table.violated": "{label} violated: {names}",
     "table.nothing": "—",
     # -- explain -------------------------------------------------------------------------
     "explain.unknown_dancer": "Unknown dancer ID: {dancer_id}",
@@ -156,7 +160,7 @@ _STRINGS_EN: dict[str, str] = {
     "explain.fulfilled": "  Fulfilled wishes:",
     "explain.violated": "  Violated not-desired wishes:",
     "explain.neutral": "  Neutral partners: {names}",
-    "explain.entry": "    Tier {rank}: {names}",
+    "explain.entry": "    {label}: {names}",
     "explain.no_wishes": "  No wishes fulfilled.",
     "explain.no_survey": "  No team survey submitted — the score therefore stays 0.",
     "explain.unfulfilled": "  Unfulfilled wishes:",
@@ -176,8 +180,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.language": "Language",
     "ui.no_team": "No team loaded yet — please load or create a team on “Home” first.",
     "ui.no_solution_yet": "No solution computed yet — please solve on “Solution” first.",
-    "ui.unsaved": "Unsaved changes. They will be lost unless you save.",
-    "ui.saved_at": "Saved to {path}.",
+    "ui.unsaved": "Unsaved changes. They will be lost unless you download the team.",
     # -- UI: Home (load / create / feasibility) ------------------------------------------
     "ui.load.header": "Load team",
     "ui.load.upload": "Upload file",
@@ -188,22 +191,16 @@ _STRINGS_EN: dict[str, str] = {
     "ui.load.create": "New team",
     "ui.load.create_button": "Create empty team",
     "ui.load.n_positions": "Positions",
-    "ui.load.loaded": "Team loaded: {path}",
     "ui.save.header": "Save",
-    "ui.save.path": "Save to",
-    "ui.save.button": "Save team",
+    "ui.save.download": "Download team as YAML",
     "ui.save.comment_warning": (
-        "Saving loses any comments in the YAML file — PyYAML cannot preserve them. Real "
-        "data belongs in data/team.yaml, not in the example file."
+        "The download loses any comments in the YAML file — PyYAML cannot preserve them. "
+        "Keep real data in your own team file, not in the example."
     ),
     "ui.feasibility.header": "Pre-check",
     "ui.feasibility.involved": "involved: {names}",
     # -- UI: Team ------------------------------------------------------------------------
     "ui.team.header": "Dancers",
-    "ui.team.hint": (
-        "The order matters: the solver's symmetry breaking numbers the positions by the "
-        "index of the leaders in this list."
-    ),
     "ui.team.col_id": "ID",
     "ui.team.col_name": "Name",
     "ui.team.col_role": "Role",
@@ -226,19 +223,17 @@ _STRINGS_EN: dict[str, str] = {
     "ui.survey.pick": "Dancer",
     "ui.survey.desired": "Desired partners",
     "ui.survey.not_desired": "Not-desired partners",
-    "ui.survey.tier": "Tier {rank}",
-    "ui.survey.tier_help": "Tier 1 is the strongest wish.",
-    "ui.survey.add_tier": "Add tier",
-    "ui.survey.remove_tier": "Remove tier",
+    "ui.survey.tier_help": "The lower the number, the stronger.",
+    "ui.survey.add_tier": "Add another",
+    "ui.survey.remove_tier": "Remove last",
     "ui.survey.apply": "Apply team survey",
     "ui.survey.applied": "Team survey for {name} applied.",
     "ui.survey.cleared": "Team survey for {name} removed.",
     "ui.survey.empty_tier": (
-        "Tier {rank} is empty. Empty tiers are dropped on apply; the remaining tiers move up."
+        "{label} is empty. Empty entries are dropped on apply; the rest move up."
     ),
     "ui.survey.duplicate_in_direction": (
-        "{names}: listed in more than one tier of the same direction. Only one tier per "
-        "dancer is allowed per direction."
+        "{names}: named more than once in the same list. Each dancer may appear at one rank only."
     ),
     "ui.survey.in_both_directions": (
         "{names}: listed under both desired and not-desired partners."
@@ -250,15 +245,14 @@ _STRINGS_EN: dict[str, str] = {
     "ui.solve.header": "Objective and solver",
     "ui.solve.run": "Compute partner assignment",
     "ui.solve.objective": "Objective",
-    "ui.solve.weights": "Tier weighting",
     "ui.solve.aggregation": "Score aggregation",
     "ui.solve.scope": "Counted wishes",
-    "ui.solve.veto_tier": "Vetoes up to tier",
+    "ui.solve.veto_tier": "Hard vetoes up to no-go",
     "ui.solve.veto_none": "none",
     "ui.solve.top": "Search equally good solutions",
     "ui.solve.time_limit": "Time limit (seconds)",
     "ui.solve.near_optimal": "Near-optimal from fraction",
-    "ui.solve.tier_slack": "Tier slack",
+    "ui.solve.tier_slack": "Slack between wish ranks",
     "ui.solve.normalize": "Halve scores on doubled positions",
     "ui.solve.prefer_coupled": "Prefer complete doubled positions",
     "ui.solve.advanced": "More settings",
@@ -278,10 +272,8 @@ _STRINGS_EN: dict[str, str] = {
     # -- UI: objective / enum labels ------------------------------------------------------
     "ui.objective.weighted_sum": "Sum of scores",
     "ui.objective.maximin_then_sum": "The least satisfied first, then the sum",
-    "ui.objective.leximin": "Leximin (score vector in order)",
-    "ui.objective.lexicographic_tiers": "Tiers in order",
-    "ui.weights.linear": "linear",
-    "ui.weights.geometric": "geometric",
+    "ui.objective.leximin": "Fairest distribution (protect the least satisfied)",
+    "ui.objective.lexicographic_tiers": "Wish ranks in order",
     "ui.aggregation.best": "best fulfilled wish",
     "ui.aggregation.sum": "sum of fulfilled wishes",
     "ui.scope.cross_role_only": "cross-role only",
@@ -317,21 +309,20 @@ _STRINGS_EN: dict[str, str] = {
     "help.team_file": "Path to the team file (YAML).",
     "help.result_file": "Path to the result file from “solve --json”.",
     "help.objective": "Objective function.",
-    "help.weights": "Weighting scheme for the tiers.",
     "help.aggregation": (
         "How a dancer's fulfilled wishes combine into their score. 'Best fulfilled wish' "
         "saturates: the top wish granted means fully satisfied, further fulfilled wishes add "
         "nothing. 'Sum' adds every fulfilled wish up."
     ),
     "help.scope": "Whether only cross-role wishes or all wishes are counted.",
-    "help.veto_tier": "Not-desired wishes up to this tier become hard vetoes (0 = none).",
+    "help.veto_tier": "Not-desired wishes up to this rank become hard vetoes (0 = none).",
     "help.top": "How many equally good solutions to search for and print.",
     "help.near_optimal": (
         "Fraction of the optimum a solution must reach to make the list (1.0 = exact optima only)."
     ),
     "help.tier_slack": (
-        "lexicographic-tiers only: how many fulfilled wishes a tier may give up so that a "
-        "weaker tier wins."
+        "lexicographic-tiers only: how many fulfilled wishes one rank may give up so that a "
+        "weaker rank wins."
     ),
     "help.solution": "Which solution from the result file to explain (1 = best).",
     "help.time_limit": "Solver time limit in seconds.",
@@ -413,7 +404,7 @@ _STRINGS_DE: dict[str, str] = {
     ),
     "solve.scale_note_best": (
         "Punkte zählen den besten erfüllten Wunsch pro Tänzer:in, auf der ×2-Skala des "
-        "Solvers; 100 % Zufriedenheit = Tier-1-Wunsch erfüllt, nichts verletzt."
+        "Solvers; 100 % Zufriedenheit = 1. Wunsch erfüllt, nichts verletzt."
     ),
     "solve.positions": "Positionen:",
     "solve.position": "  Position {label}{doubled}",
@@ -439,12 +430,14 @@ _STRINGS_DE: dict[str, str] = {
     "solve.written": "Ergebnis geschrieben nach {path}.",
     # -- satisfaction table --------------------------------------------------------------
     "table.header": "Zufriedenheit (unzufriedenste zuerst):",
+    "tier.desired": "{rank}. Wunsch",
+    "tier.not_desired": "{rank}. Nicht-Wunsch",
     "table.columns": "{name:<20} {score:>7}  {wishes}",
     "table.col_name": "Tänzer:in",
     "table.col_score": "Punkte",
     "table.col_wishes": "Erfüllt / verletzt",
-    "table.fulfilled": "Tier {rank}: {names}",
-    "table.violated": "verletzt Tier {rank}: {names}",
+    "table.fulfilled": "{label}: {names}",
+    "table.violated": "{label} verletzt: {names}",
     "table.nothing": "—",
     # -- explain -------------------------------------------------------------------------
     "explain.unknown_dancer": "Unbekannte Tänzer:in-ID: {dancer_id}",
@@ -467,7 +460,7 @@ _STRINGS_DE: dict[str, str] = {
     "explain.fulfilled": "  Erfüllte Wünsche:",
     "explain.violated": "  Verletzte Nicht-Wünsche:",
     "explain.neutral": "  Neutrale Partner:innen: {names}",
-    "explain.entry": "    Tier {rank}: {names}",
+    "explain.entry": "    {label}: {names}",
     "explain.no_wishes": "  Keine Wünsche erfüllt.",
     "explain.no_survey": "  Keine Teambefragung abgegeben — die Punktzahl bleibt daher 0.",
     "explain.unfulfilled": "  Nicht erfüllte Wünsche:",
@@ -487,8 +480,9 @@ _STRINGS_DE: dict[str, str] = {
     "ui.language": "Sprache",
     "ui.no_team": "Noch kein Team geladen — bitte zuerst auf »Start« ein Team laden oder anlegen.",
     "ui.no_solution_yet": "Noch keine Lösung berechnet — bitte zuerst auf »Lösung« rechnen lassen.",
-    "ui.unsaved": "Ungespeicherte Änderungen. Sie gehen verloren, wenn Sie nicht speichern.",
-    "ui.saved_at": "Gespeichert nach {path}.",
+    "ui.unsaved": (
+        "Ungespeicherte Änderungen. Sie gehen verloren, wenn Sie das Team nicht herunterladen."
+    ),
     # -- UI: Start (load / create / feasibility) -----------------------------------------
     "ui.load.header": "Team laden",
     "ui.load.upload": "Datei hochladen",
@@ -499,22 +493,16 @@ _STRINGS_DE: dict[str, str] = {
     "ui.load.create": "Neues Team",
     "ui.load.create_button": "Leeres Team anlegen",
     "ui.load.n_positions": "Positionen",
-    "ui.load.loaded": "Team geladen: {path}",
     "ui.save.header": "Speichern",
-    "ui.save.path": "Speichern nach",
-    "ui.save.button": "Team speichern",
+    "ui.save.download": "Team als YAML herunterladen",
     "ui.save.comment_warning": (
-        "Beim Speichern gehen Kommentare in der YAML-Datei verloren — PyYAML kann sie nicht "
-        "erhalten. Echte Daten gehören nach data/team.yaml, nicht in die Beispieldatei."
+        "Beim Herunterladen gehen Kommentare in der YAML-Datei verloren — PyYAML kann sie "
+        "nicht erhalten. Echte Daten gehören in die eigene Teamdatei, nicht ins Beispiel."
     ),
     "ui.feasibility.header": "Vorprüfung",
     "ui.feasibility.involved": "betroffen: {names}",
     # -- UI: Team ------------------------------------------------------------------------
     "ui.team.header": "Tänzer:innen",
-    "ui.team.hint": (
-        "Die Reihenfolge ist bedeutsam: die Symmetriebrechung des Solvers numeriert die "
-        "Positionen nach dem Index der Herren in dieser Liste."
-    ),
     "ui.team.col_id": "ID",
     "ui.team.col_name": "Name",
     "ui.team.col_role": "Rolle",
@@ -539,20 +527,17 @@ _STRINGS_DE: dict[str, str] = {
     "ui.survey.pick": "Tänzer:in",
     "ui.survey.desired": "Wunschpartner:innen",
     "ui.survey.not_desired": "Nicht-Wunschpartner:innen",
-    "ui.survey.tier": "Tier {rank}",
-    "ui.survey.tier_help": "Tier 1 ist der stärkste Wunsch.",
-    "ui.survey.add_tier": "Tier hinzufügen",
-    "ui.survey.remove_tier": "Tier entfernen",
+    "ui.survey.tier_help": "Je kleiner die Zahl, desto stärker.",
+    "ui.survey.add_tier": "Weitere hinzufügen",
+    "ui.survey.remove_tier": "Letzte entfernen",
     "ui.survey.apply": "Teambefragung übernehmen",
     "ui.survey.applied": "Teambefragung für {name} übernommen.",
     "ui.survey.cleared": "Teambefragung für {name} entfernt.",
     "ui.survey.empty_tier": (
-        "Tier {rank} ist leer. Leere Tiers werden beim Übernehmen verworfen; die übrigen "
-        "rücken auf."
+        "{label} ist leer. Leere Einträge werden beim Übernehmen verworfen; die übrigen rücken auf."
     ),
     "ui.survey.duplicate_in_direction": (
-        "{names}: steht in mehreren Tiers derselben Richtung. Pro Richtung ist nur ein Tier "
-        "je Tänzer:in erlaubt."
+        "{names}: steht mehrfach in derselben Liste. Jede Person darf nur an einer Stelle stehen."
     ),
     "ui.survey.in_both_directions": (
         "{names}: steht gleichzeitig unter Wunsch- und Nicht-Wunschpartner:innen."
@@ -564,15 +549,14 @@ _STRINGS_DE: dict[str, str] = {
     "ui.solve.header": "Zielfunktion und Solver",
     "ui.solve.run": "Verpartnerung berechnen",
     "ui.solve.objective": "Zielfunktion",
-    "ui.solve.weights": "Gewichtung der Tiers",
     "ui.solve.aggregation": "Wertung",
     "ui.solve.scope": "Gewertete Wünsche",
-    "ui.solve.veto_tier": "Vetos bis Tier",
+    "ui.solve.veto_tier": "Harte Vetos bis Nicht-Wunsch",
     "ui.solve.veto_none": "keine",
     "ui.solve.top": "Gleichwertige Lösungen suchen",
     "ui.solve.time_limit": "Zeitlimit (Sekunden)",
     "ui.solve.near_optimal": "Fast-optimal ab Anteil",
-    "ui.solve.tier_slack": "Tier-Spielraum",
+    "ui.solve.tier_slack": "Spielraum zwischen Wunschrängen",
     "ui.solve.normalize": "Punkte bei Doppelbesetzung halbieren",
     "ui.solve.prefer_coupled": "Vollständige Doppelbesetzungen bevorzugen",
     "ui.solve.advanced": "Weitere Einstellungen",
@@ -592,10 +576,8 @@ _STRINGS_DE: dict[str, str] = {
     # -- UI: objective / enum labels ------------------------------------------------------
     "ui.objective.weighted_sum": "Summe der Punkte",
     "ui.objective.maximin_then_sum": "Erst die Unzufriedensten, dann die Summe",
-    "ui.objective.leximin": "Leximin (Punktevektor der Reihe nach)",
-    "ui.objective.lexicographic_tiers": "Tiers der Reihe nach",
-    "ui.weights.linear": "linear",
-    "ui.weights.geometric": "geometrisch",
+    "ui.objective.leximin": "Fairste Verteilung (Unzufriedenste schützen)",
+    "ui.objective.lexicographic_tiers": "Wunschränge der Reihe nach",
     "ui.aggregation.best": "bester erfüllter Wunsch",
     "ui.aggregation.sum": "Summe der erfüllten Wünsche",
     "ui.scope.cross_role_only": "nur rollenübergreifend",
@@ -631,22 +613,21 @@ _STRINGS_DE: dict[str, str] = {
     "help.team_file": "Pfad zur Teamdatei (YAML).",
     "help.result_file": "Pfad zur Ergebnisdatei aus »solve --json«.",
     "help.objective": "Zielfunktion.",
-    "help.weights": "Gewichtungsschema für die Tiers.",
     "help.aggregation": (
         "Wie die erfüllten Wünsche einer Tänzer:in in ihre Punktzahl eingehen. »Bester "
         "erfüllter Wunsch« sättigt: Top-Wunsch erfüllt heißt voll zufrieden, weitere "
         "erfüllte Wünsche zählen nicht extra. »Summe« addiert jeden erfüllten Wunsch."
     ),
     "help.scope": "Ob nur rollenübergreifende oder alle Wünsche gewertet werden.",
-    "help.veto_tier": "Nicht-Wünsche bis zu diesem Tier werden harte Vetos (0 = keine).",
+    "help.veto_tier": "Nicht-Wünsche bis zu diesem Rang werden harte Vetos (0 = keine).",
     "help.top": "Wie viele gleichwertige Lösungen gesucht und ausgegeben werden.",
     "help.near_optimal": (
         "Anteil des Optimums, den eine Lösung erreichen muss, um in die Liste zu kommen "
         "(1.0 = nur exakte Optima)."
     ),
     "help.tier_slack": (
-        "Nur für lexicographic-tiers: wie viele erfüllte Wünsche ein Tier abgeben darf, "
-        "damit ein schwächeres Tier gewinnt."
+        "Nur für lexicographic-tiers: wie viele erfüllte Wünsche ein Rang abgeben darf, "
+        "damit ein schwächerer Rang gewinnt."
     ),
     "help.solution": "Welche Lösung aus der Ergebnisdatei erklärt wird (1 = beste).",
     "help.time_limit": "Zeitlimit des Solvers in Sekunden.",

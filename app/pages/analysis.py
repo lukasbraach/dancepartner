@@ -12,7 +12,7 @@ import streamlit as st
 
 import common
 from dancepartner.i18n import t
-from dancepartner.model import ScoreAggregation
+from dancepartner.model import Direction, ScoreAggregation
 from dancepartner.reporting import (
     exchange_groups,
     group_numbers,
@@ -85,8 +85,12 @@ if best_mode:
             ),
             t("ui.analysis.col_satisfaction"): _percent(ratios[dancer_id]),
             t("table.col_score"): sat.score,
-            t("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
-            t("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
+            t("ui.analysis.col_fulfilled"): common.tier_summary(
+                team, sat.fulfilled_desired, "desired"
+            ),
+            t("ui.analysis.col_violated"): common.tier_summary(
+                team, sat.violated_not_desired, "not_desired"
+            ),
         }
         for dancer_id, name, sat in rows
     ]
@@ -108,8 +112,12 @@ else:
                 common.group_marker(numbers[dancer_id]) if dancer_id in numbers else ""
             ),
             t("table.col_score"): sat.score,
-            t("ui.analysis.col_fulfilled"): common.tier_summary(team, sat.fulfilled_desired),
-            t("ui.analysis.col_violated"): common.tier_summary(team, sat.violated_not_desired),
+            t("ui.analysis.col_fulfilled"): common.tier_summary(
+                team, sat.fulfilled_desired, "desired"
+            ),
+            t("ui.analysis.col_violated"): common.tier_summary(
+                team, sat.violated_not_desired, "not_desired"
+            ),
         }
         for dancer_id, name, sat in rows
     ]
@@ -214,15 +222,19 @@ if dancer.needs_coaching:
 if picked not in team.surveys_by_id:
     st.caption(t("explain.no_survey").strip())
 else:
-    detail = {
-        "explain.fulfilled": satisfaction.fulfilled_desired,
-        "explain.unfulfilled": unfulfilled_desired(team, picked, satisfaction),
-        "explain.violated": satisfaction.violated_not_desired,
-        "explain.respected": respected_not_desired(team, config, picked, satisfaction),
+    detail: dict[str, tuple[dict[int, list[str]], Direction]] = {
+        "explain.fulfilled": (satisfaction.fulfilled_desired, "desired"),
+        "explain.unfulfilled": (unfulfilled_desired(team, picked, satisfaction), "desired"),
+        "explain.violated": (satisfaction.violated_not_desired, "not_desired"),
+        "explain.respected": (
+            respected_not_desired(team, config, picked, satisfaction),
+            "not_desired",
+        ),
     }
-    for heading, tiers in detail.items():
+    for heading, (tiers, direction) in detail.items():
         if tiers:
-            st.markdown(f"**{t(heading).strip()}** {common.tier_summary(team, tiers)}")
+            summary = common.tier_summary(team, tiers, direction)
+            st.markdown(f"**{t(heading).strip()}** {summary}")
     if satisfaction.neutral_partners:
         st.caption(
             t("explain.neutral", names=common.names(team, satisfaction.neutral_partners)).strip()

@@ -28,7 +28,6 @@ __all__ = [
     "Survey",
     "Team",
     "Tier",
-    "WeightScheme",
     "position_label",
     "position_labels",
 ]
@@ -57,24 +56,18 @@ class Role(StrEnum):
 class PreferenceScope(StrEnum):
     """Which dancer pairs a preference may be expressed about.
 
-    ``CROSS_ROLE_ONLY``: only leader-follower pairs are scored, the default reading of the
+    ``CROSS_ROLE_ONLY``: only leader-follower pairs are scored, the narrow reading of the
     survey (a leader names followers).
 
-    ``ALL``: same-role pairs are scored too. On a Doppelbesetzung two leaders share a
-    position and their working relationship matters. Same-role preferences are only ever
+    ``ALL``: **default.** Same-role pairs are scored too. On a Doppelbesetzung two leaders
+    share a position and their working relationship matters, and the team fills the survey in
+    expecting those answers to count. Same-role preferences are only ever
     scored when both dancers end up on the same position, which is exactly what the
     ``together`` variables express, so no extra handling is needed.
     """
 
-    CROSS_ROLE_ONLY = "cross_role_only"
     ALL = "all"
-
-
-class WeightScheme(StrEnum):
-    """How a tier rank is turned into an integer weight. See ``scoring.build_weights``."""
-
-    LINEAR = "linear"
-    GEOMETRIC = "geometric"
+    CROSS_ROLE_ONLY = "cross_role_only"
 
 
 class ScoreAggregation(StrEnum):
@@ -96,9 +89,9 @@ class ScoreAggregation(StrEnum):
 class Objective(StrEnum):
     """Objective staging strategy. See ``solver.solve``."""
 
+    LEXIMIN = "leximin"
     WEIGHTED_SUM = "weighted_sum"
     MAXIMIN_THEN_SUM = "maximin_then_sum"
-    LEXIMIN = "leximin"
     LEXICOGRAPHIC_TIERS = "lexicographic_tiers"
 
 
@@ -376,13 +369,12 @@ class SolverConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    objective: Objective = Objective.MAXIMIN_THEN_SUM
-    weights: WeightScheme = WeightScheme.LINEAR
+    objective: Objective = Objective.LEXIMIN
     aggregation: ScoreAggregation = ScoreAggregation.BEST
     """See :class:`ScoreAggregation`. Under ``BEST`` the positive part of a score is never
     halved by ``normalize_double``: halving corrects double-*collection* of summed
     contributions, and a maximum cannot double-collect. Violations keep the halving."""
-    scope: PreferenceScope = PreferenceScope.CROSS_ROLE_ONLY
+    scope: PreferenceScope = PreferenceScope.ALL
 
     veto_tier: int | None = 1
     """Nicht-Wunsch entries at this rank or stronger become hard constraints. ``None``
@@ -405,7 +397,7 @@ class SolverConfig(BaseModel):
     max_solutions: int = Field(default=50, ge=1)
     """Cap on the enumerated shortlist. 1 skips enumeration entirely."""
 
-    near_optimal_ratio: float = Field(default=1.0, gt=0.0, le=1.0)
+    near_optimal_ratio: float = Field(default=0.97, gt=0.0, le=1.0)
     """Which solutions the enumeration accepts. 1.0 means only the exact optima; 0.95 also
     accepts a stage value within 5 % of its optimum. The slack is computed from the absolute
     value of the optimum, so it widens the bound for negative optima too instead of

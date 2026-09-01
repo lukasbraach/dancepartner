@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
-
 from dancepartner.model import (
     PreferenceScope,
     ScoreAggregation,
     SolverConfig,
     Team,
-    WeightScheme,
 )
 from dancepartner.scoring import (
     build_satisfaction,
     build_solution,
     build_weights,
-    geometric_base,
     scored_pairs,
     tier_weight,
 )
@@ -31,7 +27,7 @@ def test_linear_weights_use_the_instance_global_max_rank() -> None:
         desired("led0", tier(1, "fol0")),
         desired("led1", tier(1, "fol1"), tier(2, "fol2"), tier(3, "fol0")),
     )
-    weights = build_weights(instance, SolverConfig(weights=WeightScheme.LINEAR))
+    weights = build_weights(instance, SolverConfig())
     # K = 3, so a tier-1 wish is worth 3 for everyone -- led0 is not scored lower for having
     # listed a single tier.
     assert weights[("led0", "fol0")] == 3
@@ -55,39 +51,15 @@ def test_weights_are_directed() -> None:
 
 
 def test_tier_weight_directly() -> None:
-    assert tier_weight(1, "desired", 3, None) == 3
-    assert tier_weight(3, "desired", 3, None) == 1
-    assert tier_weight(1, "not_desired", 3, None) == -3
-    assert tier_weight(1, "desired", 3, 5) == 25
-    assert tier_weight(3, "desired", 3, 5) == 1
-
-
-def test_geometric_base_is_computed_from_the_instance() -> None:
-    instance = team(3, 3, 3, desired("led0", tier(1, "fol0")))
-    # 6 dancers, at most 2 cross-role partners each => 12 possible fulfilments, base 13.
-    assert geometric_base(instance, SolverConfig()) == 13
-    assert geometric_base(instance, SolverConfig(scope=PreferenceScope.ALL)) == 19
-
-
-def test_geometric_one_stronger_tier_outranks_every_weaker_one() -> None:
-    instance = team(
-        3,
-        3,
-        3,
-        desired("led0", tier(1, "fol0"), tier(2, "fol1")),
-    )
-    config = SolverConfig(weights=WeightScheme.GEOMETRIC)
-    weights = build_weights(instance, config)
-    max_weaker_fulfilments = (3 if config.scope is PreferenceScope.ALL else 2) * len(
-        instance.dancers
-    )
-    assert geometric_base(instance, config) == max_weaker_fulfilments + 1
-    assert weights[("led0", "fol0")] > weights[("led0", "fol1")] * max_weaker_fulfilments
+    assert tier_weight(1, "desired", 3) == 3
+    assert tier_weight(3, "desired", 3) == 1
+    assert tier_weight(1, "not_desired", 3) == -3
 
 
 def test_scope_filters_same_role_entries() -> None:
     instance = team(4, 4, 3, desired("led0", tier(1, "fol0", "led1")))
-    assert set(build_weights(instance, SolverConfig())) == {("led0", "fol0")}
+    cross_role = SolverConfig(scope=PreferenceScope.CROSS_ROLE_ONLY)
+    assert set(build_weights(instance, cross_role)) == {("led0", "fol0")}
     assert set(build_weights(instance, SolverConfig(scope=PreferenceScope.ALL))) == {
         ("led0", "fol0"),
         ("led0", "led1"),
@@ -118,7 +90,8 @@ def test_satisfaction_splits_fulfilled_violated_and_neutral() -> None:
         not_desired("led1", tier(1, "fol1")),
     )
     groups = [["led0", "fol0"], ["led1", "fol1"], ["led2", "led3", "fol2", "fol3"]]
-    result = build_satisfaction(instance, SolverConfig(veto_tier=None), groups)
+    config = SolverConfig(veto_tier=None, scope=PreferenceScope.CROSS_ROLE_ONLY)
+    result = build_satisfaction(instance, config, groups)
     assert result["led0"].fulfilled_desired == {1: ["fol0"]}
     assert result["led0"].neutral_partners == []
     assert result["led1"].violated_not_desired == {1: ["fol1"]}
@@ -296,8 +269,7 @@ def test_empty_solution_min_score_is_zero(tiny: Team) -> None:
     assert Solution(positions=[], total_score=0, min_score=0, per_dancer={}).min_score == 0
 
 
-@pytest.mark.parametrize("scheme", list(WeightScheme))
-def test_every_weight_scheme_produces_integers(scheme: WeightScheme) -> None:
+def test_weights_are_integers() -> None:
     instance = team(3, 3, 3, desired("led0", tier(1, "fol0"), tier(2, "fol1")))
-    weights = build_weights(instance, SolverConfig(weights=scheme))
+    weights = build_weights(instance, SolverConfig())
     assert all(isinstance(weight, int) for weight in weights.values())

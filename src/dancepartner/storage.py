@@ -13,10 +13,10 @@ round-tripping a Python object:
 * ``is_pole_position`` and ``needs_coaching`` are omitted when false, and empty survey
   directions are omitted entirely.
 
-Known limitation: PyYAML cannot preserve comments, so ``save_team`` drops any the coach wrote.
+Known limitation: PyYAML cannot preserve comments, so serialising drops any the coach wrote.
 Loading never touches the file, and the CLI only ever writes when asked to, so hand-maintained
-comments survive as long as nothing calls ``save_team`` on that path. Milestone 4's UI saves
-explicitly, never on autosave, for the same reason.
+comments survive as long as nothing writes over that path. The UI never writes at all -- it
+offers ``dump_team`` as a download the coach has to press -- for the same reason.
 """
 
 from __future__ import annotations

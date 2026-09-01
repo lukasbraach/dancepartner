@@ -22,13 +22,13 @@ from pydantic import ValidationError
 from .feasibility import FeasibilityIssue, check_feasibility
 from .i18n import t
 from .model import (
+    Direction,
     Objective,
     PreferenceScope,
     Role,
     ScoreAggregation,
     SolverConfig,
     Team,
-    WeightScheme,
 )
 from .reporting import (
     ExchangeGroup,
@@ -65,13 +65,6 @@ class ObjectiveChoice(StrEnum):
     MAXIMIN_THEN_SUM = "maximin-then-sum"
     LEXIMIN = "leximin"
     LEXICOGRAPHIC_TIERS = "lexicographic-tiers"
-
-
-class WeightChoice(StrEnum):
-    """``WeightScheme`` as spelled on the command line."""
-
-    LINEAR = "linear"
-    GEOMETRIC = "geometric"
 
 
 class AggregationChoice(StrEnum):
@@ -142,13 +135,18 @@ def _names(team: Team, ids: list[str] | tuple[str, ...]) -> str:
     return ", ".join(by_id[i].name for i in ids) if ids else t("table.nothing")
 
 
+def _rank_label(rank: int, direction: Direction) -> str:
+    """The user-facing name of one preference rank, e.g. "Wish 1" / "No-go 2"."""
+    return t(f"tier.{direction}", rank=rank)
+
+
 def _format_wishes(satisfaction: DancerSatisfaction, team: Team) -> str:
     parts = [
-        t("table.fulfilled", rank=rank, names=_names(team, ids))
+        t("table.fulfilled", label=_rank_label(rank, "desired"), names=_names(team, ids))
         for rank, ids in sorted(satisfaction.fulfilled_desired.items())
     ]
     parts += [
-        t("table.violated", rank=rank, names=_names(team, ids))
+        t("table.violated", label=_rank_label(rank, "not_desired"), names=_names(team, ids))
         for rank, ids in sorted(satisfaction.violated_not_desired.items())
     ]
     return "; ".join(parts) if parts else t("table.nothing")
@@ -216,16 +214,11 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
     path: TeamFile,
     objective: Annotated[
         ObjectiveChoice, typer.Option("--objective", help=t("help.objective"))
-    ] = ObjectiveChoice.MAXIMIN_THEN_SUM,
-    weights: Annotated[
-        WeightChoice, typer.Option("--weights", help=t("help.weights"))
-    ] = WeightChoice.LINEAR,
+    ] = ObjectiveChoice.LEXIMIN,
     aggregation: Annotated[
         AggregationChoice, typer.Option("--aggregation", help=t("help.aggregation"))
     ] = AggregationChoice.BEST,
-    scope: Annotated[
-        ScopeChoice, typer.Option("--scope", help=t("help.scope"))
-    ] = ScopeChoice.CROSS_ROLE_ONLY,
+    scope: Annotated[ScopeChoice, typer.Option("--scope", help=t("help.scope"))] = ScopeChoice.ALL,
     veto_tier: Annotated[int, typer.Option("--veto-tier", help=t("help.veto_tier"))] = 1,
     top: Annotated[int, typer.Option("--top", min=1, help=t("help.top"))] = 1,
     near_optimal: Annotated[
@@ -254,7 +247,6 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
     team = _read_team(path)
     config = SolverConfig(
         objective=Objective[objective.name],
-        weights=WeightScheme[weights.name],
         aggregation=ScoreAggregation[aggregation.name],
         scope=PreferenceScope[scope.name],
         # 0 is the CLI's spelling of "no hard vetoes"; SolverConfig rejects it as an int.
@@ -428,7 +420,7 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
     if satisfaction.fulfilled_desired:
         _echo(t("explain.fulfilled"))
         for rank, ids in sorted(satisfaction.fulfilled_desired.items()):
-            _echo(t("explain.entry", rank=rank, names=_names(team, ids)))
+            _echo(t("explain.entry", label=_rank_label(rank, "desired"), names=_names(team, ids)))
     else:
         _echo(t("explain.no_wishes"))
 
@@ -436,18 +428,20 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
     if missed:
         _echo(t("explain.unfulfilled"))
         for rank, ids in sorted(missed.items()):
-            _echo(t("explain.entry", rank=rank, names=_names(team, ids)))
+            _echo(t("explain.entry", label=_rank_label(rank, "desired"), names=_names(team, ids)))
 
     if satisfaction.violated_not_desired:
         _echo(t("explain.violated"))
         for rank, ids in sorted(satisfaction.violated_not_desired.items()):
-            _echo(t("explain.entry", rank=rank, names=_names(team, ids)))
+            label = _rank_label(rank, "not_desired")
+            _echo(t("explain.entry", label=label, names=_names(team, ids)))
 
     respected = respected_not_desired(team, config, dancer_id, satisfaction)
     if respected:
         _echo(t("explain.respected"))
         for rank, ids in sorted(respected.items()):
-            _echo(t("explain.entry", rank=rank, names=_names(team, ids)))
+            label = _rank_label(rank, "not_desired")
+            _echo(t("explain.entry", label=label, names=_names(team, ids)))
 
     if satisfaction.neutral_partners:
         _echo(t("explain.neutral", names=_names(team, satisfaction.neutral_partners)))

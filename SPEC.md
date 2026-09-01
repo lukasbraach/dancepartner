@@ -197,10 +197,12 @@ Validators, all of which raise on violation:
 scored independently and are never silently symmetrised. (Hard *vetoes*, §8, are the one symmetric
 exception — a pair either shares a position or does not, by construction.)
 
-Preferences are about *cross-role* partners by default (a leader names followers), but same-role
-entries matter too: on a Doppelbesetzung two leaders share a position and their working
-relationship counts. `PreferenceScope` selects `CROSS_ROLE_ONLY` (default) or `ALL`; same-role
-preferences are scored only when both dancers share a position.
+Preferences read most naturally as *cross-role* (a leader names followers), but same-role entries
+matter too: on a Doppelbesetzung two leaders share a position and their working relationship
+counts. `PreferenceScope` selects `ALL` (**default**) or `CROSS_ROLE_ONLY`; same-role preferences
+are scored only when both dancers share a position. `ALL` is the default because the team answers
+the survey expecting every name they wrote down to count — silently dropping the same-role half
+reads as a bug to them, not as a modelling choice.
 
 ---
 
@@ -290,12 +292,17 @@ Integer arithmetic only. How one dancer's fulfilled wishes combine is
 The tier-count stages of `LEXICOGRAPHIC_TIERS` count `together` variables and are
 aggregation-independent.
 
-Weight schemes, selectable via `SolverConfig.weights`:
+Tier weights (`scoring.tier_weight`) are fixed, not selectable: tier *k* of *K* is worth
+`K - k + 1`, dislikes negative and symmetric. `K` is instance-global, so a dancer who listed
+one tier is not scored lower than one who listed three.
 
-* `LINEAR` — tier *k* of *K* is worth `K - k + 1`, dislikes negative and symmetric.
-* `GEOMETRIC` — `B^(K-k)` with `B` computed from the instance so that one tier-*k* fulfilment
-  outranks all possible tier-*(k+1)* fulfilments. Degrades CP-SAT's bound quality on larger
-  instances; the docstring warns about it.
+There is deliberately **no geometric scheme**. One was tried (`B^(K-k)` with `B` derived from
+the instance, so that a single tier-*k* fulfilment outranked every possible tier-*(k+1)* one)
+and removed: on a 22-dancer instance with four tiers `B` came out at 67, which made a granted
+second choice read as 1 % satisfaction against 100 % for a first — a faithful rendering of the
+weights and a useless one for the coach. It also blew up the objective's coefficient range,
+degrading CP-SAT's bound quality on larger instances. Strict tier ordering is
+`Objective.LEXICOGRAPHIC_TIERS`'s job, staged rather than smuggled into the coefficients.
 
 **Normalisation** (`SolverConfig.normalize_double`, default on). A dancer with two cross-role
 partners has twice the score contributions; unnormalised, the solver systematically favours
@@ -329,15 +336,21 @@ bound on the lopsided count, not an attainable target. Wishes first is the inten
 
 * `WEIGHTED_SUM` — single-stage `maximize(Σ score)`. Simplest, and reliably leaves one or two
   people with nothing. Kept for comparison.
-* `MAXIMIN_THEN_SUM` — **default.** Stage 1 maximises `lo` with `lo ≤ score[d]` for all `d`.
-  Stage 2 pins `lo` to its optimum and maximises `Σ score`.
-* `LEXIMIN` — two stages per round: maximise the floor among the dancers still in play, then
+* `MAXIMIN_THEN_SUM` — Stage 1 maximises `lo` with `lo ≤ score[d]` for all `d`.
+  Stage 2 pins `lo` to its optimum and maximises `Σ score`. Lifts the worst-off dancer once and
+  then stops caring about them.
+* `LEXIMIN` — **default.** Two stages per round: maximise the floor among the dancers still in play, then
   maximise how many escape it. The "in play" indicators are reified from the scores, so the solver
   picks *which* dancers escape while the stage fixes only *how many* — that is what makes it a
   leximin instead of a maximin repeated on an arbitrary set. The rounds pin the entire sorted
-  score vector, so `LEXIMIN` needs no `sum` stage and every optimum has the same total.
-* `LEXICOGRAPHIC_TIERS` — counts fulfilled wishes per tier rather than scoring them, so
-  `SolverConfig.weights` does not apply. The mirror-image dislike stages (`not_desired.tierN`,
+  score vector, so `LEXIMIN` needs no `sum` stage and every optimum has the same total. It is the
+  default because it keeps going down the list where `MAXIMIN_THEN_SUM` stops at the floor.
+  One consequence: `near_optimal_ratio` computes its band per stage from that stage's optimum, and
+  leximin's stage optima are single-dancer scores, so a few percent of them rounds to zero. The
+  knob effectively only widens the shortlist under `MAXIMIN_THEN_SUM`, whose `sum` stage is large
+  enough for a percentage to bite.
+* `LEXICOGRAPHIC_TIERS` — counts fulfilled wishes per tier rather than scoring them, so the
+  tier weights never enter the objective. The mirror-image dislike stages (`not_desired.tierN`,
   minimised) run too — without them every dislike weaker than `veto_tier` would be ignored
   outright. `tier_slack` (ε) lets tier *k+1* buy from tier *k*.
 
@@ -432,16 +445,21 @@ deterministic: group 1 holds the alphabetically first position.
 
 ## 9. Persistence (`storage.py`)
 
-YAML in `data/`, human-editable and diffable. `load_team(path) -> Team`, `save_team(team, path)`.
+YAML in `data/`, human-editable and diffable. `load_team(path) -> Team`, `save_team(team, path)`,
+`dump_team(team) -> str`. Since §10's save became a download, `save_team` is used only by the
+storage tests; it stays as the documented counterpart to `load_team` and as what `dump_team`
+is specified against.
 No database.
 
 * Canonical output: `sort_keys=False` with a fixed key order — PyYAML left to itself shuffles
-  `id`/`name`/`role` on every save. Dancer order is preserved (it defines the canonical position
-  labels, §8).
+  `id`/`name`/`role` on every save. Dancer order is preserved — it decides which letter a group
+  of leaders lands on via `solver._break_symmetry`, so a reordered file yields a relabelled but
+  equally good solution (§8, §10).
 * Tiers are stored as `rank: [ids]` mappings under `desired:` / `not_desired:`, emitted inline
   (`1: [anna-b, lena-f]`). False flags and empty survey directions are omitted.
-* PyYAML cannot preserve comments, so `save_team` drops them. `load_team` never writes; writing
-  happens only on explicit request (CLI flag, UI save button — never autosave).
+* PyYAML cannot preserve comments, so serialising drops them. `load_team` never writes; writing
+  happens only on explicit request (CLI `--json` flag; the UI writes nothing at all and hands the
+  coach a download instead — never autosave).
 * `StorageError` means the YAML *shape* is wrong; `ValidationError` means a §6 domain rule broke.
   The CLI maps both to localized messages and exit code 1.
 * Real survey data never enters the repo: `data/team.yaml` is gitignored, only the two example
@@ -454,7 +472,10 @@ No database.
 A home page and four working pages, all thin over `app/common.py` (session state, the cached
 solve, formatting):
 
-* `Home.py` — load / upload / create a team file, feasibility summary panel (§7), explicit save.
+* `Home.py` — upload or create a team, or load the bundled example; feasibility summary panel
+  (§7); explicit save as a **download**. Neither side prints a path: the app has no writable path
+  of its own once it is served to a browser, and `st.download_button` is the honest counterpart to
+  the uploader. Pressing it is what clears the unsaved-changes warning (`common.mark_saved`).
 * `pages/team.py` — dancer table with `st.data_editor`: name, role, pole position, coaching need.
 * `pages/survey.py` — pick a dancer, then per direction a dynamic list of tiers, each an
   `st.multiselect` over eligible dancers, with add/remove tier buttons.
@@ -495,6 +516,20 @@ Implementation rules:
   solution being shown. Exchange groups are marked with **number** emoji (`common.group_marker`)
   precisely so they never compete with the colour channel.
 * `st.data_editor` is fed `list[dict]`, not a DataFrame (§4 keeps pandas out).
+* The solve page's main area holds only what changes the answer the coach is looking at —
+  objective, aggregation, scope, veto rank, and the two normalisation switches. Search budget
+  (`max_solutions`, `max_time_in_seconds`) and the two fine-tuning knobs (`near_optimal_ratio`,
+  `tier_slack`) live behind **More settings**: they change how long the search runs or how wide
+  the shortlist is, never what "good" means.
+* The team page carries **no** note about roster order. Order only decides which letter a group
+  of leaders lands on (`solver._break_symmetry` fills positions in leader-list order); it cannot
+  change solution quality, `Solution.signature` ignores labels entirely, and the page offers no
+  way to reorder — so the note raised a question it could not answer.
+* Ranks are never shown as "Tier N". `tier.desired` / `tier.not_desired` name them per direction
+  ("Wish 2" / "No-go 1", "2. Wunsch" / "1. Nicht-Wunsch") and `table.*` / `explain.entry` compose
+  that label in, so the wording lives in one place per language. German is the reason the label is
+  direction-specific: "1. Wunsch" over a list of *un*wanted partners says the opposite of what it
+  means.
 
 `streamlit` being an extra is what makes "delete `app/` and the CLI still works" enforceable
 rather than aspirational; CI proves it by moving `app/` aside, uninstalling streamlit and running
@@ -513,7 +548,7 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
 ```
 
 * Enum options are spelled with hyphens (`--objective maximin-then-sum`) via the
-  `ObjectiveChoice`/`WeightChoice`/`AggregationChoice`/`ScopeChoice` enums, mapped to the domain
+  `ObjectiveChoice`/`AggregationChoice`/`ScopeChoice` enums, mapped to the domain
   enums by member name. The domain enums keep snake_case values because YAML and JSON carry
   those. `--aggregation best|sum` selects the score aggregation (§8); under `best`, `explain
   --dancer` adds a satisfaction percentage line for dancers with in-scope preferences.

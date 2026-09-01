@@ -18,7 +18,6 @@ from .model import (
     ScoreAggregation,
     SolverConfig,
     Team,
-    WeightScheme,
     position_labels,
 )
 
@@ -29,7 +28,6 @@ __all__ = [
     "build_satisfaction",
     "build_solution",
     "build_weights",
-    "geometric_base",
     "scored_pairs",
     "tier_weight",
 ]
@@ -60,7 +58,7 @@ class DancerSatisfaction(BaseModel):
     Attributes:
         score: The dancer's objective contribution, on the solver's integer scale. With
             ``SolverConfig.normalize_double`` that scale is x2, so a value of 6 with a
-            LINEAR tier weight of 3 means one fulfilled top wish, not six of anything.
+            tier weight of 3 means one fulfilled top wish, not six of anything.
             Under ``ScoreAggregation.BEST`` the positive part is the single best fulfilled
             wish; under ``SUM`` it is the sum over all of them.
         fulfilled_desired: Tier rank -> the wished-for partner ids actually granted.
@@ -102,26 +100,8 @@ class Solution(BaseModel):
         )
 
 
-def geometric_base(team: Team, config: SolverConfig) -> int:
-    """Smallest base ``B`` for which one tier-*k* fulfilment outranks every tier-*(k+1)* one.
-
-    A dancer can be co-positioned with at most two opposite-role dancers, plus one same-role
-    dancer under ``PreferenceScope.ALL``. So the whole team can fulfil at most
-    ``max_per_dancer * n_dancers`` entries of any single tier, and ``B`` one greater than that
-    dominates them all.
-
-    Warning:
-        Geometric weights blow up the objective's coefficient range, which degrades CP-SAT's
-        bound quality and therefore its ability to prove optimality on larger instances.
-        ``WeightScheme.LINEAR`` is the safer default; reach for GEOMETRIC only when tier
-        ordering must be strict.
-    """
-    max_per_dancer = 3 if config.scope is PreferenceScope.ALL else 2
-    return max_per_dancer * max(len(team.dancers), 1) + 1
-
-
-def tier_weight(rank: int, direction: Direction, max_rank: int, base: int | None) -> int:
-    """Weight of a single tier entry.
+def tier_weight(rank: int, direction: Direction, max_rank: int) -> int:
+    """Weight of a single tier entry: tier *k* of *K* is worth ``K - k + 1``.
 
     Args:
         rank: The tier rank, 1 being strongest.
@@ -130,9 +110,13 @@ def tier_weight(rank: int, direction: Direction, max_rank: int, base: int | None
         max_rank: ``K``, the largest rank in the instance. Instance-global rather than
             per-dancer, so a dancer who listed one tier is not scored lower than one who
             listed three.
-        base: ``B`` for GEOMETRIC weights, ``None`` for LINEAR.
+
+    The spacing is deliberately flat. A scheme that made one tier-*k* wish outrank every
+    possible tier-*(k+1)* wish would render a granted second choice as a rounding error next
+    to a first choice, and strict tier ordering is ``Objective.LEXICOGRAPHIC_TIERS``'s job
+    anyway -- staged, rather than smuggled into the coefficients. See SPEC.md 8.
     """
-    magnitude = max_rank - rank + 1 if base is None else base ** (max_rank - rank)
+    magnitude = max_rank - rank + 1
     return magnitude if direction == "desired" else -magnitude
 
 
@@ -143,12 +127,9 @@ def build_weights(team: Team, config: SolverConfig) -> dict[tuple[str, str], int
     of a pair are scored independently.
     """
     max_rank = team.max_rank
-    base = geometric_base(team, config) if config.weights is WeightScheme.GEOMETRIC else None
     weights: dict[tuple[str, str], int] = {}
     for entry in team.preference_entries(config.scope):
-        weights[(entry.source, entry.target)] = tier_weight(
-            entry.rank, entry.direction, max_rank, base
-        )
+        weights[(entry.source, entry.target)] = tier_weight(entry.rank, entry.direction, max_rank)
     return weights
 
 

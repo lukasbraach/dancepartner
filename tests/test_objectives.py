@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dancepartner.model import Objective, ScoreAggregation, SolverConfig, Team, WeightScheme
+from dancepartner.model import Objective, ScoreAggregation, SolverConfig, Team
 from dancepartner.scoring import DancerSatisfaction
 from dancepartner.solver import Sense, SolveResult, solve
 from dancepartner.storage import load_team
@@ -275,25 +275,6 @@ def test_the_coupled_tie_break_cannot_spend_tier_slack() -> None:
             f"the coupled tie-break changed {name}"
         )
     assert coupled.best.per_dancer["led0"].fulfilled_desired == {2: ["fol1", "fol2"]}
-
-
-def test_tier_objective_ignores_the_weight_scheme() -> None:
-    instance = team(
-        3,
-        3,
-        3,
-        desired("led0", tier(1, "fol0"), tier(2, "fol1")),
-        desired("fol0", tier(1, "led0")),
-    )
-    stages = {}
-    for scheme in WeightScheme:
-        config = SolverConfig(
-            objective=Objective.LEXICOGRAPHIC_TIERS, weights=scheme, max_solutions=1
-        )
-        result = solve(instance, config)
-        assert_result_valid(result, instance, config)
-        stages[scheme] = [(s.name, s.value) for s in result.stages]
-    assert stages[WeightScheme.LINEAR] == stages[WeightScheme.GEOMETRIC]
 
 
 def test_tier_objective_has_no_stages_without_surveys(tiny: Team) -> None:

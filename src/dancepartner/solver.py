@@ -703,8 +703,8 @@ def _lexicographic_tier_stages(
 ) -> StageSource:
     """Maximise fulfilled tier-1 wishes, pin that, then tier 2, and so on.
 
-    Weight-scheme free: this objective counts fulfilled wishes instead of scoring them, so
-    ``SolverConfig.weights`` has no effect on it (it still shapes the reported scores).
+    This objective counts fulfilled wishes instead of scoring them, so the tier weights never
+    enter the objective -- they only shape the reported scores.
 
     After the wish tiers come the mirror-image stages for the dislikes, strongest tier first.
     SPEC.md 8 only specifies the wish half; without the second half every dislike weaker than
