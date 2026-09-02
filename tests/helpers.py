@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from dancepartner.feasibility import veto_pairs
+from dancepartner.feasibility import together_components, veto_pairs
 from dancepartner.model import Objective, Role, SolverConfig, Team
 from dancepartner.scoring import Solution, build_satisfaction
 from dancepartner.solver import Sense, SolveResult
@@ -187,6 +187,22 @@ def assert_valid(solution: Solution, team: Team, config: SolverConfig | None = N
         for position in solution.positions:
             here = {*position.leaders, *position.followers}
             assert not pair <= here, f"vetoed pair {sorted(pair)} on position {position.label}"
+
+    # 7. The coach's own rules. The together closure is re-derived here rather than read off
+    #    the groups as written, so a chained rule cannot pass by being checked pairwise.
+    for component in together_components(team):
+        labels = {position_of(solution, dancer_id) for dancer_id in component}
+        assert len(labels) == 1, (
+            f"coach rule 'together' {sorted(component)} is spread over {sorted(labels)}"
+        )
+    for group in team.coach_constraints.apart:
+        for position in solution.positions:
+            here = {*position.leaders, *position.followers}
+            overlap = group & here
+            assert len(overlap) <= 1, (
+                f"coach rule 'apart' {sorted(group)} put {sorted(overlap)} on "
+                f"position {position.label}"
+            )
 
     assert_scores_consistent(solution, team, config)
 

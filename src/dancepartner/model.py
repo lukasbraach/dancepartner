@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 __all__ = [
     "DEFAULT_N_POSITIONS",
+    "CoachConstraints",
     "Dancer",
     "Direction",
     "Objective",
@@ -244,6 +245,61 @@ class Survey(BaseModel):
         return max(ranks, default=0)
 
 
+class CoachConstraints(BaseModel):
+    """Hard rules the coach sets themselves, independent of the *Teambefragung*.
+
+    Every other hard constraint in the model comes from the dancers: the two ``Dancer`` flags
+    describe a dancer, a veto is derived from what a dancer wrote. These are the coach's own,
+    and they override nothing -- they are simply additional hard constraints (SPEC.md 8, 7.).
+
+    Both kinds name **dancers, never a position label**. Positions are unordered and
+    interchangeable, and the solver's canonical numbering (``_break_symmetry``) depends on
+    that; a rule pinning somebody to "position C" would contradict it. "Together" and "apart"
+    say all there is to say without naming a label.
+
+    Attributes:
+        together: Groups that must share one position. Overlapping groups merge -- see
+            :func:`~dancepartner.feasibility.together_components`.
+        apart: Groups no two members of which may share a position. Symmetric, like a veto,
+            but the coach's decision rather than a survey answer, so ``veto_tier`` does not
+            reach it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    together: list[frozenset[str]] = Field(default_factory=list)
+    apart: list[frozenset[str]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_groups(self) -> CoachConstraints:
+        """Validators 8 and 9."""
+        for kind, groups in (("together", self.together), ("apart", self.apart)):
+            for group in groups:
+                if len(group) < 2:
+                    raise ValueError(
+                        f"coach_constraints.{kind}: {sorted(group)} names fewer than two "
+                        f"dancers, which constrains nothing"
+                    )
+            seen: list[frozenset[str]] = []
+            for group in groups:
+                if group in seen:
+                    raise ValueError(
+                        f"coach_constraints.{kind}: {sorted(group)} appears more than once"
+                    )
+                seen.append(group)
+        return self
+
+    @property
+    def named_ids(self) -> frozenset[str]:
+        """Every dancer id named by any rule, in either kind."""
+        groups = [*self.together, *self.apart]
+        return frozenset().union(*groups) if groups else frozenset()
+
+    def __bool__(self) -> bool:
+        """False when the coach has set no rule at all -- what storage and the UI branch on."""
+        return bool(self.together or self.apart)
+
+
 class PreferenceEntry(BaseModel):
     """One directed, in-scope survey entry: ``source`` named ``target`` at ``rank``."""
 
@@ -263,10 +319,11 @@ class Team(BaseModel):
     dancers: list[Dancer]
     surveys: list[Survey] = Field(default_factory=list)
     n_positions: int = Field(default=DEFAULT_N_POSITIONS, ge=1)
+    coach_constraints: CoachConstraints = Field(default_factory=CoachConstraints)
 
     @model_validator(mode="after")
     def _check_references(self) -> Team:
-        """Validators 6 and 7."""
+        """Validators 6, 7 and 10."""
         ids = [dancer.id for dancer in self.dancers]
         duplicates = {i for i in ids if ids.count(i) > 1}
         if duplicates:
@@ -286,6 +343,12 @@ class Team(BaseModel):
                 raise ValueError(
                     f"survey {survey.dancer_id!r} references unknown dancer ids {sorted(unknown)}"
                 )
+
+        unknown_coach = self.coach_constraints.named_ids - known
+        if unknown_coach:
+            raise ValueError(
+                f"coach_constraints reference unknown dancer ids {sorted(unknown_coach)}"
+            )
         return self
 
     # -- derived views -------------------------------------------------------------

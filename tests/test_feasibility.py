@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from dancepartner.feasibility import check_feasibility, veto_pairs
-from dancepartner.model import PreferenceScope, Role, SolverConfig, Team
+from dancepartner.feasibility import check_feasibility, together_components, veto_pairs
+from dancepartner.model import CoachConstraints, PreferenceScope, Role, SolverConfig, Team
 
-from .builders import not_desired, roster, team, tier
+from .builders import apart, not_desired, roster, team, tier, together, with_coach
 
 
 def codes(team_: Team, config: SolverConfig | None = None) -> list[str]:
@@ -209,3 +209,93 @@ def test_check_feasibility_defaults_to_default_config(small: Team) -> None:
 def test_role_helper_counts(small: Team) -> None:
     assert small.n_doubled_positions(Role.LEADER) == 1
     assert small.n_single_positions(Role.LEADER) == 2
+
+
+# -- coach constraints (SPEC.md 8, 7.) ------------------------------------------------------
+
+
+def test_together_components_merge_over_a_shared_member() -> None:
+    # {led0, led1} and {led1, fol0} both on one position means all three are; checking the
+    # groups as written would miss it.
+    instance = with_coach(team(4, 4, 4), together(("led0", "led1"), ("led1", "fol0")))
+    assert together_components(instance) == [frozenset({"led0", "led1", "fol0"})]
+
+
+def test_together_components_of_an_untouched_team_are_empty(small: Team) -> None:
+    assert together_components(small) == []
+
+
+def test_a_clean_coach_rule_passes() -> None:
+    instance = with_coach(team(5, 5, 4), together(("led0", "fol0")))
+    assert codes(instance) == []
+    assert codes(with_coach(team(5, 5, 4), apart(("led0", "led1")))) == []
+
+
+def test_three_of_one_role_never_fit_on_one_position() -> None:
+    instance = with_coach(team(6, 6, 4), together(("led0", "led1", "led2")))
+    assert codes(instance) == ["COACH_TOGETHER_TOO_MANY_OF_ROLE"]
+
+
+def test_more_together_rules_than_doubled_positions() -> None:
+    # 5 leaders over 4 positions => exactly one doubled leader position, but two rules each
+    # want their own.
+    instance = with_coach(team(5, 5, 4), together(("led0", "led1"), ("led2", "led3")))
+    assert codes(instance) == ["COACH_TOGETHER_NEEDS_DOUBLES"]
+
+
+def test_a_pole_position_dancer_cannot_be_forced_to_share() -> None:
+    instance = with_coach(
+        team(5, 5, 4, **{"led0": {"is_pole_position": True}}), together(("led0", "led1"))
+    )
+    assert codes(instance) == ["COACH_TOGETHER_POLE_POSITION"]
+
+
+def test_two_coaching_dancers_cannot_be_forced_together() -> None:
+    instance = with_coach(
+        team(
+            6,
+            6,
+            4,
+            **{"led0": {"needs_coaching": True}, "led1": {"needs_coaching": True}},
+        ),
+        together(("led0", "led1")),
+    )
+    assert codes(instance) == ["COACH_TOGETHER_TWO_COACHING"]
+
+
+def test_a_together_rule_cannot_contradict_a_veto() -> None:
+    instance = with_coach(
+        team(5, 5, 4, not_desired("led0", tier(1, "fol0"))), together(("led0", "fol0"))
+    )
+    assert codes(instance) == ["COACH_TOGETHER_VETO"]
+    # Without hard vetoes the rule is simply the coach overruling a dislike, which is allowed.
+    assert codes(instance, SolverConfig(veto_tier=None)) == []
+
+
+def test_a_pair_cannot_be_both_together_and_apart() -> None:
+    instance = with_coach(
+        team(5, 5, 4),
+        CoachConstraints(
+            together=[frozenset({"led0", "fol0"})], apart=[frozenset({"led0", "fol0"})]
+        ),
+    )
+    assert codes(instance) == ["COACH_TOGETHER_AND_APART"]
+
+
+def test_an_apart_rule_cannot_outnumber_the_positions() -> None:
+    instance = with_coach(team(6, 6, 4), apart(("led0", "led1", "led2", "led3", "led4")))
+    assert codes(instance) == ["COACH_APART_TOO_MANY"]
+
+
+def test_coach_issues_name_the_dancers_involved() -> None:
+    issue = check_feasibility(with_coach(team(6, 6, 4), together(("led0", "led1", "led2"))))[0]
+    assert issue.involved_ids == ("led0", "led1", "led2")
+    assert "LED0" in issue.message
+
+
+def test_the_role_count_gate_still_comes_first() -> None:
+    # A broken roster hides the coach checks: the doubled-position arithmetic they rest on is
+    # meaningless until the role counts are in range.
+    assert codes(with_coach(team(3, 8, 8), together(("led0", "led1", "led2")))) == [
+        "ROLE_COUNT_OUT_OF_RANGE"
+    ]

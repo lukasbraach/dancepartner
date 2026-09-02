@@ -22,7 +22,7 @@ from dancepartner.reporting import (
 from dancepartner.scoring import build_solution
 from dancepartner.solver import solve
 
-from .builders import desired, not_desired, team, tier
+from .builders import apart, desired, not_desired, team, tier, together, with_coach
 
 # -- positions_by_dancer ------------------------------------------------------------------
 
@@ -306,6 +306,40 @@ def test_exchange_groups_respect_vetoes() -> None:
         (Role.FOLLOWER, ["fol0", "fol1"]),
         (Role.LEADER, ["led0", "led1"]),
     ]
+
+
+def test_exchange_groups_respect_a_coach_rule_to_stay_apart() -> None:
+    # The coach keeps fol1 and led2 apart. Exactly the veto case above, but set by the coach
+    # rather than derived from the survey -- the swaps it forbids are the same ones.
+    instance = with_coach(team(3, 3, 3), apart(("fol1", "led2")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]]
+    )
+    groups = exchange_groups(solution, instance, config)
+
+    assert [(g.role, g.dancer_ids) for g in groups] == [
+        (Role.FOLLOWER, ["fol0", "fol1"]),
+        (Role.LEADER, ["led0", "led1"]),
+    ]
+
+
+def test_exchange_groups_respect_a_coach_rule_to_stay_together() -> None:
+    # led0 and fol0 must share a position, so no swap may move either of them off B -- a
+    # "free" rotation that split the pair would break the coach's own rule.
+    instance = with_coach(team(3, 3, 3), together(("led0", "fol0")))
+    config = SolverConfig()
+    solution = build_solution(
+        instance, config, [["led1", "fol1"], ["led0", "fol0"], ["led2", "fol2"]]
+    )
+    groups = exchange_groups(solution, instance, config)
+
+    assert [(g.role, g.dancer_ids) for g in groups] == [
+        (Role.FOLLOWER, ["fol1", "fol2"]),
+        (Role.LEADER, ["led1", "led2"]),
+    ]
+    assert "led0" not in group_numbers(groups)
+    assert "fol0" not in group_numbers(groups)
 
 
 def test_exchange_groups_respect_the_coaching_pairing() -> None:

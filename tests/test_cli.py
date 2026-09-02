@@ -14,11 +14,13 @@ from typer.testing import CliRunner, Result
 
 from dancepartner.cli import EXIT_REJECTED, app
 from dancepartner.i18n import TABLES, Language, set_language
-from dancepartner.model import Team
+from dancepartner.model import CoachConstraints, Team
+from dancepartner.solver import solve
 from dancepartner.storage import dump_team, load_team
 
-from .builders import desired, roster, tier
+from .builders import apart, desired, roster, tier, together, with_coach
 from .builders import team as team_builder
+from .helpers import share_position
 
 EXAMPLE = str(Path(__file__).resolve().parents[1] / "data" / "team.example.yaml")
 
@@ -379,6 +381,67 @@ def test_explain_reports_pole_position(solved: Path) -> None:
     result = run("explain", EXAMPLE, str(solved), "--dancer", "tim-r")
     assert result.exit_code == 0
     assert "Pole position: alone" in result.stdout
+
+
+@pytest.fixture
+def with_coach_rules(tmp_path: Path) -> tuple[Path, Path]:
+    """The example team with two coach rules added, solved."""
+    team = load_team(EXAMPLE)
+    ruled = Team(
+        dancers=list(team.dancers),
+        surveys=list(team.surveys),
+        n_positions=team.n_positions,
+        coach_constraints=CoachConstraints(
+            together=[frozenset({"lukas-b", "anna-b"})],
+            apart=[frozenset({"jonas-k", "lena-f"})],
+        ),
+    )
+    path = tmp_path / "coach.yaml"
+    path.write_text(dump_team(ruled), encoding="utf-8")
+    out = tmp_path / "coach.json"
+    assert run("solve", str(path), "--json", str(out)).exit_code == 0
+    return path, out
+
+
+def test_explain_reports_a_coach_rule(with_coach_rules: tuple[Path, Path]) -> None:
+    path, out = with_coach_rules
+    result = run("explain", str(path), str(out), "--dancer", "lukas-b")
+    assert result.exit_code == 0
+    assert "Coach rule: on one position with Anna Brenner" in result.stdout
+
+    result = run("explain", str(path), str(out), "--dancer", "jonas-k")
+    assert result.exit_code == 0
+    assert "Coach rule: never on one position with Lena Fricke" in result.stdout
+
+
+def test_solve_honours_the_coach_rules_in_the_file(with_coach_rules: tuple[Path, Path]) -> None:
+    path, _ = with_coach_rules
+    # The rules live in the file, so they reach the solver without a flag of their own.
+    result = solve(load_team(path))
+    assert share_position(result.best, "lukas-b", "anna-b")
+    assert not share_position(result.best, "jonas-k", "lena-f")
+
+
+def test_check_reports_an_impossible_coach_rule(tmp_path: Path) -> None:
+    # Three leaders on one position; a position holds two. Decidable by counting, so the
+    # coach gets a sentence rather than a bare INFEASIBLE from the solver.
+    instance = with_coach(team_builder(6, 6, 4), together(("led0", "led1", "led2")))
+    path = tmp_path / "team.yaml"
+    path.write_text(dump_team(instance), encoding="utf-8")
+    result = run("check", str(path))
+    assert result.exit_code == EXIT_REJECTED
+    assert "COACH_TOGETHER_TOO_MANY_OF_ROLE" in result.stdout
+    assert "involved: led0, led1, led2" in result.stdout
+
+
+@pytest.mark.usefixtures("german")
+def test_check_reports_an_impossible_coach_rule_in_german(tmp_path: Path) -> None:
+    instance = with_coach(team_builder(6, 6, 4), apart(tuple(f"led{i}" for i in range(5))))
+    path = tmp_path / "team.yaml"
+    path.write_text(dump_team(instance), encoding="utf-8")
+    result = run("check", str(path))
+    assert result.exit_code == EXIT_REJECTED
+    assert "Trainervorgabe »nicht zusammen«" in result.stdout
 
 
 def test_explain_a_dancer_without_a_survey(solved: Path) -> None:

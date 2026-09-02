@@ -9,6 +9,13 @@
 #              Tiers müssen bei 1 beginnen und lückenlos sein, je Richtung.
 #              Eine ID darf pro Richtung in nur einem Tier stehen und nie in beiden Richtungen.
 #
+# Trainervorgaben (optional, ganz am Ende der Datei):
+#              coach_constraints:
+#                together: [[lukas-b, anna-b]]   # teilen sich eine Position
+#                apart:    [[jonas-k, lena-f]]   # nie auf derselben Position
+#              Harte Regeln des Trainers, unabhängig von der Befragung. Sie benennen Tänzer:innen
+#              und nie einen Positionsbuchstaben; die Positionen bleiben austauschbar.
+#
 # Die Reihenfolge der Tänzer:innen ist bedeutsam: die Symmetriebrechung des Solvers numeriert
 # die Positionen nach dem Index der leader in dieser Liste.
 #

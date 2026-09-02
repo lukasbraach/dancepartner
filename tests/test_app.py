@@ -17,7 +17,14 @@ from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import Multiselect
 
 from dancepartner.i18n import TABLES, Language, t
-from dancepartner.model import Objective, Role, ScoreAggregation, SolverConfig, Team
+from dancepartner.model import (
+    CoachConstraints,
+    Objective,
+    Role,
+    ScoreAggregation,
+    SolverConfig,
+    Team,
+)
 from dancepartner.scoring import build_solution
 from dancepartner.solver import SolveResult, solve
 from dancepartner.storage import dump_team, load_team
@@ -185,6 +192,112 @@ def test_team_page_rejects_two_mutually_exclusive_flags() -> None:
     assert "validation error" not in rendered.lower(), "pydantic's raw message must not leak"
     # Nothing was written: the working team still has the flags it had.
     assert at.session_state["team"].dancers[0].is_pole_position is False
+
+
+# -- Team page: coach rules -------------------------------------------------------------------
+
+
+TEAM_PAGE = str(REPO_ROOT / "app" / "pages" / "team.py")
+
+
+def test_team_page_adds_a_coach_rule() -> None:
+    at = loaded(TEAM_PAGE).run()
+    assert t("ui.team.coach_none") in texts(at)
+
+    at.multiselect(key="coach_pick").set_value(["lukas-b", "anna-b"]).run()
+    next(b for b in at.button if b.label == t("ui.team.coach_add")).click().run()
+
+    assert not at.exception
+    rules = at.session_state["team"].coach_constraints
+    assert rules.together == [frozenset({"lukas-b", "anna-b"})]
+    assert rules.apart == []
+    # The confirmation has to survive the st.rerun that redraws the list.
+    assert t("ui.team.coach_added") in texts(at)
+
+
+def test_team_page_adds_an_apart_rule_and_removes_it_again() -> None:
+    at = loaded(TEAM_PAGE).run()
+    at.selectbox[0].set_value(t("ui.team.kind_apart")).run()
+    at.multiselect(key="coach_pick").set_value(["lukas-b", "jonas-k"]).run()
+    next(b for b in at.button if b.label == t("ui.team.coach_add")).click().run()
+    assert at.session_state["team"].coach_constraints.apart == [frozenset({"lukas-b", "jonas-k"})]
+
+    next(b for b in at.button if b.label == t("ui.team.coach_remove")).click().run()
+    assert not at.exception
+    assert not at.session_state["team"].coach_constraints
+
+
+def test_team_page_refuses_a_rule_naming_fewer_than_two_dancers() -> None:
+    at = loaded(TEAM_PAGE).run()
+    at.multiselect(key="coach_pick").set_value(["lukas-b"]).run()
+    next(b for b in at.button if b.label == t("ui.team.coach_add")).click().run()
+
+    assert not at.exception
+    rendered = texts(at)
+    assert t("ui.team.coach_too_small") in rendered
+    assert "validation error" not in rendered.lower(), "pydantic's raw message must not leak"
+    assert not at.session_state["team"].coach_constraints
+
+
+def test_team_page_refuses_a_duplicate_rule() -> None:
+    team = load_team(EXAMPLE)
+    ruled = Team(
+        dancers=list(team.dancers),
+        surveys=list(team.surveys),
+        n_positions=team.n_positions,
+        coach_constraints=CoachConstraints(together=[frozenset({"lukas-b", "anna-b"})]),
+    )
+    at = loaded(TEAM_PAGE, team=ruled).run()
+    at.multiselect(key="coach_pick").set_value(["anna-b", "lukas-b"]).run()
+    next(b for b in at.button if b.label == t("ui.team.coach_add")).click().run()
+
+    assert not at.exception
+    assert t("ui.team.coach_duplicate") in texts(at)
+    assert len(at.session_state["team"].coach_constraints.together) == 1
+
+
+def test_team_page_prunes_a_rule_whose_dancer_was_deleted() -> None:
+    # The rule is dropped whole, not shrunk: "keep these two together" minus one of them is a
+    # different rule, and the coach never asked for it.
+    team = load_team(EXAMPLE)
+    ruled = Team(
+        dancers=list(team.dancers),
+        surveys=list(team.surveys),
+        n_positions=team.n_positions,
+        coach_constraints=CoachConstraints(apart=[frozenset({"lukas-b", "jonas-k"})]),
+    )
+    at = loaded(TEAM_PAGE, team=ruled).run()
+    at.session_state["team_editor"] = {
+        "edited_rows": {},
+        "added_rows": [],
+        "deleted_rows": [1],  # jonas-k
+    }
+    next(b for b in at.button if b.label == t("ui.team.apply")).click().run()
+
+    assert not at.exception
+    assert t("ui.team.coach_orphan", n=1) in texts(at)
+    assert not at.session_state["team"].coach_constraints
+
+
+def test_team_page_keeps_the_coach_rules_across_an_unrelated_roster_edit() -> None:
+    team = load_team(EXAMPLE)
+    rules = CoachConstraints(together=[frozenset({"lukas-b", "anna-b"})])
+    ruled = Team(
+        dancers=list(team.dancers),
+        surveys=list(team.surveys),
+        n_positions=team.n_positions,
+        coach_constraints=rules,
+    )
+    at = loaded(TEAM_PAGE, team=ruled).run()
+    at.session_state["team_editor"] = {
+        "edited_rows": {0: {t("ui.team.col_name"): "Lukas B."}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    next(b for b in at.button if b.label == t("ui.team.apply")).click().run()
+
+    assert not at.exception
+    assert at.session_state["team"].coach_constraints == rules
 
 
 # -- Umfrage page -----------------------------------------------------------------------------

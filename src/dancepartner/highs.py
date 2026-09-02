@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from ._milp import Expr, Model
-from .feasibility import check_feasibility, veto_pairs
+from .feasibility import check_feasibility, together_components, veto_pairs
 from .model import Objective, Role, ScoreAggregation, SolverConfig, Team
 from .results import (
     InfeasibleInstanceError,
@@ -271,6 +271,17 @@ def _build_model(model: Model, team: Team, config: SolverConfig, *, break_symmet
     # 6. Hard vetoes.
     for pair in veto_pairs(team, config):
         model.equal(together[pair], 0)
+
+    # 7. The coach's own rules. See ``cpsat._build_model``: stated on x, label-free, so the
+    #    canonical numbering below stays valid. Two rows of pure 0/1 equality, no big-M.
+    for component in together_components(team):
+        anchor, *rest = sorted(component)
+        for other in rest:
+            for p in team.positions:
+                model.equal(Expr.of(x[(anchor, p)]) - Expr.of(x[(other, p)]), 0)
+    for group in team.coach_constraints.apart:
+        for p in team.positions:
+            model.add(Expr.sum([Expr.of(x[(i, p)]) for i in sorted(group)]), hi=1)
 
     if break_symmetry:
         _break_symmetry(model, x, team)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dancepartner.model import Dancer, Role, Survey, Team, Tier
+from dancepartner.model import CoachConstraints, Dancer, Role, Survey, Team, Tier
 
 
 def leader(id_: str, **flags: bool) -> Dancer:
@@ -23,6 +23,16 @@ def desired(dancer_id: str, *tiers: Tier) -> Survey:
 
 def not_desired(dancer_id: str, *tiers: Tier) -> Survey:
     return Survey(dancer_id=dancer_id, not_desired_tiers=list(tiers))
+
+
+def together(*groups: tuple[str, ...]) -> CoachConstraints:
+    """Coach rules of the "must share a position" kind."""
+    return CoachConstraints(together=[frozenset(group) for group in groups])
+
+
+def apart(*groups: tuple[str, ...]) -> CoachConstraints:
+    """Coach rules of the "must not share a position" kind."""
+    return CoachConstraints(apart=[frozenset(group) for group in groups])
 
 
 def roster(n_leaders: int, n_followers: int, **flags: dict[str, bool]) -> list[Dancer]:
@@ -49,4 +59,19 @@ def team(
         dancers=roster(n_leaders, n_followers, **flags),
         surveys=list(surveys),
         n_positions=n_positions,
+    )
+
+
+def with_coach(instance: Team, constraints: CoachConstraints) -> Team:
+    """The same instance with the coach's rules attached.
+
+    A separate step rather than a keyword on ``team``: the flags there arrive as ``**flags``,
+    and a keyword beside them cannot be typed without every ``**{"led0": ...}`` call site
+    becoming ambiguous to mypy.
+    """
+    return Team(
+        dancers=list(instance.dancers),
+        surveys=list(instance.surveys),
+        n_positions=instance.n_positions,
+        coach_constraints=constraints,
     )

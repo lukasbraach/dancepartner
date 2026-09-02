@@ -21,6 +21,7 @@ import persistence
 from dancepartner.i18n import Language, get_language, set_language, t
 from dancepartner.model import (
     DEFAULT_N_POSITIONS,
+    CoachConstraints,
     Dancer,
     Direction,
     Objective,
@@ -500,7 +501,26 @@ def with_survey(team: Team, dancer_id: str, survey: Survey | None) -> Team:
     if survey is not None:
         kept[dancer_id] = survey
     ordered = [kept[d.id] for d in team.dancers if d.id in kept]
-    return Team(dancers=list(team.dancers), surveys=ordered, n_positions=team.n_positions)
+    return Team(
+        dancers=list(team.dancers),
+        surveys=ordered,
+        n_positions=team.n_positions,
+        coach_constraints=team.coach_constraints,
+    )
+
+
+def with_coach_constraints(team: Team, constraints: CoachConstraints) -> Team:
+    """Rebuild ``team`` with the coach's rules replaced.
+
+    Through the constructor, never ``model_copy`` -- same reason as :func:`with_survey`: the
+    rules may only name dancers who exist, and that check lives in the validator.
+    """
+    return Team(
+        dancers=list(team.dancers),
+        surveys=list(team.surveys),
+        n_positions=team.n_positions,
+        coach_constraints=constraints,
+    )
 
 
 # -- rendering helpers --------------------------------------------------------------------

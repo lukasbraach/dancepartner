@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from dancepartner.model import (
+    CoachConstraints,
     Dancer,
     PreferenceScope,
     Role,
@@ -203,3 +204,44 @@ def test_config_without_an_aggregation_key_parses_to_the_default() -> None:
     config = SolverConfig.model_validate({"objective": "leximin"})
     assert config.aggregation is ScoreAggregation.BEST
     assert SolverConfig.model_validate({"aggregation": "sum"}).aggregation is ScoreAggregation.SUM
+
+
+# -- coach constraints (SPEC.md 6, validators 8-10) -----------------------------------------
+
+
+def test_a_rule_needs_at_least_two_dancers() -> None:
+    # One dancer "together" with nobody constrains nothing; silently keeping it would let the
+    # coach believe they had set a rule.
+    with pytest.raises(ValidationError, match="fewer than two dancers"):
+        CoachConstraints(together=[frozenset({"led0"})])
+    with pytest.raises(ValidationError, match="fewer than two dancers"):
+        CoachConstraints(apart=[frozenset()])
+
+
+def test_a_rule_may_not_be_repeated() -> None:
+    with pytest.raises(ValidationError, match="appears more than once"):
+        CoachConstraints(apart=[frozenset({"led0", "led1"}), frozenset({"led1", "led0"})])
+
+
+def test_the_same_group_may_appear_in_both_kinds() -> None:
+    # A contradiction, but a countable one: feasibility reports it in the coach's language
+    # rather than pydantic raising an English message at them (SPEC.md 7).
+    constraints = CoachConstraints(
+        together=[frozenset({"led0", "led1"})], apart=[frozenset({"led0", "led1"})]
+    )
+    assert constraints.named_ids == frozenset({"led0", "led1"})
+
+
+def test_a_rule_may_not_name_an_unknown_dancer() -> None:
+    with pytest.raises(ValidationError, match="unknown dancer ids"):
+        Team(
+            dancers=roster(2, 2),
+            n_positions=1,
+            coach_constraints=CoachConstraints(together=[frozenset({"led0", "ghost"})]),
+        )
+
+
+def test_no_rules_is_falsy() -> None:
+    assert not CoachConstraints()
+    assert CoachConstraints(apart=[frozenset({"led0", "led1"})])
+    assert Team(dancers=roster(1, 1), n_positions=1).coach_constraints.named_ids == frozenset()

@@ -31,6 +31,7 @@ nur eine Dame tragen.
 | Coachingbedarf | `needs_coaching` | Darf nicht allein in der eigenen Rolle stehen, und die zweite Person derselben Rolle muss erfahren sein — zwei Coachingbedarfe teilen sich nie eine Position. |
 | Wunschpartner | `desired_tiers` | Gestufte Wunschlisten, Tier 1 am stärksten. |
 | Nicht-Wunschpartner | `not_desired_tiers` | Dasselbe, umgekehrt. |
+| Trainervorgabe | `coach_constraints` | Eine harte Regel des Trainers: Diese Personen teilen sich eine Position (`together`), oder keine zwei von ihnen tun das (`apart`). |
 | Teambefragung | `Survey` | Die Antworten einer Person. |
 | Verpartnerung | `Solution` | Eine vollständige Zuordnung. |
 
@@ -43,6 +44,10 @@ Zwei Eigenschaften entscheiden über das Ergebnis und sind leicht zu übersehen:
 * **Wünsche sind gerichtet.** Dass Anna sich Lukas wünscht, heißt nicht, dass Lukas sich Anna
   wünscht. Das Programm ergänzt nichts aus Symmetrie. Nur harte **Vetos** wirken beidseitig, und
   zwar zwangsläufig: Zwei Personen teilen sich eine Position oder nicht.
+* **Eine Trainervorgabe sticht die Befragung.** `together` setzt Personen auf eine Position,
+  `apart` hält sie davon fern — unabhängig davon, was sie angegeben haben. Anders als ein Veto
+  wird sie aus keiner Antwort gelesen, der Veto-Rang greift also nicht. Eine Vorgabe benennt
+  Personen und nie einen Positionsbuchstaben — die Positionen bleiben austauschbar.
 * **Wer nicht antwortet, bekommt 0 Punkte** — und steht damit ganz oben in der
   Zufriedenheitstabelle. Kein Fehler, sondern die ehrliche Auskunft, dass über diese Person
   nichts bekannt ist.
@@ -334,7 +339,8 @@ also `leximin` verwenden — die ohnehin stärkere Aussage, und die Voreinstellu
 
 * **Start**: Team hochladen oder neu anlegen oder das Beispiel laden, Vorprüfung, Team als YAML
   herunterladen.
-* **Team**: die Tänzer:innen als Tabelle mit Name, Rolle, Startanspruch, Coachingbedarf.
+* **Team**: die Tänzer:innen als Tabelle mit Name, Rolle, Startanspruch, Coachingbedarf — darunter die
+  Trainervorgaben, die Tänzer:innen aus dieser Tabelle benennen.
 * **Umfrage**: je Person und Richtung beliebig viele Ränge; Konflikte werden sofort gemeldet.
 * **Lösung**: Zielfunktion einstellen, rechnen, die acht Positionen als Karten — wer sich
   kostenfrei tauschen lässt, ist mit 1️⃣, 2️⃣, … nummeriert.

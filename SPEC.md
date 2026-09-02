@@ -82,6 +82,7 @@ The German column records what the team calls each thing. It keeps the vocabular
 | `needs_coaching` | Coachingbedarf | Dancer must **not** be the only one of their role on a position, and the same-role dancer alongside them must not need coaching themselves — every coaching dancer is paired with an experienced dancer of their role. Hard constraints. |
 | `desired_tiers` | Wunschpartner | Ranked list of sets of desired partners. Tier 1 = strongest wish. Sets within a tier are equivalent. |
 | `not_desired_tiers` | Nicht-Wunschpartner | Same structure, for undesired partners. |
+| `coach_constraints` | Trainervorgabe | Hard rules the coach sets themselves, independent of the Teambefragung: `together` = these dancers share one position, `apart` = no two of them do. They name **dancers, never a position label** — positions stay interchangeable. |
 | `Survey` | Teambefragung | One dancer's complete set of answers. |
 | `Solution` | Verpartnerung | A complete mapping of dancers to positions. |
 
@@ -176,10 +177,15 @@ class Survey(BaseModel):
     desired_tiers: list[Tier] = []
     not_desired_tiers: list[Tier] = []
 
+class CoachConstraints(BaseModel):
+    together: list[frozenset[str]] = []   # must share one position
+    apart: list[frozenset[str]] = []      # no two of them may share a position
+
 class Team(BaseModel):
     dancers: list[Dancer]
     surveys: list[Survey] = []
     n_positions: int = 8
+    coach_constraints: CoachConstraints = CoachConstraints()
 ```
 
 Validators, all of which raise on violation:
@@ -192,6 +198,14 @@ Validators, all of which raise on violation:
 5. No self-references.
 6. All referenced ids exist in `dancers`.
 7. Every dancer has at most one `Survey`.
+8. Every coach-constraint group names at least two dancers — a group of one constrains nothing,
+   and keeping it would let the coach believe they had set a rule.
+9. No coach-constraint group is repeated within its kind.
+10. Every id named by a coach constraint exists in `dancers`.
+
+The same pair appearing in both `together` and `apart` is *not* a validator: it is a countable
+contradiction, and §7 reports it in the coach's language rather than pydantic raising English at
+them.
 
 **Preferences are directed.** A wishing for B does not imply B wishing for A. Both directions are
 scored independently and are never silently symmetrised. (Hard *vetoes*, §8, are the one symmetric
@@ -222,6 +236,22 @@ With `n = len(leaders)` and 8 positions:
 
 Identical checks for followers, plus a check for hard vetoes (§8) making a role infeasible. Each
 failure is a `FeasibilityIssue(code, message_de, involved_ids)` the UI can surface.
+
+The coach's own rules (§8, 7.) get the same treatment, all seven of them pure counting arguments,
+run on the **transitive closure** of the `together` groups (`feasibility.together_components`) so a
+chain `{a,b} + {b,c}` is checked as the `{a,b,c}` it really is:
+
+* `COACH_TOGETHER_TOO_MANY_OF_ROLE` — a component holds more than two dancers of one role.
+* `COACH_TOGETHER_NEEDS_DOUBLES` — components each needing their own doubled position for a role
+  outnumber the doubled positions that role has. Components are disjoint, so this is exact.
+* `COACH_TOGETHER_POLE_POSITION` — a component would make an `is_pole_position` dancer share.
+* `COACH_TOGETHER_TWO_COACHING` — a component pairs two `needs_coaching` dancers of one role.
+* `COACH_TOGETHER_VETO` — a component contains a pair a hard veto keeps apart.
+* `COACH_TOGETHER_AND_APART` — an `apart` group has two members inside one component.
+* `COACH_APART_TOO_MANY` — an `apart` group has more members than there are positions.
+
+They run after the role-count and veto checks: the doubled-position arithmetic they rest on is
+meaningless until the role counts are in range.
 
 These checks are **necessary, not sufficient** — they find real obstacles but prove no
 solvability. `tests/test_cli.py::COUNTING_CLEAN_BUT_INFEASIBLE` is the executable form of that
@@ -295,6 +325,17 @@ CP-SAT states implications directly; a MILP linearizes them. The translations ar
    every coaching dancer is paired with an experienced same-role dancer.
 6. Optional hard veto: if `SolverConfig.veto_tier` is set (default `1`), all `not_desired` entries
    at that tier or stronger get `together[d, e] == 0`.
+7. The coach's own rules, `Team.coach_constraints`. Stated on `x` directly rather than on
+   `together[d, e]`, which only exists for pairs somebody wrote a wish about:
+   `together` → `x[anchor, p] == x[other, p]` for every `p`, over the connected components of the
+   groups; `apart` → `add_at_most_one(x[d, p] for d in group)` for every `p`. No new variables, no
+   big-M and no objective stage, so the enumeration pass's stage replay is untouched.
+
+A coach constraint names **dancers, never a position label**, which is what makes it compatible
+with the symmetry breaking below: pinning somebody to "position C" would contradict the canonical
+numbering the whole search rests on, while "together" and "apart" say all there is to say without
+naming a label. Unlike a veto, `apart` is the coach's decision rather than a survey answer, so
+`veto_tier` does not reach it.
 
 ### Reification — both directions are mandatory
 
@@ -502,6 +543,11 @@ No database.
   equally good solution (§8, §10).
 * Tiers are stored as `rank: [ids]` mappings under `desired:` / `not_desired:`, emitted inline
   (`1: [anna-b, lena-f]`). False flags and empty survey directions are omitted.
+* Key order at the top level: `n_positions`, `dancers`, `surveys`, `coach_constraints`. The last
+  two are omitted entirely when empty. Coach constraints are stored as
+  `coach_constraints: {together: [[ids]], apart: [[ids]]}`, each group emitted inline like a tier.
+  The model holds them as sets, so both the ids inside a group and the groups themselves are
+  sorted on the way out — otherwise the file churns between saves.
 * PyYAML cannot preserve comments, so serialising drops them. `load_team` never writes; writing
   happens only on explicit request (CLI `--json` flag; the UI writes nothing at all and hands the
   coach a download instead — never autosave).
@@ -551,6 +597,13 @@ Implementation rules:
 * Editing pages validate §6 rules 3 and 4 **themselves** so the conflict reads in the coach's
   language, through `i18n.py`. Pydantic stays the final gate, but its raw message must never
   reach the coach.
+* The team page carries the coach-constraint editor below the roster: the rules name dancers from
+  the table above, and deleting a dancer prunes them in the same apply step. A rule is dropped
+  **whole**, never shrunk — "keep these three together" minus one dancer is a different rule, and
+  the coach never asked for it. Rules with fewer than two dancers and duplicates are refused in
+  the page, in the coach's language, per the rule above.
+* `st.rerun` throws the current run away, so a notice written just before it is never drawn. The
+  team page parks its notices in session state and renders them at the top of the next run.
 * Empty and orphaned tiers are renumbered, not rejected — browser editing breaks the "contiguous
   from 1" rule constantly, and the coach did not cause it. See `common.renumber_tiers` /
   `tiers_from_selections`.
@@ -627,6 +680,10 @@ dancepartner explain data/team.yaml out.json --dancer lukas-b
 * Hand-constructed micro-instances (3 positions, 6–9 dancers) with a known optimum, asserted **by
   value**. `tests/builders.py` has the terse constructors; synthetic dancers are `led0..`/`fol0..`,
   and their roster order doubles as the canonical position ordering (§8).
+* `assert_valid` re-derives the hard constraints from the `Solution` and the `Team` alone,
+  numbered to match §8 — including the coach's rules, whose `together` closure is recomputed there
+  rather than read off the groups as written, so a chained rule cannot pass by being checked
+  pairwise.
 * The load-bearing constraints are verified by mutation — each of these must turn the suite red:
   the `add_bool_or` half of the reification, the at-most-one-coaching-dancer constraint, the
   symmetry-breaking constraint, the signature dedup, the `_lock_in` tie-break guard.

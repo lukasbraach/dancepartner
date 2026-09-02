@@ -18,7 +18,7 @@ from dancepartner.model import (
 )
 from dancepartner.solver import InfeasibleInstanceError, Sense, solve
 
-from .builders import desired, not_desired, roster, team, tier
+from .builders import apart, desired, not_desired, roster, team, tier, together, with_coach
 from .helpers import assert_result_valid, position_of, share_position
 
 
@@ -146,6 +146,63 @@ def test_pole_position_beats_a_wish() -> None:
     label = position_of(result.best, "led0")
     position = next(p for p in result.best.positions if p.label == label)
     assert position.leaders == ["led0"]
+
+
+def test_a_coach_rule_beats_a_wish() -> None:
+    # led0 and fol0 wish for each other at tier 1; the coach keeps them apart anyway. A hard
+    # constraint the coach set must win against the objective just as a veto does -- and the
+    # rule is not a veto, so veto_tier never reaches it.
+    instance = with_coach(
+        team(3, 3, 3, desired("led0", tier(1, "fol0")), desired("fol0", tier(1, "led0"))),
+        apart(("led0", "fol0")),
+    )
+    result = solve(instance)
+    assert_result_valid(result, instance)
+    assert not share_position(result.best, "led0", "fol0")
+    assert result.best.per_dancer["led0"].score == 0
+
+
+def test_a_coach_rule_holds_against_a_dislike() -> None:
+    # The mirror image: the coach puts two dancers together who wrote each other down as
+    # not-desired. Below the veto tier this is the coach overruling the survey, which is
+    # exactly what the rule is for.
+    instance = with_coach(
+        team(3, 3, 3, not_desired("led0", tier(1, "fol0"))), together(("led0", "fol0"))
+    )
+    config = SolverConfig(veto_tier=None)
+    result = solve(instance, config)
+    assert_result_valid(result, instance, config)
+    assert share_position(result.best, "led0", "fol0")
+
+
+def test_a_chained_coach_rule_lands_on_one_position() -> None:
+    # {led0, fol0} and {fol0, led1} overlap, so all three share a position -- which needs the
+    # closure, not a pairwise reading of the two groups as written.
+    instance = with_coach(team(4, 3, 3), together(("led0", "fol0"), ("fol0", "led1")))
+    result = solve(instance)
+    assert_result_valid(result, instance)
+    assert share_position(result.best, "led0", "fol0", "led1")
+
+
+def test_an_apart_rule_separates_more_than_two() -> None:
+    instance = with_coach(team(4, 4, 4), apart(("led0", "led1", "led2")))
+    result = solve(instance, SolverConfig(max_solutions=20))
+    assert_result_valid(result, instance, SolverConfig(max_solutions=20))
+    for solution in result.solutions:
+        assert not share_position(solution, "led0", "led1")
+        assert not share_position(solution, "led0", "led2")
+        assert not share_position(solution, "led1", "led2")
+
+
+def test_coach_rules_survive_symmetry_breaking() -> None:
+    # The rules name dancers and never a label, so the canonical numbering stays valid: the
+    # same optimum with it and without it.
+    instance = with_coach(team(5, 5, 4), together(("led0", "led1")))
+    constrained = solve(instance, break_symmetry=True)
+    free = solve(instance, break_symmetry=False)
+    assert_result_valid(constrained, instance)
+    assert_result_valid(free, instance)
+    assert [stage.value for stage in constrained.stages] == [stage.value for stage in free.stages]
 
 
 def test_veto_is_respected_even_when_it_costs_score() -> None:

@@ -60,6 +60,34 @@ _STRINGS_EN: dict[str, str] = {
         "pole-position claims or vetoes, but there are only {available} position(s) with "
         "single occupancy."
     ),
+    # -- coach constraints (SPEC.md 8, 7.) -----------------------------------------------
+    "feasibility.COACH_TOGETHER_TOO_MANY_OF_ROLE": (
+        "Coach rule “together” ({names}): {count} {role_label} on one position, but a "
+        "position holds at most two of a role."
+    ),
+    "feasibility.COACH_TOGETHER_NEEDS_DOUBLES": (
+        "{role_label}: {count} coach rule(s) “together” each need their own doubled position, "
+        "but there are only {available}."
+    ),
+    "feasibility.COACH_TOGETHER_POLE_POSITION": (
+        "Coach rule “together”: {name} has a pole-position claim and must stay alone in their "
+        "role, but is to share a position with {other}."
+    ),
+    "feasibility.COACH_TOGETHER_TWO_COACHING": (
+        "Coach rule “together” ({names}): both {role_label} have a coaching need, and two of "
+        "them never share a position."
+    ),
+    "feasibility.COACH_TOGETHER_VETO": (
+        "Coach rule “together” ({names}) contradicts a veto from the team survey — the pair "
+        "must and must not share a position."
+    ),
+    "feasibility.COACH_TOGETHER_AND_APART": (
+        "{names} are named by a coach rule “together” and one “not together” at the same time."
+    ),
+    "feasibility.COACH_APART_TOO_MANY": (
+        "Coach rule “not together” ({names}): {count} dancers need {count} different "
+        "positions, but there are only {p}."
+    ),
     # -- roles ---------------------------------------------------------------------------
     "role.leader.plural": "Leaders",
     "role.follower.plural": "Followers",
@@ -171,6 +199,8 @@ _STRINGS_EN: dict[str, str] = {
     "explain.respected": "  Respected not-desired wishes:",
     "explain.pole_position": "  Pole position: alone in their role on the position.",
     "explain.needs_coaching": "  Coaching need: with {names} in the same role.",
+    "explain.coach_together": "  Coach rule: on one position with {names}.",
+    "explain.coach_apart": "  Coach rule: never on one position with {names}.",
     # -- UI: navigation ------------------------------------------------------------------
     "nav.home": "Home",
     "nav.team": "Team",
@@ -259,6 +289,24 @@ _STRINGS_EN: dict[str, str] = {
     "ui.team.empty_field": "Row {row}: ID and name must not be empty.",
     "ui.team.orphan_survey": (
         "{n} team survey(s) were removed because the dancer no longer exists."
+    ),
+    "ui.team.coach_header": "Coach rules",
+    "ui.team.coach_help": (
+        "Hard rules of your own, independent of the team survey. They name dancers, never a "
+        "position — the positions stay interchangeable."
+    ),
+    "ui.team.kind_together": "Together on one position",
+    "ui.team.kind_apart": "Not on one position",
+    "ui.team.coach_kind": "Rule",
+    "ui.team.coach_dancers": "Dancers",
+    "ui.team.coach_add": "Add rule",
+    "ui.team.coach_remove": "Remove",
+    "ui.team.coach_none": "No coach rules set.",
+    "ui.team.coach_too_small": "A rule needs at least two dancers.",
+    "ui.team.coach_duplicate": "That rule already exists.",
+    "ui.team.coach_added": "Rule added.",
+    "ui.team.coach_orphan": (
+        "{n} coach rule(s) were removed because a dancer named in them no longer exists."
     ),
     # -- UI: Survey ----------------------------------------------------------------------
     "ui.survey.header": "Team survey",
@@ -406,6 +454,35 @@ _STRINGS_DE: dict[str, str] = {
         "Doppelbesetzung bilden, es gibt aber nur {available} Position(en) mit einfacher "
         "Besetzung."
     ),
+    # -- coach constraints (SPEC.md 8, 7.) -----------------------------------------------
+    "feasibility.COACH_TOGETHER_TOO_MANY_OF_ROLE": (
+        "Trainervorgabe »zusammen« ({names}): {count} {role_label} auf einer Position, eine "
+        "Position trägt aber höchstens zwei je Rolle."
+    ),
+    "feasibility.COACH_TOGETHER_NEEDS_DOUBLES": (
+        "{role_label}: {count} Trainervorgabe(n) »zusammen« brauchen je eine eigene "
+        "Doppelbesetzung, es gibt aber nur {available}."
+    ),
+    "feasibility.COACH_TOGETHER_POLE_POSITION": (
+        "Trainervorgabe »zusammen«: {name} hat Startanspruch und muss in der eigenen Rolle "
+        "allein bleiben, soll sich die Position aber mit {other} teilen."
+    ),
+    "feasibility.COACH_TOGETHER_TWO_COACHING": (
+        "Trainervorgabe »zusammen« ({names}): beide {role_label} haben Coachingbedarf, und "
+        "zwei davon teilen sich nie eine Position."
+    ),
+    "feasibility.COACH_TOGETHER_VETO": (
+        "Trainervorgabe »zusammen« ({names}) widerspricht einem Veto aus der Teambefragung — "
+        "das Paar muss und darf sich keine Position teilen."
+    ),
+    "feasibility.COACH_TOGETHER_AND_APART": (
+        "{names} stehen gleichzeitig in einer Trainervorgabe »zusammen« und in einer "
+        "»nicht zusammen«."
+    ),
+    "feasibility.COACH_APART_TOO_MANY": (
+        "Trainervorgabe »nicht zusammen« ({names}): {count} Tänzer:innen brauchen {count} "
+        "verschiedene Positionen, es gibt aber nur {p}."
+    ),
     # -- roles ---------------------------------------------------------------------------
     "role.leader.plural": "Herren",
     "role.follower.plural": "Damen",
@@ -514,6 +591,8 @@ _STRINGS_DE: dict[str, str] = {
     "explain.respected": "  Eingehaltene Nicht-Wünsche:",
     "explain.pole_position": "  Startanspruch: alleine in der eigenen Rolle auf der Position.",
     "explain.needs_coaching": "  Coachingbedarf: mit {names} in der eigenen Rolle.",
+    "explain.coach_together": "  Trainervorgabe: auf einer Position mit {names}.",
+    "explain.coach_apart": "  Trainervorgabe: nie auf einer Position mit {names}.",
     # -- UI: navigation ------------------------------------------------------------------
     "nav.home": "Start",
     "nav.team": "Team",
@@ -604,6 +683,24 @@ _STRINGS_DE: dict[str, str] = {
     "ui.team.empty_field": "Zeile {row}: ID und Name dürfen nicht leer sein.",
     "ui.team.orphan_survey": (
         "{n} Teambefragung(en) wurden entfernt, weil es die Tänzer:in nicht mehr gibt."
+    ),
+    "ui.team.coach_header": "Trainervorgaben",
+    "ui.team.coach_help": (
+        "Eigene harte Regeln, unabhängig von der Teambefragung. Sie benennen Tänzer:innen, "
+        "nie eine Position — die Positionen bleiben austauschbar."
+    ),
+    "ui.team.kind_together": "Zusammen auf einer Position",
+    "ui.team.kind_apart": "Nicht auf einer Position",
+    "ui.team.coach_kind": "Regel",
+    "ui.team.coach_dancers": "Tänzer:innen",
+    "ui.team.coach_add": "Regel hinzufügen",
+    "ui.team.coach_remove": "Entfernen",
+    "ui.team.coach_none": "Keine Trainervorgaben gesetzt.",
+    "ui.team.coach_too_small": "Eine Regel braucht mindestens zwei Tänzer:innen.",
+    "ui.team.coach_duplicate": "Diese Regel gibt es schon.",
+    "ui.team.coach_added": "Regel hinzugefügt.",
+    "ui.team.coach_orphan": (
+        "{n} Trainervorgabe(n) wurden entfernt, weil es eine benannte Tänzer:in nicht mehr gibt."
     ),
     # -- UI: Umfrage ---------------------------------------------------------------------
     "ui.survey.header": "Teambefragung",

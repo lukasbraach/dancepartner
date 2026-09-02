@@ -14,10 +14,16 @@ function that actually reaches a backend stays deferred.
 
 from typing import TYPE_CHECKING, Any, Final
 
-from .feasibility import FeasibilityIssue, check_feasibility, veto_pairs
+from .feasibility import (
+    FeasibilityIssue,
+    check_feasibility,
+    together_components,
+    veto_pairs,
+)
 from .i18n import Language, get_language, set_language, t
 from .model import (
     DEFAULT_N_POSITIONS,
+    CoachConstraints,
     Dancer,
     Objective,
     PreferenceEntry,
@@ -57,6 +63,7 @@ _LAZY: Final = frozenset({"solve"})
 
 __all__ = [
     "DEFAULT_N_POSITIONS",
+    "CoachConstraints",
     "Dancer",
     "DancerSatisfaction",
     "FeasibilityIssue",
@@ -90,6 +97,7 @@ __all__ = [
     "set_language",
     "solve",
     "t",
+    "together_components",
     "veto_pairs",
 ]
 

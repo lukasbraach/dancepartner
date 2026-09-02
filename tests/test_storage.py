@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from dancepartner.model import Dancer, Role, Survey, Team, Tier
+from dancepartner.model import CoachConstraints, Dancer, Role, Survey, Team, Tier
 from dancepartner.storage import (
     MalformedYamlError,
     StorageError,
@@ -280,3 +280,83 @@ def test_tier_model_is_rebuilt_not_shared() -> None:
     assert team.surveys == []
     assert Tier(rank=1, dancer_ids=frozenset({"fol0"})).dancer_ids == frozenset({"fol0"})
     assert Survey(dancer_id="led0").desired_tiers == []
+
+
+# -- coach constraints ----------------------------------------------------------------------
+
+COACH = """
+n_positions: 2
+dancers:
+  - id: led0
+    name: LED0
+    role: leader
+  - id: led1
+    name: LED1
+    role: leader
+  - id: fol0
+    name: FOL0
+    role: follower
+  - id: fol1
+    name: FOL1
+    role: follower
+coach_constraints:
+  together: [[led0, fol0]]
+  apart: [[led0, led1]]
+"""
+
+
+def test_coach_constraints_round_trip() -> None:
+    team = parse_team(COACH)
+    assert team.coach_constraints.together == [frozenset({"led0", "fol0"})]
+    assert team.coach_constraints.apart == [frozenset({"led0", "led1"})]
+    assert parse_team(dump_team(team)) == team
+
+
+def test_coach_constraints_are_written_last_and_inline() -> None:
+    text = dump_team(parse_team(COACH))
+    keys = [line.split(":")[0] for line in text.splitlines() if line and not line[0].isspace()]
+    assert keys == ["n_positions", "dancers", "coach_constraints"]
+    # Inline like the tiers: a rule is short and reads as one line.
+    assert "    - [fol0, led0]" in text
+    assert "    - [led0, led1]" in text
+
+
+def test_coach_constraints_are_omitted_when_there_are_none() -> None:
+    assert "coach_constraints" not in dump_team(parse_team(MINIMAL))
+
+
+def test_coach_constraint_groups_are_emitted_in_a_stable_order() -> None:
+    # The model stores sets, so both the ids and the groups need an imposed order or the file
+    # churns between saves.
+    team = Team(
+        dancers=roster(2, 2),
+        n_positions=2,
+        coach_constraints=CoachConstraints(
+            apart=[frozenset({"led1", "fol1"}), frozenset({"fol0", "led0"})]
+        ),
+    )
+    assert dump_team(team) == dump_team(parse_team(dump_team(team)))
+    text = dump_team(team)
+    assert text.index("[fol0, led0]") < text.index("[fol1, led1]")
+
+
+def test_coach_constraints_reject_an_unknown_key() -> None:
+    with pytest.raises(StorageError, match=r"coach_constraints: unknown key\(s\) \['beside'\]"):
+        parse_team("dancers: []\ncoach_constraints: {beside: [[led0, led1]]}\n")
+
+
+def test_coach_constraints_must_be_a_mapping_of_lists_of_lists() -> None:
+    with pytest.raises(StorageError, match="coach_constraints must be a mapping"):
+        parse_team("dancers: []\ncoach_constraints: [led0, led1]\n")
+    with pytest.raises(StorageError, match="coach_constraints.together must be a list"):
+        parse_team("dancers: []\ncoach_constraints: {together: led0}\n")
+    with pytest.raises(StorageError, match=r"coach_constraints.apart\[0\]: expected a list"):
+        parse_team("dancers: []\ncoach_constraints: {apart: [led0]}\n")
+
+
+def test_a_rule_naming_an_unknown_dancer_is_a_domain_error_not_a_shape_error() -> None:
+    with pytest.raises(ValidationError, match="unknown dancer ids"):
+        parse_team(
+            "dancers: [{id: led0, name: LED0, role: leader}]\n"
+            "coach_constraints: {apart: [[led0, ghost]]}\n"
+        )

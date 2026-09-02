@@ -12,6 +12,9 @@ round-tripping a Python object:
   deterministic.
 * ``is_pole_position`` and ``needs_coaching`` are omitted when false, and empty survey
   directions are omitted entirely.
+* ``coach_constraints`` is omitted entirely when the coach has set no rule. Its groups are
+  sets in the model, so ids are emitted sorted and the groups themselves ordered, to keep
+  saves deterministic.
 
 Known limitation: PyYAML cannot preserve comments, so serialising drops any the coach wrote.
 Loading never touches the file, and the CLI only ever writes when asked to, so hand-maintained
@@ -26,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from .model import Dancer, Role, Survey, Team, Tier
+from .model import CoachConstraints, Dancer, Role, Survey, Team, Tier
 
 __all__ = [
     "MalformedYamlError",
@@ -109,7 +112,13 @@ def parse_team(text: str) -> Team:
     n_positions = raw.get("n_positions", 8)
     if not isinstance(n_positions, int) or isinstance(n_positions, bool):
         raise StorageError(f"n_positions must be an integer, found {n_positions!r}")
-    return Team(dancers=dancers, surveys=surveys, n_positions=n_positions)
+    coach_constraints = _parse_coach_constraints(raw.get("coach_constraints"))
+    return Team(
+        dancers=dancers,
+        surveys=surveys,
+        n_positions=n_positions,
+        coach_constraints=coach_constraints,
+    )
 
 
 def save_team(team: Team, path: Path | str) -> None:
@@ -127,6 +136,8 @@ def dump_team(team: Team) -> str:
     }
     if team.surveys:
         payload["surveys"] = [_dump_survey(survey) for survey in team.surveys]
+    if team.coach_constraints:
+        payload["coach_constraints"] = _dump_coach_constraints(team.coach_constraints)
     text = yaml.dump(
         payload,
         Dumper=_TeamDumper,
@@ -206,6 +217,36 @@ def _parse_tiers(raw: object, where: str) -> list[Tier]:
     return sorted(tiers, key=lambda tier: tier.rank)
 
 
+def _parse_coach_constraints(raw: object) -> CoachConstraints:
+    """Parse the ``together`` / ``apart`` block, each a list of dancer-id lists."""
+    if raw is None:
+        return CoachConstraints()
+    mapping = _mapping(raw, "coach_constraints")
+    unknown = set(mapping) - {"together", "apart"}
+    if unknown:
+        raise StorageError(f"coach_constraints: unknown key(s) {sorted(unknown)}")
+    return CoachConstraints(
+        together=_parse_groups(mapping.get("together"), "coach_constraints.together"),
+        apart=_parse_groups(mapping.get("apart"), "coach_constraints.apart"),
+    )
+
+
+def _parse_groups(raw: object, where: str) -> list[frozenset[str]]:
+    """One list of dancer-id lists into groups, order preserved."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise StorageError(f"{where} must be a list, found {type(raw).__name__}")
+    groups: list[frozenset[str]] = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, list):
+            raise StorageError(
+                f"{where}[{index}]: expected a list of dancer ids, found {type(entry).__name__}"
+            )
+        groups.append(frozenset(str(i) for i in entry))
+    return groups
+
+
 # -- dumping ------------------------------------------------------------------------------
 
 
@@ -237,3 +278,14 @@ def _dump_tiers(tiers: list[Tier]) -> dict[int, _FlowList]:
         tier.rank: _FlowList(sorted(tier.dancer_ids))
         for tier in sorted(tiers, key=lambda t: t.rank)
     }
+
+
+def _dump_coach_constraints(constraints: CoachConstraints) -> dict[str, list[_FlowList]]:
+    """The two rule kinds, each omitted when empty. Groups inline, like the tiers."""
+    entry: dict[str, list[_FlowList]] = {}
+    for key, groups in (("together", constraints.together), ("apart", constraints.apart)):
+        if groups:
+            entry[key] = sorted(
+                (_FlowList(sorted(group)) for group in groups), key=lambda group: list(group)
+            )
+    return entry

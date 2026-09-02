@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from .i18n import t
 from .model import Role, SolverConfig, Team
 
-__all__ = ["FeasibilityIssue", "check_feasibility", "veto_pairs"]
+__all__ = ["FeasibilityIssue", "check_feasibility", "together_components", "veto_pairs"]
 
 
 def _role_plural(role: Role) -> str:
@@ -63,6 +63,31 @@ def veto_pairs(team: Team, config: SolverConfig) -> set[frozenset[str]]:
     return pairs
 
 
+def together_components(team: Team) -> list[frozenset[str]]:
+    """The coach's ``together`` groups, merged over shared members.
+
+    ``{a, b}`` and ``{b, c}`` both on one position means all three are, so the groups the
+    solver and the checks below have to honour are the connected components of the groups,
+    not the groups as written. Single source of truth for that closure, the way
+    :func:`veto_pairs` is for vetoes: the two backends, :mod:`dancepartner.reporting` and the
+    tests must not be able to disagree about it.
+
+    Returns them sorted, so everything downstream is deterministic.
+    """
+    components: list[set[str]] = []
+    for group in team.coach_constraints.together:
+        merged = set(group)
+        rest: list[set[str]] = []
+        for component in components:
+            if component & merged:
+                merged |= component
+            else:
+                rest.append(component)
+        rest.append(merged)
+        components = rest
+    return sorted((frozenset(c) for c in components), key=lambda c: sorted(c))
+
+
 def check_feasibility(team: Team, config: SolverConfig | None = None) -> list[FeasibilityIssue]:
     """Return every counting obstruction found, empty list if none.
 
@@ -79,6 +104,7 @@ def check_feasibility(team: Team, config: SolverConfig | None = None) -> list[Fe
         # are in range; reporting both at once would produce noise.
         return issues
     issues.extend(_check_vetoes(team, config))
+    issues.extend(_check_coach_constraints(team, config))
     return issues
 
 
@@ -194,4 +220,113 @@ def _check_vetoes(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
                     available=singles,
                 )
             )
+    return issues
+
+
+def _names(team: Team, ids: frozenset[str] | tuple[str, ...]) -> str:
+    """Display names for a set of ids, in roster order, for a diagnostic message."""
+    return ", ".join(dancer.name for dancer in team.dancers if dancer.id in ids)
+
+
+def _check_coach_constraints(team: Team, config: SolverConfig) -> list[FeasibilityIssue]:
+    """The coach's own hard rules (SPEC.md 8, 7.), where counting alone already refuses them.
+
+    Every check here is about one position's capacity or the pigeonhole principle, so a
+    reported issue is a real obstruction -- the module's standing promise. Whether the rules
+    are *jointly* satisfiable with everybody else's remains the solver's question.
+    """
+    issues: list[FeasibilityIssue] = []
+    components = together_components(team)
+    if not components and not team.coach_constraints.apart:
+        return issues
+
+    by_id = team.dancers_by_id
+    vetoes = veto_pairs(team, config)
+    needs_double: dict[Role, list[frozenset[str]]] = {role: [] for role in Role}
+
+    for component in components:
+        for role in Role:
+            members = [i for i in sorted(component) if by_id[i].role is role]
+            if len(members) > 2:
+                issues.append(
+                    _issue(
+                        "COACH_TOGETHER_TOO_MANY_OF_ROLE",
+                        tuple(members),
+                        names=_names(team, component),
+                        role_label=_role_plural(role),
+                        count=len(members),
+                    )
+                )
+                continue
+            if len(members) < 2:
+                continue
+            # Two of a role on one position *is* a doubled position for that role.
+            needs_double[role].append(component)
+            pole = [i for i in members if by_id[i].is_pole_position]
+            if pole:
+                issues.append(
+                    _issue(
+                        "COACH_TOGETHER_POLE_POSITION",
+                        tuple(members),
+                        name=by_id[pole[0]].name,
+                        other=by_id[next(i for i in members if i not in pole)].name,
+                    )
+                )
+            if all(by_id[i].needs_coaching for i in members):
+                issues.append(
+                    _issue(
+                        "COACH_TOGETHER_TWO_COACHING",
+                        tuple(members),
+                        names=_names(team, frozenset(members)),
+                        role_label=_role_plural(role),
+                    )
+                )
+
+        vetoed = sorted(pair for pair in vetoes if pair <= component)
+        for pair in vetoed:
+            issues.append(
+                _issue(
+                    "COACH_TOGETHER_VETO",
+                    tuple(sorted(pair)),
+                    names=_names(team, pair),
+                )
+            )
+
+    # The components are disjoint by construction, so each one that needs a doubled position
+    # for a role consumes a distinct one; counting them against the supply is exact.
+    for role in Role:
+        available = team.n_doubled_positions(role)
+        wanted = needs_double[role]
+        if len(wanted) > available:
+            issues.append(
+                _issue(
+                    "COACH_TOGETHER_NEEDS_DOUBLES",
+                    tuple(sorted(frozenset().union(*wanted))),
+                    role_label=_role_plural(role),
+                    count=len(wanted),
+                    available=available,
+                )
+            )
+
+    for group in team.coach_constraints.apart:
+        if len(group) > team.n_positions:
+            issues.append(
+                _issue(
+                    "COACH_APART_TOO_MANY",
+                    tuple(sorted(group)),
+                    names=_names(team, group),
+                    count=len(group),
+                    p=team.n_positions,
+                )
+            )
+        for component in components:
+            both = group & component
+            if len(both) > 1:
+                issues.append(
+                    _issue(
+                        "COACH_TOGETHER_AND_APART",
+                        tuple(sorted(both)),
+                        names=_names(team, both),
+                    )
+                )
     return issues

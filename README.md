@@ -29,6 +29,7 @@ per role: a position may carry two leaders and only one follower.
 | Coaching need        | `needs_coaching`                | Must not stand alone in their role, and the same-role partner alongside must be experienced — two coaching needs never share a position. |
 | Desired partners     | `desired_tiers`                 | Tiered wish lists, tier 1 the strongest.                                                                                                 |
 | Not-desired partners | `not_desired_tiers`             | The same, inverted.                                                                                                                      |
+| Coach rule           | `coach_constraints`             | A hard rule the coach sets: these people share one position (`together`), or no two of them do (`apart`).                                 |
 | Team survey          | `Survey`                        | One person's answers.                                                                                                                    |
 | Partner assignment   | `Solution`                      | One complete allocation.                                                                                                                 |
 
@@ -40,6 +41,10 @@ Two properties decide the outcome and are easy to miss:
 * **Wishes are directed.** Anna wishing for Lukas does not mean Lukas wishes for Anna. The program completes nothing by
   symmetry. Only hard **vetoes** act both ways, and necessarily so:
   two people either share a position or they do not.
+* **A coach rule outranks the survey.** `together` puts people on one position and `apart` keeps
+  them off it, whatever they wrote down. Unlike a veto it is not read out of anyone's answers, so
+  the veto rank does not reach it. A rule names people and never a position letter — the positions
+  stay interchangeable.
 * **Whoever does not answer scores 0 points** — and therefore sits at the top of the satisfaction table. Not a bug, but
   the honest statement that nothing is known about this person.
 
@@ -308,7 +313,8 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 `make ui` starts a home page and four working pages:
 
 * **Home**: upload or create a team, or load the example; pre-check; download the team as YAML.
-* **Team**: the dancers as a table with name, role, pole position, coaching need.
+* **Team**: the dancers as a table with name, role, pole position, coaching need — and below it the coach rules,
+  which name dancers from that table.
 * **Survey**: any number of ranks per person and direction; conflicts are reported immediately.
 * **Solution**: configure the objective, solve, the eight positions as cards — dancers who can be swapped freely at zero
   cost are numbered 1️⃣, 2️⃣, …

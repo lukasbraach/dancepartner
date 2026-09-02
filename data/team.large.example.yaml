@@ -20,6 +20,13 @@
 # wünscht. Hier tun es die meisten, aber eben nicht alle — genau daran wird die Zielfunktion
 # interessant.
 #
+# Trainervorgaben (optional, ganz am Ende der Datei):
+#              coach_constraints:
+#                together: [[finn-a, alina-o]]   # teilen sich eine Position
+#                apart:    [[tobias-b, bettina-p]] # nie auf derselben Position
+#              Harte Regeln des Trainers, unabhängig von der Befragung. Sie benennen Tänzer:innen
+#              und nie einen Positionsbuchstaben; die Positionen bleiben austauschbar.
+#
 # Die Reihenfolge der Tänzer:innen ist bedeutsam: die Symmetriebrechung des Solvers numeriert
 # die Positionen nach dem Index der leader in dieser Liste.
 #

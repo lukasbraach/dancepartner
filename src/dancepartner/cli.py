@@ -19,7 +19,7 @@ from typing import Annotated, Any
 import typer
 from pydantic import ValidationError
 
-from .feasibility import FeasibilityIssue, check_feasibility
+from .feasibility import FeasibilityIssue, check_feasibility, together_components
 from .i18n import t
 from .model import (
     Direction,
@@ -415,6 +415,7 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
         _echo(t("explain.pole_position"))
     if dancer.needs_coaching:
         _echo(t("explain.needs_coaching", names=_names(team, same_role)))
+    _explain_coach_constraints(dancer_id, team)
 
     survey = team.surveys_by_id.get(dancer_id)
     if survey is None:
@@ -449,6 +450,18 @@ def _explain_dancer(dancer_id: str, solution: Solution, team: Team, config: Solv
 
     if satisfaction.neutral_partners:
         _echo(t("explain.neutral", names=_names(team, satisfaction.neutral_partners)))
+
+
+def _explain_coach_constraints(dancer_id: str, team: Team) -> None:
+    """The coach's own rules this dancer is named by (SPEC.md 8, 7.), if any."""
+    for component in together_components(team):
+        if dancer_id in component:
+            others = sorted(component - {dancer_id})
+            _echo(t("explain.coach_together", names=_names(team, others)))
+    for group in team.coach_constraints.apart:
+        if dancer_id in group:
+            others = sorted(group - {dancer_id})
+            _echo(t("explain.coach_apart", names=_names(team, others)))
 
 
 # typer derives the command name from the function name; "solve" collides with the imported

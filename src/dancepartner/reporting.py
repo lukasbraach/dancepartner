@@ -15,7 +15,7 @@ from itertools import permutations
 
 from pydantic import BaseModel, ConfigDict
 
-from .feasibility import veto_pairs
+from .feasibility import together_components, veto_pairs
 from .model import Role, SolverConfig, Team
 from .scoring import (
     DancerSatisfaction,
@@ -172,9 +172,20 @@ def exchange_groups(solution: Solution, team: Team, config: SolverConfig) -> lis
     base_groups = {p.label: [*p.leaders, *p.followers] for p in solution.positions}
     label_order = [p.label for p in solution.positions]
     vetoes = veto_pairs(team, config)
+    components = together_components(team)
+    apart = team.coach_constraints.apart
 
     def position_ok(occupants: list[str]) -> bool:
         """Hard constraints that a same-role permutation can still break on one position."""
+        here = set(occupants)
+        # The coach's rules (SPEC.md 8, 7.). Both are decidable from this position's occupants
+        # alone: a "together" component is either wholly here or not at all, and an "apart"
+        # group may put at most one of its members here. Without this the coach would be
+        # offered a free swap that breaks their own rule.
+        if any(0 < len(component & here) < len(component) for component in components):
+            return False
+        if any(len(group & here) > 1 for group in apart):
+            return False
         for role in Role:
             role_members = [i for i in occupants if by_id[i].role is role]
             if len(role_members) == 1 and by_id[role_members[0]].needs_coaching:

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
-from .feasibility import check_feasibility, veto_pairs
+from .feasibility import check_feasibility, together_components, veto_pairs
 from .model import Objective, Role, ScoreAggregation, SolverConfig, Team
 from .results import (
     InfeasibleInstanceError,
@@ -312,6 +312,18 @@ def _build_model(
     # 6. Hard vetoes.
     for pair in veto_pairs(team, config):
         model.add(together[pair] == 0)
+
+    # 7. The coach's own rules. Stated on x rather than on `together`, which only exists for
+    #    pairs somebody wrote a wish about. They name dancers and never a position label, so
+    #    they leave the canonical numbering below intact.
+    for component in together_components(team):
+        anchor, *rest = sorted(component)
+        for other in rest:
+            for p in team.positions:
+                model.add(x[(anchor, p)] == x[(other, p)])
+    for group in team.coach_constraints.apart:
+        for p in team.positions:
+            model.add_at_most_one(x[(dancer_id, p)] for dancer_id in sorted(group))
 
     if break_symmetry:
         _break_symmetry(model, x, team)
