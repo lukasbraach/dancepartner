@@ -96,6 +96,7 @@ class Model:
         self._columns = 0
         self._solution: list[float] = []
         self._solution_columns = 0
+        self._wall_time = 0.0
 
     # -- building ------------------------------------------------------------------------
 
@@ -153,7 +154,12 @@ class Model:
         sense = highspy.ObjSense.kMaximize if maximize else highspy.ObjSense.kMinimize
         self.h.changeObjectiveSense(sense)
         self._warm_start()
+        # ``getRunTime`` is the Highs object's lifetime total, not this solve's; the caller sums
+        # solves, so hand it the difference. Recorded before the status check so that a stage
+        # that ends in a time limit is still charged for its time.
+        before = float(self.h.getRunTime())
         self.h.run()
+        self._wall_time = float(self.h.getRunTime()) - before
         if not self.usable:
             return False
         self._solution = list(self.h.getSolution().col_value)
@@ -216,8 +222,12 @@ class Model:
 
     @property
     def wall_time(self) -> float:
-        """Seconds spent in the last solve."""
-        return float(self.h.getRunTime())
+        """Seconds spent in the last solve alone.
+
+        Not ``getRunTime()`` itself: that accumulates over the Highs object, and summing it per
+        stage inflated a 0.95 s solve to a reported 3.4 s.
+        """
+        return self._wall_time
 
     @property
     def num_nodes(self) -> int:

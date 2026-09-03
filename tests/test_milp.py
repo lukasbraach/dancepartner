@@ -124,6 +124,35 @@ def test_work_counters_are_reported() -> None:
     assert model.num_nodes >= 0
 
 
+class _ClockedHighs:
+    """The real solver, with ``getRunTime`` replaced by a scripted lifetime total."""
+
+    def __init__(self, inner: object, readings: list[float]) -> None:
+        self._inner = inner
+        self._readings = readings
+
+    def getRunTime(self) -> float:  # noqa: N802 -- mirrors the HiGHS method name
+        return self._readings.pop(0)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+
+def test_wall_time_is_the_last_solve_not_the_lifetime_total() -> None:
+    """HiGHS's ``getRunTime`` accumulates; the caller sums solves, so this must not.
+
+    Reading it directly made a 0.95 s staged solve report 3.4 s. Scripted rather than timed:
+    the readings are the totals before and after each of two solves.
+    """
+    model = _model()
+    model.h = _ClockedHighs(model.h, [0.0, 1.0, 1.0, 3.5])
+    a = model.binary()
+    assert model.optimize(Expr.of(a), maximize=True)
+    assert model.wall_time == pytest.approx(1.0)
+    assert model.optimize(Expr.of(a), maximize=True)
+    assert model.wall_time == pytest.approx(2.5), "the second solve alone, not 3.5 in total"
+
+
 class _StatusStub:
     """Stands in for HiGHS so the statuses a fast test cannot provoke are still checked."""
 

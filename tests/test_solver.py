@@ -577,3 +577,46 @@ def test_wall_time_counts_every_stage_not_just_the_last(monkeypatch: pytest.Monk
 
     assert len(per_stage) > 1, "this objective must run more than one stage"
     assert result.wall_time == pytest.approx(sum(per_stage))
+
+
+def test_highs_wall_time_sums_the_stages_and_charges_each_solve_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The HiGHS twin: the same summing, plus a guard against HiGHS's cumulative clock.
+
+    ``Highs.getRunTime`` is the object's lifetime total. Summing that per stage over-reported
+    a 0.95 s solve as 3.4 s -- and inflated the README's HiGHS columns the same way. The sum of
+    per-solve times can never exceed the lifetime total, which is what the last line checks.
+    """
+    pytest.importorskip("highspy")
+    from dancepartner import highs as solver_module
+    from dancepartner._milp import Expr, Model
+
+    per_stage: list[float] = []
+    models: list[Model] = []
+    new_model = solver_module._new_model
+
+    def spy(config: SolverConfig) -> Model:
+        created = new_model(config)
+        models.append(created)
+        inner = created.optimize
+
+        def recording(expr: Expr, *, maximize: bool) -> bool:
+            ok = inner(expr, maximize=maximize)
+            per_stage.append(created.wall_time)
+            return ok
+
+        created.optimize = recording  # type: ignore[method-assign]
+        return created
+
+    monkeypatch.setattr(solver_module, "_new_model", spy)
+
+    instance = team(4, 4, 3, desired("led0", tier(1, "fol0")), not_desired("led1", tier(1, "fol1")))
+    # max_solutions=1 skips the enumeration pass, so pass 1 is the whole of the reported time.
+    config = SolverConfig(objective=Objective.MAXIMIN_THEN_SUM, max_solutions=1)
+    result = solver_module.solve(instance, config)
+
+    assert len(per_stage) > 1, "this objective must run more than one stage"
+    assert result.wall_time == pytest.approx(sum(per_stage))
+    assert len(models) == 1
+    assert sum(per_stage) <= float(models[0].h.getRunTime()) + 1e-9

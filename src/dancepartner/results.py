@@ -9,10 +9,11 @@ Nothing here imports ortools or highspy, and nothing here should.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -27,7 +28,10 @@ __all__ = [
     "Stage",
     "StageResult",
     "StageSource",
+    "dump_result_json",
+    "parse_result_json",
     "ranking_key",
+    "result_payload",
 ]
 
 E = TypeVar("E")
@@ -148,3 +152,43 @@ def ranking_key(solution: Solution, config: SolverConfig) -> tuple[int, int, str
         for position in solution.positions
     )
     return (primary, secondary, tie_break)
+
+
+# -- the JSON contract ----------------------------------------------------------------------
+#
+# One shape, written by ``solve --json`` and the UI's export alike, read back by ``explain``.
+# Kept here rather than in cli.py so the browser build -- which has no typer -- can write the
+# same file the CLI reads (SPEC.md 11, 14.2).
+
+
+def result_payload(result: SolveResult, config: SolverConfig) -> dict[str, Any]:
+    """The machine-readable result: the config it was computed with, and the result itself."""
+    return {
+        "config": config.model_dump(mode="json"),
+        "result": result.model_dump(mode="json"),
+    }
+
+
+def dump_result_json(result: SolveResult, config: SolverConfig) -> str:
+    """Serialise :func:`result_payload` the way ``solve --json`` always has: indented, UTF-8."""
+    return json.dumps(result_payload(result, config), indent=2, ensure_ascii=False) + "\n"
+
+
+def parse_result_json(text: str) -> tuple[SolveResult, SolverConfig]:
+    """Read a result file back.
+
+    Raises:
+        ValueError: The text is not JSON (``json.JSONDecodeError`` is a subclass), does not have
+            the ``{"config", "result"}`` shape, fails validation (pydantic's ``ValidationError``
+            is a subclass too), or holds no solution. One exception type, so a caller has one
+            ``except`` to write.
+    """
+    raw: Any = json.loads(text)
+    try:
+        result = SolveResult.model_validate(raw["result"])
+        config = SolverConfig.model_validate(raw["config"])
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"not a result file: {error!r}") from error
+    if not result.solutions:
+        raise ValueError("the result file holds no solution")
+    return result, config

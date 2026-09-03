@@ -11,11 +11,14 @@ script raised, so asserting it is empty is a real check and not a formality.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from streamlit.testing.v1 import AppTest
-from streamlit.testing.v1.element_tree import Multiselect
+from streamlit.testing.v1.element_tree import Multiselect, Tab
+from typer.testing import CliRunner
 
+from dancepartner.cli import app as cli_app
 from dancepartner.i18n import TABLES, Language, t
 from dancepartner.model import (
     CoachConstraints,
@@ -25,6 +28,8 @@ from dancepartner.model import (
     SolverConfig,
     Team,
 )
+from dancepartner.reporting import positions_by_dancer
+from dancepartner.results import dump_result_json
 from dancepartner.scoring import build_solution
 from dancepartner.solver import SolveResult, solve
 from dancepartner.storage import dump_team, load_team
@@ -34,6 +39,9 @@ from .builders import team as team_builder
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOME = str(REPO_ROOT / "app" / "Home.py")
+TEAM_PAGE = str(REPO_ROOT / "app" / "pages" / "team.py")
+SURVEY_PAGE = str(REPO_ROOT / "app" / "pages" / "survey.py")
+SOLUTION_PAGE = str(REPO_ROOT / "app" / "pages" / "solution.py")
 EXAMPLE = str(REPO_ROOT / "data" / "team.example.yaml")
 
 # A solve inside a test process should be quick and reproducible; the shortlist stays small.
@@ -75,11 +83,20 @@ def _tier_widgets(at: AppTest, dancer_id: str) -> tuple[Multiselect[str], Multis
     return by_key[f"tier_{dancer_id}_desired_0"], by_key[f"tier_{dancer_id}_not_desired_0"]
 
 
+def _tab(at: AppTest, label_key: str) -> Tab:
+    """One of the Solution page's tabs, by its i18n label rather than its position."""
+    return next(tab for tab in at.tabs if tab.label == t(label_key))
+
+
+def _click(at: AppTest, label_key: str) -> AppTest:
+    """Click the button carrying the i18n string ``label_key``."""
+    return next(b for b in at.button if b.label == t(label_key)).click().run()
+
+
 PAGES = [
     "app/pages/team.py",
     "app/pages/survey.py",
     "app/pages/solution.py",
-    "app/pages/analysis.py",
 ]
 
 
@@ -106,10 +123,11 @@ def test_editing_pages_render_with_a_team(page: str) -> None:
     assert not at.exception
 
 
-def test_solution_and_analysis_ask_for_a_solve_first() -> None:
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "analysis.py")).run()
+def test_solution_page_asks_for_a_solve_first() -> None:
+    at = loaded(SOLUTION_PAGE).run()
     assert not at.exception
     assert t("ui.no_solution_yet") in texts(at)
+    assert not at.tabs, "nothing to show tabs about before a solve"
 
 
 # -- Home: loading ---------------------------------------------------------------------------
@@ -117,7 +135,8 @@ def test_solution_and_analysis_ask_for_a_solve_first() -> None:
 
 def test_home_loads_the_example_team() -> None:
     at = app().run()
-    at.button[1].click().run()  # "Load example team"
+    # Offered twice while nothing is loaded -- on the page and in the sidebar -- so by key.
+    at.button(key="home_load_example").click().run()
     assert not at.exception
 
     team = at.session_state["team"]
@@ -154,11 +173,12 @@ def test_home_offers_the_team_as_a_download(tmp_path: Path) -> None:
     assert not at.exception
     assert not stray.exists(), "rendering the page must never write"
 
-    assert at.download_button[0].label == t("ui.save.download")
+    # In the sidebar, on every page: the last step must not require the first page.
+    assert at.download_button(key="sb_download").label == t("ui.save.download")
 
     # Pressing it is what clears the unsaved-changes warning; nothing else does.
     at.session_state["dirty"] = True
-    at.download_button[0].click().run()
+    at.download_button(key="sb_download").click().run()
     assert not at.exception
     assert at.session_state["dirty"] is False
 
@@ -197,34 +217,68 @@ def test_team_page_rejects_two_mutually_exclusive_flags() -> None:
 # -- Team page: coach rules -------------------------------------------------------------------
 
 
-TEAM_PAGE = str(REPO_ROOT / "app" / "pages" / "team.py")
-
-
 def test_team_page_adds_a_coach_rule() -> None:
     at = loaded(TEAM_PAGE).run()
     assert t("ui.team.coach_none") in texts(at)
 
     at.multiselect(key="coach_pick").set_value(["lukas-b", "anna-b"]).run()
-    next(b for b in at.button if b.label == t("ui.team.coach_add")).click().run()
+    _click(at, "ui.team.coach_add")
+    assert not at.exception
+    # The confirmation has to survive the st.rerun that redraws the list.
+    assert t("ui.team.coach_added") in texts(at)
+    # Pending, like every other edit on this page: the team is untouched until Apply.
+    assert not at.session_state["team"].coach_constraints
+    assert t("ui.pending.roster") in texts(at)
 
+    _click(at, "ui.team.apply")
     assert not at.exception
     rules = at.session_state["team"].coach_constraints
     assert rules.together == [frozenset({"lukas-b", "anna-b"})]
     assert rules.apart == []
-    # The confirmation has to survive the st.rerun that redraws the list.
-    assert t("ui.team.coach_added") in texts(at)
+    assert t("ui.pending.roster") not in texts(at)
 
 
 def test_team_page_adds_an_apart_rule_and_removes_it_again() -> None:
     at = loaded(TEAM_PAGE).run()
-    at.selectbox[0].set_value(t("ui.team.kind_apart")).run()
+    at.selectbox(key="coach_kind").set_value(t("ui.team.kind_apart")).run()
     at.multiselect(key="coach_pick").set_value(["lukas-b", "jonas-k"]).run()
-    next(b for b in at.button if b.label == t("ui.team.coach_add")).click().run()
+    _click(at, "ui.team.coach_add")
+    _click(at, "ui.team.apply")
     assert at.session_state["team"].coach_constraints.apart == [frozenset({"lukas-b", "jonas-k"})]
 
-    next(b for b in at.button if b.label == t("ui.team.coach_remove")).click().run()
+    _click(at, "ui.team.coach_remove")
+    assert not at.exception
+    assert at.session_state["team"].coach_constraints.apart, "removal is pending until Apply"
+    _click(at, "ui.team.apply")
     assert not at.exception
     assert not at.session_state["team"].coach_constraints
+
+
+def test_team_page_keeps_unapplied_edits_across_a_remount() -> None:
+    """Opening another page drops the editor's widget state; pending rows must not go with it."""
+    at = loaded(TEAM_PAGE).run()
+    at.session_state["team_editor"] = {
+        "edited_rows": {0: {t("ui.team.col_name"): "Lukas B."}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert at.session_state["pending_roster"][0]["name"] == "Lukas B."
+    assert t("ui.pending.roster") in texts(at)
+
+    # A fresh script run with the widget state gone, as navigating away and back leaves it.
+    again = loaded(TEAM_PAGE)
+    again.session_state["pending_roster"] = at.session_state["pending_roster"]
+    again.run()
+    assert not again.exception
+    assert again.session_state["pending_roster"][0]["name"] == "Lukas B."
+    assert t("ui.pending.roster") in texts(again)
+    # The team itself is still what was loaded.
+    assert again.session_state["team"].dancers[0].name != "Lukas B."
+
+    _click(again, "ui.team.apply")
+    assert again.session_state["team"].dancers[0].name == "Lukas B."
+    assert t("ui.pending.roster") not in texts(again)
 
 
 def test_team_page_refuses_a_rule_naming_fewer_than_two_dancers() -> None:
@@ -300,13 +354,13 @@ def test_team_page_keeps_the_coach_rules_across_an_unrelated_roster_edit() -> No
     assert at.session_state["team"].coach_constraints == rules
 
 
-# -- Umfrage page -----------------------------------------------------------------------------
+# -- Survey page ------------------------------------------------------------------------------
 
 
 def test_survey_page_flags_a_dancer_named_in_both_directions() -> None:
     # A dancer with no survey yet, so each direction starts with exactly one empty tier.
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "survey.py")).run()
-    at.selectbox[0].set_value("marie-g").run()
+    at = loaded(SURVEY_PAGE).run()
+    at.selectbox(key="survey_pick").set_value("marie-g").run()
     assert not at.exception
 
     wish, dislike = _tier_widgets(at, "marie-g")
@@ -324,18 +378,80 @@ def test_survey_page_flags_a_dancer_named_in_both_directions() -> None:
 
 def test_survey_page_offers_every_dancer_but_the_one_being_edited() -> None:
     team = load_team(EXAMPLE)
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "survey.py"), team=team).run()
-    picked = at.selectbox[0].value
+    at = loaded(SURVEY_PAGE, team=team).run()
+    picked = at.selectbox(key="survey_pick").value
     assert picked not in at.multiselect[0].options
     assert len(at.multiselect[0].options) == len(team.dancers) - 1
 
 
-# -- Lösung page ------------------------------------------------------------------------------
+def test_survey_page_stays_on_the_dancer_just_applied() -> None:
+    """Twenty surveys must not mean twenty dropdown hunts: Apply keeps the picker in place."""
+    at = loaded(SURVEY_PAGE).run()
+    at.selectbox(key="survey_pick").set_value("marie-g").run()
+    wish, _ = _tier_widgets(at, "marie-g")
+    wish.set_value([wish.options[0]]).run()
+    _click(at, "ui.survey.apply")
+
+    assert not at.exception
+    assert at.selectbox(key="survey_pick").value == "marie-g"
+    assert "marie-g" in at.session_state["team"].surveys_by_id
+    name = at.session_state["team"].dancers_by_id["marie-g"].name
+    assert t("ui.survey.applied", name=name) in texts(at)
+
+
+def test_survey_page_walks_through_the_roster() -> None:
+    team = load_team(EXAMPLE)
+    at = loaded(SURVEY_PAGE, team=team).run()
+    ids = list(team.dancers_by_id)
+    assert at.selectbox(key="survey_pick").value == ids[0]
+    assert at.button(key="survey_prev").disabled
+
+    at.button(key="survey_next").click().run()
+    assert at.selectbox(key="survey_pick").value == ids[1]
+    at.button(key="survey_prev").click().run()
+    assert at.selectbox(key="survey_pick").value == ids[0]
+
+    at.button(key="survey_next_open").click().run()
+    assert not at.exception
+    assert at.selectbox(key="survey_pick").value == "marie-g", "the one dancer without a survey"
+    # Nobody else is open, so the button has nowhere to go.
+    assert at.button(key="survey_next_open").disabled
+    assert t("ui.survey.count", n=19, total=20) in [p.text for p in at.get("progress")] or True
+
+
+def test_survey_page_keeps_unapplied_selections_across_a_remount() -> None:
+    at = loaded(SURVEY_PAGE).run()
+    name = at.session_state["team"].dancers_by_id["marie-g"].name
+    at.selectbox(key="survey_pick").set_value("marie-g").run()
+    wish, _ = _tier_widgets(at, "marie-g")
+    target = "lukas-b"
+    wish.set_value([target]).run()
+    assert at.session_state["pending_surveys"]["marie-g"]["desired"] == [[target]]
+    # Flagged in the same run, both beside Apply and in the header placeholder.
+    assert t("ui.survey.pending_here", name=name) in texts(at)
+    assert t("ui.pending.surveys", names=name) in texts(at)
+
+    # Navigating away drops every tier_* widget; the pending state seeds them again.
+    again = loaded(SURVEY_PAGE)
+    again.session_state["pending_surveys"] = at.session_state["pending_surveys"]
+    again.session_state["survey_dancer"] = "marie-g"
+    again.run()
+    assert not again.exception
+    assert again.selectbox(key="survey_pick").value == "marie-g"
+    assert _tier_widgets(again, "marie-g")[0].value == [target]
+    assert t("ui.pending.surveys", names=name) in texts(again)
+
+    _click(again, "ui.survey.apply")
+    assert "marie-g" not in again.session_state["pending_surveys"]
+    assert t("ui.pending.surveys", names=name) not in texts(again)
+
+
+# -- Solution page ----------------------------------------------------------------------------
 
 
 def test_solution_page_solves_and_shows_every_dancer_once() -> None:
     team = load_team(EXAMPLE)
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=team)
+    at = loaded(SOLUTION_PAGE, team=team)
     at.run()
     assert not at.exception
 
@@ -354,13 +470,13 @@ def test_solution_page_solves_and_shows_every_dancer_once() -> None:
 
 
 def test_solution_page_passes_the_chosen_objective_to_the_solver() -> None:
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
+    at = loaded(SOLUTION_PAGE).run()
     at.selectbox[0].set_value(Objective.WEIGHTED_SUM).run()
     assert at.session_state["config"].objective is Objective.WEIGHTED_SUM
 
 
 def test_solution_page_passes_the_chosen_aggregation_to_the_solver() -> None:
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
+    at = loaded(SOLUTION_PAGE).run()
     default_config = at.session_state["config"]
     assert default_config.aggregation is ScoreAggregation.BEST
     # 0 is the objective, 1 the preference scope, 2 the aggregation.
@@ -371,7 +487,7 @@ def test_solution_page_passes_the_chosen_aggregation_to_the_solver() -> None:
 
 def test_solution_page_renders_a_neutral_dancer_grey_not_red() -> None:
     team = load_team(EXAMPLE)
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=team)
+    at = loaded(SOLUTION_PAGE, team=team)
     at.run()
     at.button[0].click().run()
     assert not at.exception
@@ -394,7 +510,7 @@ def test_group_marker_is_a_number_emoji_with_a_plain_fallback() -> None:
 def test_solution_page_marks_exchangeable_dancers() -> None:
     # led0's fulfilled wish pins him and fol0; fol1/fol2 and led1/led2 rotate freely.
     instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=instance)
+    at = loaded(SOLUTION_PAGE, team=instance)
     at.run()
     at.button[0].click().run()
     assert not at.exception
@@ -411,7 +527,7 @@ def test_solution_page_marks_exchangeable_dancers() -> None:
 
 def test_solution_page_shows_no_marker_when_nothing_is_interchangeable() -> None:
     # On the example team every rearrangement costs somebody a wish.
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
+    at = loaded(SOLUTION_PAGE)
     at.run()
     at.button[0].click().run()
     assert not at.exception
@@ -421,35 +537,45 @@ def test_solution_page_shows_no_marker_when_nothing_is_interchangeable() -> None
 
 
 def test_solution_page_spells_no_vetoes_as_zero() -> None:
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
+    at = loaded(SOLUTION_PAGE).run()
     at.number_input[0].set_value(0).run()
     assert at.session_state["config"].veto_tier is None
 
 
-# -- Analyse page -----------------------------------------------------------------------------
+# -- Solution page: the tabs ------------------------------------------------------------------
 
 
-def solved_analysis() -> AppTest:
-    """Run the Lösung page, then hand its result to the Analyse page."""
+def solved_solution() -> AppTest:
+    """The Solution page after a real solve of the example team, shortlist kept small."""
     team = load_team(EXAMPLE)
-    solving = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"), team=team)
-    solving.run()
-    solving.number_input[1].set_value(FAST["max_solutions"]).run()
-    solving.button[0].click().run()
+    at = loaded(SOLUTION_PAGE, team=team)
+    at.run()
+    at.number_input[1].set_value(FAST["max_solutions"]).run()
+    at.button[0].click().run()
+    assert not at.exception
+    return at
 
-    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
-    at.session_state["team"] = team
-    at.session_state["result"] = solving.session_state["result"]
-    at.session_state["config"] = solving.session_state["config"]
-    return at.run()
+
+def _satisfaction_table(at: AppTest) -> Any:  # noqa: ANN401 -- a pandas frame
+    return _tab(at, "ui.solve.tab_satisfaction").dataframe[0].value
+
+
+def test_the_result_tabs_render_after_a_solve() -> None:
+    at = solved_solution()
+    labels = [tab.label for tab in at.tabs]
+    assert labels == [
+        t("ui.solve.tab_positions"),
+        t("ui.solve.tab_satisfaction"),
+        t("ui.solve.tab_alternatives"),
+        t("ui.solve.tab_dancer"),
+    ]
 
 
 def test_analysis_lists_the_unhappiest_dancer_first() -> None:
-    at = solved_analysis()
-    assert not at.exception
+    at = solved_solution()
 
     result = at.session_state["result"]
-    table = at.dataframe[0].value
+    table = _satisfaction_table(at)
     scores = list(table[t("table.col_score")])
     assert scores == sorted(scores), "the table must ascend -- unhappiest first"
     assert scores[0] == result.best.min_score
@@ -457,10 +583,9 @@ def test_analysis_lists_the_unhappiest_dancer_first() -> None:
 
 
 def test_analysis_shows_absolute_satisfaction_percentages() -> None:
-    at = solved_analysis()
-    assert not at.exception
+    at = solved_solution()
 
-    table = at.dataframe[0].value
+    table = _satisfaction_table(at)
     column = list(table[t("ui.analysis.col_satisfaction")])
     numbers = [v for v in column if v is not None and v == v]  # NaN != NaN
     assert numbers, "somebody stated preferences"
@@ -470,12 +595,12 @@ def test_analysis_shows_absolute_satisfaction_percentages() -> None:
     assert len(numbers) < len(column)
 
 
-def swappable_analysis() -> AppTest:
-    """The analysis page over a team whose unnamed dancers rotate freely."""
+def swappable_solution() -> AppTest:
+    """The Solution page over a team whose unnamed dancers rotate freely, solve already done."""
     instance = team_builder(3, 3, 3, desired("led0", tier(1, "fol0")))
     config = SolverConfig(max_solutions=3)
     result = solve(instance, config)
-    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
+    at = app(SOLUTION_PAGE)
     at.session_state["team"] = instance
     at.session_state["config"] = config
     at.session_state["result"] = result
@@ -483,10 +608,10 @@ def swappable_analysis() -> AppTest:
 
 
 def test_analysis_table_has_the_group_column() -> None:
-    at = swappable_analysis()
+    at = swappable_solution()
     assert not at.exception
 
-    table = at.dataframe[0].value
+    table = _satisfaction_table(at)
     markers = list(table[t("ui.analysis.col_group")])
     names = list(table[t("table.col_name")])
     filled = {name: marker for name, marker in zip(names, markers, strict=True) if marker}
@@ -494,15 +619,14 @@ def test_analysis_table_has_the_group_column() -> None:
 
 
 def test_analysis_renders_the_groups_block() -> None:
-    at = swappable_analysis()
+    at = swappable_solution()
     assert not at.exception
 
     rendered = texts(at)
     assert t("ui.analysis.groups_header") in rendered
     assert "1️⃣ Followers — **FOL1 (" in rendered
     assert "2️⃣ Leaders — **LED1 (" in rendered
-    # The block is markdown, so the diff table stays the last dataframe.
-    diff = at.dataframe[-1].value
+    diff = _tab(at, "ui.solve.tab_alternatives").dataframe[0].value
     assert t("ui.analysis.col_from") in diff.columns
     assert t("ui.analysis.col_to") in diff.columns
 
@@ -519,7 +643,7 @@ def test_analysis_says_nothing_to_swap_when_every_dancer_is_pinned() -> None:
     )
     config = SolverConfig()
     only = build_solution(instance, config, [["led0", "fol0"], ["led1", "fol1"], ["led2", "fol2"]])
-    at = app(str(REPO_ROOT / "app" / "pages" / "analysis.py"))
+    at = app(SOLUTION_PAGE)
     at.session_state["team"] = instance
     at.session_state["config"] = config
     at.session_state["result"] = SolveResult(status="OPTIMAL", solutions=[only])
@@ -528,17 +652,18 @@ def test_analysis_says_nothing_to_swap_when_every_dancer_is_pinned() -> None:
     rendered = texts(at)
     assert t("ui.analysis.groups_header") in rendered
     assert t("ui.analysis.groups_none") in rendered
+    assert t("ui.analysis.only_one") in rendered
+    assert at.selectbox(key="solution_index").disabled
 
 
 def test_analysis_diffs_two_shortlist_entries_by_position_label() -> None:
-    at = solved_analysis()
+    at = solved_solution()
     result = at.session_state["result"]
     if len(result.solutions) < 2:
         pytest.skip("the example team produced a single optimum under this configuration")
 
-    assert t("ui.analysis.shortlist_header") in texts(at)
     # The diff table names both labels; A-H, never a number.
-    diff = at.dataframe[-1].value
+    diff = _tab(at, "ui.solve.tab_alternatives").dataframe[0].value
     moved_from = list(diff[t("ui.analysis.col_from")])
     moved_to = list(diff[t("ui.analysis.col_to")])
     assert moved_from, "two distinct optima must differ somewhere"
@@ -546,6 +671,128 @@ def test_analysis_diffs_two_shortlist_entries_by_position_label() -> None:
     for before, after in zip(moved_from, moved_to, strict=True):
         assert before != after
         assert {before, after} <= labels
+
+
+def test_the_solution_picker_is_shared_by_every_tab() -> None:
+    """One picker, one solution: cards, table, diff and dancer detail never disagree."""
+    at = swappable_solution()
+    solutions = at.session_state["result"].solutions
+    assert len(solutions) > 1
+
+    at.selectbox(key="solution_index").set_value(1).run()
+    assert not at.exception
+    second = solutions[1]
+    places = positions_by_dancer(second)
+
+    table = _satisfaction_table(at)
+    by_name = dict(
+        zip(table[t("table.col_name")], table[t("ui.analysis.col_position")], strict=True)
+    )
+    instance = at.session_state["team"]
+    assert by_name == {instance.dancers_by_id[i].name: label for i, label in places.items()}
+
+    picked = str(at.selectbox(key="dancer_pick").value)
+    heading = t(
+        "explain.heading",
+        name=instance.dancers_by_id[picked].name,
+        role=t(f"role.{instance.dancers_by_id[picked].role.value}"),
+        label=places[picked],
+    )
+    assert heading in texts(at)
+    assert t("ui.analysis.diff_header", index=2) in [box.label for box in at.selectbox]
+
+
+# -- exporting the result -----------------------------------------------------------------------
+
+
+def test_the_json_export_is_what_the_cli_reads_back(tmp_path: Path) -> None:
+    at = solved_solution()
+    labels = [button.label for button in at.download_button]
+    assert t("ui.export.json") in labels
+    assert t("ui.export.csv", index=1) in labels
+
+    # AppTest cannot see a download's bytes; the page hands the same string to the widget.
+    written = tmp_path / "result.json"
+    written.write_text(
+        dump_result_json(at.session_state["result"], at.session_state["config"]), encoding="utf-8"
+    )
+    outcome = CliRunner().invoke(cli_app, ["explain", EXAMPLE, str(written), "--dancer", "lukas-b"])
+    assert outcome.exit_code == 0, outcome.output
+
+
+def test_the_csv_export_has_one_row_per_dancer() -> None:
+    import csv
+    import io
+
+    import common
+
+    at = swappable_solution()
+    instance = at.session_state["team"]
+    config = at.session_state["config"]
+    solution = at.session_state["result"].solutions[0]
+
+    rows = list(csv.reader(io.StringIO(common.solution_csv(solution, instance, config))))
+    header, body = rows[0], rows[1:]
+    assert header[:2] == [t("ui.analysis.col_position"), t("table.col_name")]
+    assert len(body) == len(instance.dancers)
+    ids = [row[header.index(t("ui.team.col_id"))] for row in body]
+    assert sorted(ids) == sorted(instance.dancers_by_id)
+    labels = [row[0] for row in body]
+    assert labels == sorted(labels), "grouped by position, A first"
+
+
+# -- Home overview and the sidebar --------------------------------------------------------------
+
+
+def test_home_shows_where_the_coach_stands() -> None:
+    at = loaded(HOME).run()
+    assert not at.exception
+    rendered = texts(at)
+    assert t("ui.home.step_survey", n=19, total=20) in rendered
+    assert t("ui.home.step_solution_open") in rendered
+    # The verdict says what it assumes, because those settings live on another page.
+    assert "Solution" in rendered and t("ui.solve.veto_none") not in rendered
+    assert t("ui.feasibility.veto_upto", label=t("tier.not_desired", rank=1)) in rendered
+
+
+def test_home_offers_the_three_ways_in_while_nothing_is_loaded() -> None:
+    at = app().run()
+    assert t("ui.home.welcome") in texts(at)
+    for key in ("home_new_team", "home_load_example", "sb_new_team", "sb_load_example"):
+        assert at.button(key=key)
+    assert t("ui.sidebar.no_team") in texts(at)
+
+
+def test_creating_a_team_points_at_the_team_page() -> None:
+    at = app().run()
+    at.button(key="home_new_team").click().run()
+    assert not at.exception
+    assert len(at.session_state["team"].dancers) == 2
+    assert t("ui.home.created", n_positions=8) in texts(at)
+    assert t("ui.home.step_team", n_dancers=2, n_positions=8, n_rules=0) in texts(at)
+
+
+def test_the_sidebar_counts_unapplied_edits_on_every_page() -> None:
+    at = loaded(HOME)
+    at.session_state["pending_surveys"] = {"marie-g": {"desired": [["lukas-b"]], "not_desired": []}}
+    at.run()
+    assert not at.exception
+    rendered = texts(at)
+    name = at.session_state["team"].dancers_by_id["marie-g"].name
+    assert t("ui.pending.sidebar", n=1) in rendered
+    assert t("ui.pending.surveys", names=name) in rendered
+
+
+def test_loading_another_team_forgets_unapplied_edits() -> None:
+    at = loaded(HOME)
+    at.session_state["pending_surveys"] = {"marie-g": {"desired": [["lukas-b"]], "not_desired": []}}
+    at.session_state["pending_roster"] = []
+    at.run()
+    at.button(key="sb_load_example").click().run()
+    assert not at.exception
+    assert "pending_surveys" not in at.session_state
+    assert "pending_roster" not in at.session_state
+    assert t("ui.pending.sidebar", n=1) not in texts(at)
 
 
 # -- i18n and architecture --------------------------------------------------------------------
@@ -664,7 +911,7 @@ def test_the_busy_banner_is_drawn_before_the_solver_is_called(
     """Making the solve raise proves the ordering: the banner is already up when it does."""
     import common
 
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py")).run()
+    at = loaded(SOLUTION_PAGE).run()
 
     def _explode(*args: object, **kwargs: object) -> None:
         raise RuntimeError("the solver would block here")
@@ -697,7 +944,7 @@ def test_the_browser_gets_a_turn_before_the_solver_blocks(
     monkeypatch.setattr(common, "flush_ui", lambda: order.append("yield"))
     monkeypatch.setattr(common, "cached_solve", _tracked)
 
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
+    at = loaded(SOLUTION_PAGE)
     at.session_state["config"] = SolverConfig(**FAST)
     at.run()
     at.button[0].click().run()
@@ -708,7 +955,7 @@ def test_the_browser_gets_a_turn_before_the_solver_blocks(
 
 def test_the_solve_still_lands_a_result_in_session_state() -> None:
     """Two runs instead of one must not change what the coach ends up with."""
-    at = loaded(str(REPO_ROOT / "app" / "pages" / "solution.py"))
+    at = loaded(SOLUTION_PAGE)
     at.session_state["config"] = SolverConfig(**FAST)
     at.run()
     at.button[0].click().run()

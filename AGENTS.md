@@ -35,7 +35,10 @@ are about to touch; this file only lists the rules that bite fastest.
   `@pytest.mark.cpsat_only` is for tests that measure CP-SAT's own search effort.
 * Keep every big-M in `highs.py` at its provable minimum and say why in a comment. An oversized
   M is not a correctness bug, it is a silent performance one — `4 * bound` instead of
-  `2 * bound + 1` was the difference between a 4-second solve and a timeout.
+  `2 * bound + 1` was the difference between a 4-second solve and a timeout. Better still, no
+  M at all when both factors are 0/1: the cross-role halving went from a switch column with
+  four big-M rows to an exact AND per term, 368 s → 12 s. `bound` is the largest per-dancer
+  weight sum, never the instance-wide one.
 * Positions are labelled A–H, never 1–8. They are unordered and interchangeable.
 * Preferences are directed — never symmetrise. Hard vetoes are the one symmetric exception.
 * Integer arithmetic only in the objective (`SolverConfig.score_scale` exists so halving never
@@ -101,8 +104,9 @@ version the Pyodide index carries — or the `ortools` treatment in SPEC §14.9.
   touches no file of the coach's and never clears the unsaved-changes warning. See
   `app/persistence.py` and SPEC §14.4.
 * Loads mint a new draft version, edits overwrite the current one — `set_team(..., new_draft=True)`
-  on Home's three load paths only. The history is a list on the page, **not** the browser back
-  button: `st.query_params` reports the newest value after a back press in a `st.navigation` app
+  on the three load paths in `common.render_load_controls` only (sidebar and Home). The solver
+  settings ride beside the draft as a JSON sidecar (`persistence.save_config`), never inside the
+  team YAML. The history is a list in the sidebar, **not** the browser back button: `st.query_params` reports the newest value after a back press in a `st.navigation` app
   (streamlit#13963) and `st.context.url` carries no query string at all. Both verified in a
   browser; don't re-litigate it without re-testing.
 * The browser build has three things that are not obvious and are all verified in Chrome, not
@@ -118,6 +122,12 @@ version the Pyodide index carries — or the `ortools` treatment in SPEC §14.9.
   right after writing never lets it. `common.flush_ui()` sleeps 50 ms to yield, and
   `solve_and_store` calls it first thing. Deleting that sleep silently restores the bug — extra
   reruns do **not** substitute for it, ending a run is not a yield.
+* Explicit apply everywhere, and unapplied edits survive navigation: the editing pages mirror
+  their widgets into `common.PENDING_*` session keys every run and seed them back on mount.
+  `st.data_editor` with dynamic rows takes its widget identity from the data fed in, so the Team
+  page freezes its input (`ROSTER_BASE`) while mounted — feed it fresh rows and every edit resets.
+  The survey picker is seeded through the one-shot `SURVEY_JUMP` key before it is drawn; do not
+  rely on a keyed selectbox keeping its value when its formatted options change.
 * Nothing bare at module level in `app/Home.py` — Streamlit's magic renders a stray string or
   expression in the entry script straight into the page. Use `#` comments for constants there.
 * `wasm/build_static.py` is the third consumer of the `i18n.py` tables — the browser shell renders

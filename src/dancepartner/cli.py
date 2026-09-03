@@ -14,7 +14,7 @@ import json
 import logging
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 from pydantic import ValidationError
@@ -40,6 +40,7 @@ from .reporting import (
     satisfaction_rows,
     unfulfilled_desired,
 )
+from .results import dump_result_json, parse_result_json
 from .scoring import DancerSatisfaction, Solution
 from .solver import InfeasibleInstanceError, SolveResult, solve
 from .storage import MalformedYamlError, StorageError, load_team
@@ -300,13 +301,12 @@ def solve_command(  # noqa: PLR0913 -- one option per SolverConfig field, by des
 
 
 def _write_result(result: SolveResult, config: SolverConfig, path: Path) -> None:
-    """Write the machine-readable result that ``explain`` reads back."""
-    payload = {
-        "config": config.model_dump(mode="json"),
-        "result": result.model_dump(mode="json"),
-    }
+    """Write the machine-readable result that ``explain`` reads back.
+
+    The shape is ``results.dump_result_json``, shared with the UI's export.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(dump_result_json(result, config), encoding="utf-8")
 
 
 @app.command(help=t("help.explain"))
@@ -349,18 +349,14 @@ def explain(
 
 def _read_result(path: Path) -> tuple[SolveResult, SolverConfig]:
     try:
-        raw: Any = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         _fail(t("error.file_not_found", path=path))
+    try:
+        return parse_result_json(text)
     except json.JSONDecodeError as error:
         _fail(t("error.invalid_json", detail=error))
-    try:
-        result = SolveResult.model_validate(raw["result"])
-        config = SolverConfig.model_validate(raw["config"])
-        if not result.solutions:
-            raise ValueError("the result file holds no solution")
-        return result, config
-    except (KeyError, TypeError, ValidationError, ValueError) as error:
+    except ValueError as error:  # wrong shape, failed validation, or an empty shortlist
         _fail(t("error.invalid_team", detail=f"  - {error}"))
     raise AssertionError("unreachable")  # pragma: no cover
 

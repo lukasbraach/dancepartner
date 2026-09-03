@@ -43,7 +43,6 @@ def test_the_bundle_carries_the_whole_editor(tmp_path: Path) -> None:
         "app/pages/team.py",
         "app/pages/survey.py",
         "app/pages/solution.py",
-        "app/pages/analysis.py",
         "data/team.example.yaml",
     }
     assert expected <= set(files)

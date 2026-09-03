@@ -132,13 +132,13 @@ dancepartner/
 │   ├── i18n.py          # bilingual UI strings (EN default, DE)
 │   └── cli.py
 ├── app/
-│   ├── Home.py
-│   ├── common.py        # session state, cached solve, formatting; pages are thin
+│   ├── Home.py          # navigation, the sidebar workspace, the overview page
+│   ├── common.py        # session state, drafts, pending edits, cached solve, formatting
+│   ├── persistence.py   # drafts and the settings sidecar, per target
 │   └── pages/
 │       ├── team.py
 │       ├── survey.py
-│       ├── solution.py
-│       └── analysis.py
+│       └── solution.py  # settings, pre-check, solve, and the result in tabs
 └── tests/
 ```
 
@@ -395,9 +395,17 @@ partners has twice the score contributions; unnormalised, the solver systematica
 Doppelbesetzungen for well-liked dancers. What doubles a dancer's cross-role contributions is the
 number of dancers of the **other** role on their position, not their own role's count — see
 `solver._partner_doubled`. Scores live on a ×2-scaled integer scale
-(`SolverConfig.score_scale`) so the doubled case halves without rounding. The halving uses two
-linear equalities under `only_enforce_if` rather than `add_multiplication_equality`: the factor is
-binary, so they are exactly equivalent, stay linear, and propagate far better.
+(`SolverConfig.score_scale`) so the doubled case halves without rounding. The halving is written
+per weight term, not as a switch on the summed score:
+`score = best + scale·Σ w·together − (scale−1)·Σ_cross w·(together ∧ partner_doubled) + …`.
+Both backends encode `together ∧ partner_doubled` as an exact reified AND of two 0/1 quantities —
+no switch variable, no big-M. The earlier form (`scaled_cross == raw_cross if partner_doubled
+else scale·raw_cross`, two enforced equalities in CP-SAT and four big-M rows in HiGHS) computed the
+same optimum but had a weak LP relaxation, and was the whole cost of the pathological cases: on
+`data/team.large.example.yaml` under `--aggregation sum`, HiGHS went from 368 s to 12 s and CP-SAT
+from 12 s to 1.2 s on `weighted-sum` with nothing else changed. The score domains and every big-M
+that remains (the leximin indicator rows) are bounded by the **largest per-dancer** weight sum, not
+the instance-wide one — the latter was 13–30× looser on a real roster.
 
 Under `BEST` the halving applies to the **negative side only**: it corrects double-*collection*
 of summed contributions, and a maximum cannot double-collect. Halving the max would make a
@@ -459,8 +467,12 @@ Two `Stage` flags matter for correctness:
   it must be one-sided.
 
 `SolveResult.wall_time` accumulates over **all** stages (`_run_stages` sums per-stage times; a
-`CpSolver` only reports its most recent solve).
-`test_wall_time_counts_every_stage_not_just_the_last` pins the accumulation.
+`CpSolver` only reports its most recent solve). HiGHS has the opposite habit — `getRunTime()` is
+the `Highs` object's lifetime total — so `_milp.Model.optimize` records the difference around
+`run()`; summing the raw reading inflated a 0.95 s solve to 3.4 s.
+`test_wall_time_counts_every_stage_not_just_the_last` pins the accumulation for CP-SAT,
+`test_highs_wall_time_sums_the_stages_and_charges_each_solve_once` for HiGHS, and
+`test_milp.py::test_wall_time_is_the_last_solve_not_the_lifetime_total` the per-solve reading.
 
 ### Solution enumeration
 
@@ -560,29 +572,65 @@ No database.
 
 ## 10. Streamlit UI (`app/`)
 
-A home page and four working pages, all thin over `app/common.py` (session state, the cached
-solve, formatting):
+A home page and three working pages, all thin over `app/common.py` (session state, drafts, pending
+edits, the cached solve, formatting). The flow is the order of the menu: Team → Survey → Solution,
+and the coach never has to walk back to the first page to finish.
 
-* `Home.py` — upload or create a team, or load the bundled example; feasibility summary panel
-  (§7); explicit save as a **download**. Neither side prints a path: the app has no writable path
-  of its own once it is served to a browser, and `st.download_button` is the honest counterpart to
-  the uploader. Pressing it is what clears the unsaved-changes warning (`common.mark_saved`).
-* `pages/team.py` — dancer table with `st.data_editor`: name, role, pole position, coaching need.
+* **The sidebar**, on every page — everything about the *file*: the language toggle; what is loaded
+  (dancers, positions); the unsaved-changes and unapplied-edits warnings; the explicit save as a
+  **download**; a compact popover with the three ways in (upload, new team, the bundled example); the
+  earlier versions with a way back to each; and the page menu, drawn below all of that because the
+  file comes first. Neither side prints a path: the app has no writable path of its own once it is
+  served to a browser, and `st.download_button` is the honest counterpart to the uploader. Pressing
+  it is what clears the unsaved-changes warning (`common.mark_saved`).
+* `Home.py` — an overview, not a workplace. While nothing is loaded: the three ways in, prominent.
+  Once something is: one card per step (① Team with its counts, ② Survey with a progress bar,
+  ③ Solution computed or not), each a `st.page_link`, then the feasibility summary (§7) read-only,
+  with a caption saying which veto tier and wish scope it assumes and where they are set.
+* `pages/team.py` — dancer table with `st.data_editor`: name, role, pole position, coaching need;
+  the number of positions (the one place it is edited); and the coach-rules editor below the
+  roster. One **Apply** for all three.
 * `pages/survey.py` — pick a dancer, then per direction a dynamic list of tiers, each an
-  `st.multiselect` over eligible dancers, with add/remove tier buttons.
-* `pages/solution.py` — solver config widgets, a run button, the best solution as 8 cards with
-  badges for fulfilled wishes and violated dislikes. Dancers in an exchange group carry their
-  group's number emoji (1️⃣–🔟, plain text past ten) next to their name, with a caption
-  pointing to the analysis page.
-* `pages/analysis.py` — per-dancer satisfaction sorted ascending (the unhappiest first — that is
-  the row the coach actually needs) with an exchange-group column, an **exchange groups**
-  block naming each freely interchangeable set with its positions (computed for the selected
-  solution), plus a browser over the enumerated solutions with a diff against the selected
-  one.
+  `st.multiselect` over eligible dancers, with add/remove tier buttons; a progress bar and
+  Previous / Next / Next unanswered buttons, because twenty surveys are twenty visits.
+* `pages/solution.py` — top to bottom: the solver settings, the pre-check **right beside them**
+  (its verdict depends on them), the run button, then the result: one **solution picker** and the
+  two exports (JSON, CSV), and four tabs — **Positions** (8 cards with badges for fulfilled wishes
+  and violated dislikes; dancers in an exchange group carry their group's number emoji, 1️⃣–🔟,
+  plain text past ten; the stage table below), **Satisfaction** (per-dancer table sorted ascending
+  — the unhappiest first, that is the row the coach actually needs — with an exchange-group column,
+  and the **exchange groups** block naming each freely interchangeable set with its positions),
+  **Alternatives** (the enumerated shortlist with a diff against the selected solution), and
+  **Dancer** (one dancer explained, and how stable their partners are across the shortlist).
 
 Implementation rules:
 
 * Team state lives in `st.session_state`, persisted to YAML **only on explicit save**.
+* **Explicit apply everywhere, and nothing typed is lost before it.** The roster, the positions
+  count, the coach rules and each survey reach the team only through an Apply button — one mental
+  model, one moment at which a computed solution is invalidated. Streamlit drops a widget's state
+  the moment a run does not render it, so the editing pages mirror their widgets into plain
+  session-state keys on every run (`common.PENDING_*`) and seed the widgets back from them on the
+  next mount; a warning in the header and a count in the sidebar say what is pending, and both
+  are refilled by the page once it knows (`common.refresh_pending_warnings`). Loading or
+  restoring a team clears the pending state — it belonged to the previous team.
+* Two Streamlit facts shape how that is done. `st.data_editor` with dynamic rows derives its
+  widget identity from the data it is fed, so the rows fed in are frozen (`ROSTER_BASE`) while
+  the editor is mounted and re-derived from the pending rows only on a fresh mount or a language
+  switch. And a keyed selectbox whose formatted options change is not trusted to keep its value:
+  the survey picker is seeded through a one-shot `SURVEY_JUMP` key before it is drawn, which is
+  what keeps it on the dancer just applied.
+* **One picker, one solution.** Every tab renders the shortlist entry `common.SOLUTION_INDEX_KEY`
+  names; `set_result` resets it, so a new solve opens on its best entry. `st.tabs` renders every
+  tab on every run, so what they share is computed once, above them.
+* **The solver settings ride beside the draft.** `common.set_config` writes them through
+  `persistence.save_config` as a JSON sidecar of the current version — never into the team YAML,
+  whose shape is §9's contract and describes a team, not a run. A reload and a restored version
+  bring their settings back with them; an unreadable sidecar falls back to the defaults.
+* **Export.** The JSON download is exactly `results.dump_result_json` — the file `solve --json`
+  writes, so `explain` reads it back (§11). The CSV is the selected solution, one row per dancer
+  (position, name, role, id, score, satisfaction, exchange group) with headers through `i18n.py`.
+  The team YAML remains the only *save*; these describe a result.
 * The solve runs inside `st.spinner`, wrapped in `st.cache_data`. `st.cache_data` cannot hash a
   pydantic model, so `cached_solve` passes explicit `hash_funcs`: `dump_team` for the `Team`,
   `model_dump_json()` for the `SolverConfig` — the core's canonical serialisations, so two teams
@@ -592,29 +640,32 @@ Implementation rules:
   check being relied on. `common.with_survey` goes through the constructor and returns surveys in
   roster order so the saved YAML stays stable.
 * The feasibility panel passes the **current** `SolverConfig`, not a default one — `veto_tier`
-  and `scope` change the verdict. (`cli.py::check` still passes a default; that is a pre-existing
-  CLI limitation, not a pattern to copy.)
+  and `scope` change the verdict. That is why it is drawn on the Solution page beside those two
+  widgets, and why Home's read-only copy says what it assumes. (`cli.py::check` still passes a
+  default; that is a pre-existing CLI limitation, not a pattern to copy.)
 * Editing pages validate §6 rules 3 and 4 **themselves** so the conflict reads in the coach's
   language, through `i18n.py`. Pydantic stays the final gate, but its raw message must never
   reach the coach.
 * The team page carries the coach-constraint editor below the roster: the rules name dancers from
-  the table above, and deleting a dancer prunes them in the same apply step. A rule is dropped
-  **whole**, never shrunk — "keep these three together" minus one dancer is a different rule, and
-  the coach never asked for it. Rules with fewer than two dancers and duplicates are refused in
-  the page, in the coach's language, per the rule above.
-* `st.rerun` throws the current run away, so a notice written just before it is never drawn. The
-  team page parks its notices in session state and renders them at the top of the next run.
+  the table above — including rows just added — and deleting a dancer prunes them in the same
+  apply step. A rule is dropped **whole**, never shrunk — "keep these three together" minus one
+  dancer is a different rule, and the coach never asked for it. Rules with fewer than two dancers
+  and duplicates are refused in the page, in the coach's language, per the rule above.
+* `st.rerun` throws the current run away, so a notice written just before it is never drawn.
+  Anything that reruns parks its notice (`common.flash`) and `page_header` draws it at the top of
+  the next run. A successful load reruns for the same reason: the sidebar above the load controls
+  was drawn for the previous team.
 * Empty and orphaned tiers are renumbered, not rejected — browser editing breaks the "contiguous
   from 1" rule constantly, and the coach did not cause it. See `common.renumber_tiers` /
   `tiers_from_selections`.
 * Colour encodes satisfaction only, never name or role. Under `ScoreAggregation.BEST` the scale
-  is **absolute**: `common.ratio_badge` over `reporting.satisfaction_ratio`, the analysis table
+  is **absolute**: `common.ratio_badge` over `reporting.satisfaction_ratio`, the Satisfaction tab
   shows a 0–100 % progress column, and a dancer with no stated preference renders grey (⬜),
   never red. Under `SUM`, `common.score_badge` keeps scaling against the achieved range of the
   solution being shown. Exchange groups are marked with **number** emoji (`common.group_marker`)
   precisely so they never compete with the colour channel.
 * `st.data_editor` is fed `list[dict]`, not a DataFrame (§4 keeps pandas out).
-* The solve page's main area holds only what changes the answer the coach is looking at —
+* The solve page's settings area holds only what changes the answer the coach is looking at —
   objective, aggregation, scope, veto rank, and the two normalisation switches. Search budget
   (`max_solutions`, `max_time_in_seconds`) and the two fine-tuning knobs (`near_optimal_ratio`,
   `tier_slack`) live behind **More settings**: they change how long the search runs or how wide
@@ -628,6 +679,10 @@ Implementation rules:
   that label in, so the wording lives in one place per language. German is the reason the label is
   direction-specific: "1. Wunsch" over a list of *un*wanted partners says the opposite of what it
   means.
+* `st.page_link` raises for a page the navigation does not know, and a page file run on its own
+  (`AppTest` does that) registers only itself — so links go through `common.page_link`, which
+  skips silently when there is no navigation. The UI tests address widgets by key, never by index,
+  for the same reason they always did (§12).
 
 `streamlit` being an extra is what makes "delete `app/` and the CLI still works" enforceable
 rather than aspirational; CI proves it by moving `app/` aside, uninstalling streamlit and running
@@ -760,17 +815,22 @@ at module level.** `tests/test_wasm_deps.py` and the `wasm-parity` CI job enforc
 
 Being able to solve everywhere is worth more here than solving fastest, which is the trade the
 `highs.py` formulation makes. HiGHS has no solution pool, so enumeration re-solves with a no-good
-cut per assignment instead of walking one search — see §8's enumeration notes.
+cut per assignment instead of walking one search — see §8's enumeration notes. Each stage hands
+HiGHS the previous stage's assignment as a MIP start (`_milp.Model._warm_start`), but only when no
+columns were added since, which leaves every leximin round cold. Extending it — the new indicator
+columns are all derivable from the previous solution — was measured and left out: the start is
+worth about 15 % where it does fire (`maximin-then-sum` under `sum`, 10.1 s against 11.9 s) and
+the leximin stages it would reach are already the cheap ones.
 
 ### 14.3 Degrading explicitly
 
 `app/common.py` exposes `SOLVER_AVAILABLE`, asked of the dispatcher (`available_backends()`)
 rather than of one package or of the platform. It is normally true everywhere, the browser
 included; it goes false only where neither backend is installed — a CLI-only install of the core,
-say. There, Solution and Analysis render `ui.solver.unavailable` and stop, and Home says so up
-front. Neither page leaves `st.navigation`: a missing menu entry is a worse lie than a page that
-explains itself. Analysis checks the capability *before* `require_result()`, or the coach would be
-told "no solution computed yet", which misstates the cause.
+say. There, the Solution page renders `ui.solver.unavailable` and stops — before its settings, so
+the coach does not choose settings for a run that cannot happen — and Home says so up front. The
+page does not leave `st.navigation`: a missing menu entry is a worse lie than a page that explains
+itself.
 
 ### 14.4 Drafts
 
@@ -798,6 +858,17 @@ never meant to impose.
 Both are best effort and swallow their own failures. A private window with IndexedDB disabled
 degrades to "a reload loses the team", which is where this project started.
 
+#### The settings sidecar
+
+The solver settings travel with the draft — as a sibling, never as part of it. `persistence.save_config`
+writes `SolverConfig.model_dump_json()` next to the current version (a `{token}.config.json` on the
+mount; a `config` field in the server slot) whenever the coach changes a setting, and `load_config`
+reads it back with the draft and with each restored version. The team YAML stays §9's shape: it
+describes a team, and a run is not a property of a team. The draft glob matches `*.draft.yaml`
+only, so the history never counts a sidecar; pruning and discarding take the sidecars along. An
+unreadable sidecar — a file from an older model, say — falls back to the defaults, which costs the
+coach a few clicks rather than an error page.
+
 #### Versions
 
 Each **load** — an upload, the example, a fresh team — mints a new token and leaves the previous
@@ -805,7 +876,7 @@ draft in place; each **edit** overwrites the current one. So loading something e
 what was open, and a survey keystroke does not add a history entry. `MAX_HISTORY` (10) versions are
 kept per browser; the browser build prunes the mount, which nothing else garbage-collects.
 
-The history is offered as a list on Home, not through the browser's back button, and that is not a
+The history is offered as a list in the sidebar, not through the browser's back button, and that is not a
 UX preference. **streamlit#13963**: in a `st.navigation` app a back press changes the URL and reruns
 the script, but `st.query_params` still reports the *newest* value, so the app cannot tell which
 version the URL points at. `st.context.url` is no way out — it carries no query string at all. Both

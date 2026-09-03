@@ -20,8 +20,11 @@ What changes is only how the logic is expressed. CP-SAT states implications dire
   ``doubled >= x``. No big-M.
 * ``max`` (the ``BEST`` aggregation) needs a selector: ``best >= c_i v_i`` for every operand
   plus ``best <= c_i v_i + M(1 - y_i)`` with ``sum y_i = 1``.
-* The half-scaling of cross-role weights is a product of a binary and a linear expression, so
-  it takes four big-M rows.
+* The half-scaling of cross-role weights is ``together AND partner_doubled`` per weight term --
+  the same three-row AND again -- so the only big-M rows left in the model are the leximin
+  indicators. It used to be a switch column with four big-M rows, and that was the LP
+  relaxation's weak spot: 368 s against 12 s on ``data/team.large.example.yaml`` under
+  ``--aggregation sum``. See :func:`_build_scores`.
 
 Enumeration is where the two genuinely differ. CP-SAT enumerates inside one search; HiGHS has
 no solution pool, so this re-solves with a no-good cut per solution found. See
@@ -153,8 +156,8 @@ def _run_stages(model: Model, source: StageSource) -> tuple[list[StageResult], s
     """Optimise each stage in turn, pinning its optimum before the next one is built.
 
     Structurally identical to ``cpsat._run_stages``; see the reasoning there. The one
-    difference is bookkeeping: HiGHS reports the run time of its most recent solve, so the
-    totals are accumulated per stage rather than read once at the end.
+    difference is bookkeeping: the ``Model`` reports each solve's own time and node count, so
+    the totals are accumulated per stage rather than read once at the end.
     """
     results: list[StageResult] = []
     history: list[_Stage] = []
@@ -301,23 +304,29 @@ def _build_model(model: Model, team: Team, config: SolverConfig, *, break_symmet
 def _reify_together(
     model: Model, x: dict[tuple[str, int], int], team: Team, pair: frozenset[str]
 ) -> Expr:
-    """Reify "these two dancers share a position", as the standard AND linearization.
-
-    The third row is what stops the solver zeroing the flag for a pair that *does* share a
-    position in order to dodge a negative weight. All three are mandatory.
-    """
+    """Reify "these two dancers share a position", as one :func:`_and` per position."""
     d, e = sorted(pair)
-    per_position: list[Expr] = []
-    for p in team.positions:
-        b = Expr.of(model.binary())
-        xd, xe = Expr.of(x[(d, p)]), Expr.of(x[(e, p)])
-        model.add(b - xd, hi=0)
-        model.add(b - xe, hi=0)
-        model.add(b - xd - xe, lo=-1)
-        per_position.append(b)
+    per_position = [_and(model, Expr.of(x[(d, p)]), Expr.of(x[(e, p)])) for p in team.positions]
     # Each dancer sits on exactly one position, so at most one term can be 1 and the sum is
     # already a 0/1 quantity; it needs no column of its own.
     return Expr.sum(per_position)
+
+
+def _and(model: Model, a: Expr, b: Expr) -> Expr:
+    """A fresh 0/1 column equal to ``a AND b``, for 0/1-valued ``a`` and ``b``.
+
+    The standard three-row linearization: ``h <= a``, ``h <= b``, ``h >= a + b - 1``. The
+    third row is what stops the solver zeroing the flag when both operands *are* 1 in order to
+    dodge a negative weight on it; all three are mandatory (see
+    ``tests/test_solver.py::test_reification_cannot_erase_dislike``). The operands may be
+    expressions rather than columns -- ``together`` and ``partner_doubled`` are sums of
+    per-position binaries of which at most one can be set -- and the rows stay exact.
+    """
+    h = Expr.of(model.binary())
+    model.add(h - a, hi=0)
+    model.add(h - b, hi=0)
+    model.add(h - a - b, lo=-1)
+    return h
 
 
 def _break_symmetry(model: Model, x: dict[tuple[str, int], int], team: Team) -> None:
@@ -354,7 +363,17 @@ def _build_scores(
         bucket = cross_terms if by_id[source].role is not by_id[target].role else same_terms
         bucket[source].append((weight, variable))
 
-    bound = sum(abs(weight) for weight in weights.values()) * scale + 1
+    # |score_d| <= scale * sum of |w| over d's own entries, in every branch below: under SUM
+    # trivially, under BEST the max is one of those terms and the negative part a subset of
+    # them, and halving only shrinks the cross part. So the largest per-dancer sum bounds every
+    # score, and with it every floor and every big-M downstream. The instance-wide sum would
+    # be a bound too, but a 13-30x looser one on a real roster, and an oversized M weakens the
+    # LP relaxation -- the usual reason a MILP that is merely large becomes a MILP that is slow.
+    bound = (
+        max(sum(abs(w) for w, _ in (*cross_terms[d.id], *same_terms[d.id])) for d in team.dancers)
+        * scale
+        + 1
+    )
     score: dict[str, Expr] = {}
     for dancer in team.dancers:
         cross = cross_terms[dancer.id]
@@ -375,22 +394,20 @@ def _build_scores(
             score[dancer.id] = best_fulfilled + raw_cross * scale + raw_same * scale
             continue
 
-        partner_doubled = _partner_doubled(model, x, doubled, team, dancer.id)
-        scaled_cross = Expr.of(model.integer(-bound, bound))
-        # scaled_cross == raw_cross when the opposite role is doubled here, scale * raw_cross
-        # otherwise. A product of a binary and a linear expression, so four big-M rows; CP-SAT
-        # says the same thing with two enforced equalities.
+        # The cross part is raw_cross when the opposite role is doubled here, scale * raw_cross
+        # otherwise. Written per weight term as scale * w * together - (scale - 1) * w * halved
+        # with halved = together AND partner_doubled: when the partner role is doubled every
+        # halved equals its together and the cross part collapses to raw_cross; otherwise every
+        # halved is 0. Both operands are 0/1-valued, so the AND is exact and there is no big-M.
         #
-        # Both sides of the switch live in [-bound, bound], so their difference cannot exceed
-        # 2 * bound and this M is provably slack. Keeping it at the provable minimum matters:
-        # an oversized M weakens the LP relaxation, which is the usual reason a MILP that is
-        # merely large becomes a MILP that is slow.
-        big_m = 2 * bound
-        model.add(scaled_cross - raw_cross * scale - partner_doubled * big_m, hi=0)
-        model.add(scaled_cross - raw_cross * scale + partner_doubled * big_m, lo=0)
-        model.add(scaled_cross - raw_cross + (partner_doubled - 1) * big_m, hi=0)
-        model.add(scaled_cross - raw_cross - (partner_doubled - 1) * big_m, lo=0)
-        score[dancer.id] = best_fulfilled + scaled_cross + raw_same * scale
+        # This replaced a switch column with four big-M rows. Same optimum, but the switch's
+        # relaxation was the model's weak spot: 368 s against 12 s for weighted-sum under
+        # ``--aggregation sum`` on the large example, and a tenfold gain for CP-SAT too.
+        partner_doubled = _partner_doubled(model, x, doubled, team, dancer.id)
+        halved = Expr.sum([_and(model, v, partner_doubled) * w for w, v in cross])
+        score[dancer.id] = (
+            best_fulfilled + raw_cross * scale - halved * (scale - 1) + raw_same * scale
+        )
     return score, bound
 
 
@@ -427,15 +444,10 @@ def _partner_doubled(
     That, not the dancer's own role count, is what doubles their number of cross-role partners.
     """
     opposite = team.dancers_by_id[dancer_id].role.opposite
-    per_position: list[Expr] = []
-    for p in team.positions:
-        here = Expr.of(model.binary())
-        occupied = Expr.of(x[(dancer_id, p)])
-        opposite_doubled = Expr.of(doubled[(opposite, p)])
-        model.add(here - occupied, hi=0)
-        model.add(here - opposite_doubled, hi=0)
-        model.add(here - occupied - opposite_doubled, lo=-1)
-        per_position.append(here)
+    per_position = [
+        _and(model, Expr.of(x[(dancer_id, p)]), Expr.of(doubled[(opposite, p)]))
+        for p in team.positions
+    ]
     # The dancer sits on exactly one position, so at most one term can be 1.
     return Expr.sum(per_position)
 
@@ -507,7 +519,8 @@ def _leximin_stages(model: Model, team: Team, variables: _Vars) -> StageSource:
     the ``above`` indicator a two-sided one.
     """
     bound = variables.score_bound
-    # Scores and floors both live in [-bound, bound], so no row here can need more slack than
+    # Scores and floors both live in [-bound, bound] -- bound being the largest per-dancer
+    # weight sum, see ``_build_scores`` -- so no row here can need more slack than
     # 2 * bound + 1. Tighter is better: an oversized M weakens the LP relaxation and this is
     # the stage the search spends most of its time in.
     big_m = 2 * bound + 1
@@ -532,11 +545,7 @@ def _leximin_stages(model: Model, team: Team, variables: _Vars) -> StageSource:
             if active is None:
                 still_in_play[dancer.id] = above
                 continue
-            both = Expr.of(model.binary())
-            model.add(both - active[dancer.id], hi=0)
-            model.add(both - above, hi=0)
-            model.add(both - active[dancer.id] - above, lo=-1)
-            still_in_play[dancer.id] = both
+            still_in_play[dancer.id] = _and(model, active[dancer.id], above)
 
         remaining = yield Stage(
             f"leximin.{round_index}.count",

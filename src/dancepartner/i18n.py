@@ -206,24 +206,23 @@ _STRINGS_EN: dict[str, str] = {
     "nav.team": "Team",
     "nav.survey": "Survey",
     "nav.solution": "Solution",
-    "nav.analysis": "Analysis",
     "nav.section": "Partner assignment",
     # -- UI: shared ----------------------------------------------------------------------
     "ui.title": "dancepartner",
     "ui.subtitle": "Partnering a Latin formation team as an exact optimization problem.",
     "ui.language": "Language",
-    "ui.no_team": "No team loaded yet — please load or create a team on “Home” first.",
-    "ui.no_solution_yet": "No solution computed yet — please solve on “Solution” first.",
+    "ui.no_team": "No team loaded yet — load or create one in the sidebar.",
+    "ui.no_solution_yet": "No solution computed yet — press “Compute partner assignment” above.",
     "ui.unsaved": "Unsaved changes. They will be lost unless you download the team.",
     # -- UI: what this deployment can do (SPEC.md 14) ------------------------------------
     "ui.solver.unavailable": (
-        "Computing an assignment is not available in the browser version: there is no "
-        "WebAssembly build of the solver (OR-Tools). Editing the team, recording the survey "
-        "and the feasibility pre-check all work here — to compute an assignment, download "
-        "the team and run it locally, or use the hosted version."
+        "No solver is installed here, so an assignment cannot be computed. Editing the team, "
+        "recording the survey and the pre-check all work — to compute an assignment, install "
+        "the package with a solver or use the hosted version."
     ),
     "ui.solver.editor_only": (
-        "Browser version: teams and surveys can be edited here, an assignment cannot be computed."
+        "Editor only: no solver is installed, so teams and surveys can be edited here but an "
+        "assignment cannot be computed."
     ),
     # -- browser boot screen ----------------------------------------------------------
     #
@@ -242,7 +241,7 @@ _STRINGS_EN: dict[str, str] = {
         "Changes stay in this browser, so reloading the page does not lose them. Nothing is "
         "written to disk."
     ),
-    "ui.draft.discard": "Discard browser draft",
+    "ui.draft.discard": "Discard all drafts and versions",
     "ui.draft.discarded": "Draft discarded.",
     "ui.draft.history": "Earlier versions",
     "ui.draft.history_hint": (
@@ -253,7 +252,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.draft.restore": "Restore",
     "ui.draft.restored_version": "Earlier version restored.",
     "ui.draft.gone": "That version has expired.",
-    # -- UI: Home (load / create / feasibility) ------------------------------------------
+    # -- UI: loading, saving, feasibility (sidebar and Home) -----------------------------
     "ui.load.header": "Load team",
     "ui.load.upload": "Upload file",
     "ui.load.uploader": "Drop a team file (YAML) here",
@@ -263,7 +262,6 @@ _STRINGS_EN: dict[str, str] = {
     "ui.load.create": "New team",
     "ui.load.create_button": "Create empty team",
     "ui.load.n_positions": "Positions",
-    "ui.save.header": "Save",
     "ui.save.download": "Download team as YAML",
     "ui.save.comment_warning": (
         "The download loses any comments in the YAML file — PyYAML cannot preserve them. "
@@ -282,7 +280,7 @@ _STRINGS_EN: dict[str, str] = {
         "Must be alone in their role on the position (no doubled position)."
     ),
     "ui.team.help_coaching": "Must NOT be alone in their role on the position.",
-    "ui.team.apply": "Apply changes",
+    "ui.team.apply": "Apply roster and rules",
     "ui.team.applied": "{n} dancers applied.",
     "ui.team.flags_exclusive": ("{name}: pole position and coaching need are mutually exclusive."),
     "ui.team.duplicate_id": "The ID “{dancer_id}” appears more than once.",
@@ -304,7 +302,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.team.coach_none": "No coach rules set.",
     "ui.team.coach_too_small": "A rule needs at least two dancers.",
     "ui.team.coach_duplicate": "That rule already exists.",
-    "ui.team.coach_added": "Rule added.",
+    "ui.team.coach_added": "Rule added — apply to keep it.",
     "ui.team.coach_orphan": (
         "{n} coach rule(s) were removed because a dancer named in them no longer exists."
     ),
@@ -332,7 +330,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.survey.answered": "answered",
     "ui.survey.unanswered": "pending",
     # -- UI: Solution --------------------------------------------------------------------
-    "ui.solve.header": "Objective and solver",
+    "ui.solve.header": "Solution",
     "ui.solve.run": "Compute partner assignment",
     "ui.solve.objective": "Objective",
     "ui.solve.aggregation": "Score aggregation",
@@ -346,11 +344,10 @@ _STRINGS_EN: dict[str, str] = {
     "ui.solve.normalize": "Halve scores on doubled positions",
     "ui.solve.prefer_coupled": "Prefer complete doubled positions",
     "ui.solve.advanced": "More settings",
-    "ui.solve.cards_header": "Positions",
     "ui.solve.doubled_badge": "doubled",
     "ui.solve.groups_hint": (
         "Dancers sharing a number can be swapped freely — every arrangement is equally "
-        "good. Details on the Analysis page."
+        "good. Details in the Satisfaction tab."
     ),
     "ui.solve.fulfilled_badge": "fulfilled",
     "ui.solve.violated_badge": "violated",
@@ -368,8 +365,7 @@ _STRINGS_EN: dict[str, str] = {
     "ui.aggregation.sum": "sum of fulfilled wishes",
     "ui.scope.cross_role_only": "cross-role only",
     "ui.scope.all": "all",
-    # -- UI: Analysis --------------------------------------------------------------------
-    "ui.analysis.header": "Satisfaction",
+    # -- UI: Solution tabs (satisfaction, alternatives, dancer) --------------------------
     "ui.analysis.hint": "Least satisfied first — that is the row you need.",
     "ui.analysis.col_position": "Position",
     "ui.analysis.col_satisfaction": "Satisfaction",
@@ -380,14 +376,54 @@ _STRINGS_EN: dict[str, str] = {
     "ui.analysis.groups_none": (
         "Nothing to swap — no rearrangement of this solution is equally good."
     ),
-    "ui.analysis.shortlist_header": "Equally good solutions",
-    "ui.analysis.pick": "Solution",
     "ui.analysis.only_one": "There is only one solution — nothing to compare here.",
     "ui.analysis.diff_header": "Difference to solution {index}",
     "ui.analysis.diff_none": "No difference.",
     "ui.analysis.col_from": "from",
     "ui.analysis.col_to": "to",
-    "ui.analysis.detail_header": "Individual dancer",
+    # -- UI: sidebar workspace, overview, unapplied edits, export ------------------------
+    "ui.sidebar.team": "{n_dancers} dancers · {n_positions} positions",
+    "ui.sidebar.no_team": "No team loaded.",
+    "ui.sidebar.load": "Load / new / example",
+    "ui.sidebar.unsaved": "Unsaved changes — download to keep them.",
+    "ui.pending.sidebar": "{n} unapplied change(s)",
+    "ui.pending.roster": ("Roster, positions or rules on “Team” are edited but not applied yet."),
+    "ui.pending.surveys": "Survey changes for {names} are not applied yet.",
+    "ui.home.welcome": (
+        "Load a team file, start a new team, or try the example. Loading and saving are also "
+        "in the sidebar on every page."
+    ),
+    "ui.home.steps": "Where you are",
+    "ui.home.step_team": (
+        "① Team: {n_dancers} dancers, {n_positions} positions, {n_rules} coach rule(s)"
+    ),
+    "ui.home.step_survey": "② Survey: {n} of {total} answered",
+    "ui.home.step_solution_done": "③ Solution: computed for this team",
+    "ui.home.step_solution_open": "③ Solution: not computed yet",
+    "ui.home.created": (
+        "New team with {n_positions} positions. Set the positions and add dancers on “Team”."
+    ),
+    "ui.feasibility.assumes": (
+        "Assumes hard vetoes: {veto}; counted wishes: {scope}. Both are set on “Solution”."
+    ),
+    "ui.feasibility.veto_upto": "up to {label}",
+    "ui.survey.prev": "Previous",
+    "ui.survey.next": "Next",
+    "ui.survey.next_open": "Next unanswered",
+    "ui.survey.pending_here": "Changes for {name} are not applied yet.",
+    "ui.team.coach_pending": "Rules are applied together with the roster.",
+    "ui.solve.tab_positions": "Positions",
+    "ui.solve.tab_satisfaction": "Satisfaction",
+    "ui.solve.tab_alternatives": "Alternatives",
+    "ui.solve.tab_dancer": "Dancer",
+    "ui.solve.pick": "Solution",
+    "ui.solve.dancer_pick": "Explain dancer",
+    "ui.export.json": "Download result (JSON)",
+    "ui.export.json_hint": (
+        "The same file “dancepartner solve --json” writes — “dancepartner explain team.yaml "
+        "result.json --dancer …” reads it."
+    ),
+    "ui.export.csv": "Download solution {index} (CSV)",
     # -- language names (native in both tables, so the toggle is always readable) ---------
     "language.en": "English",
     "language.de": "Deutsch",
@@ -598,14 +634,17 @@ _STRINGS_DE: dict[str, str] = {
     "nav.team": "Team",
     "nav.survey": "Umfrage",
     "nav.solution": "Lösung",
-    "nav.analysis": "Analyse",
     "nav.section": "Verpartnerung",
     # -- UI: shared ----------------------------------------------------------------------
     "ui.title": "dancepartner",
     "ui.subtitle": "Verpartnerung einer Lateinformation als exaktes Optimierungsproblem.",
     "ui.language": "Sprache",
-    "ui.no_team": "Noch kein Team geladen — bitte zuerst auf »Start« ein Team laden oder anlegen.",
-    "ui.no_solution_yet": "Noch keine Lösung berechnet — bitte zuerst auf »Lösung« rechnen lassen.",
+    "ui.no_team": (
+        "Noch kein Team geladen — bitte in der Seitenleiste ein Team laden oder anlegen."
+    ),
+    "ui.no_solution_yet": (
+        "Noch keine Lösung berechnet — oben auf »Verpartnerung berechnen« drücken."
+    ),
     "ui.unsaved": (
         "Ungespeicherte Änderungen. Sie gehen verloren, wenn Sie das Team nicht herunterladen."
     ),
@@ -634,7 +673,7 @@ _STRINGS_DE: dict[str, str] = {
         "Änderungen bleiben in diesem Browser erhalten, ein Neuladen verliert sie also nicht. "
         "Auf die Festplatte wird nichts geschrieben."
     ),
-    "ui.draft.discard": "Browser-Entwurf verwerfen",
+    "ui.draft.discard": "Alle Entwürfe und Stände verwerfen",
     "ui.draft.discarded": "Entwurf verworfen.",
     "ui.draft.history": "Frühere Stände",
     "ui.draft.history_hint": (
@@ -645,7 +684,7 @@ _STRINGS_DE: dict[str, str] = {
     "ui.draft.restore": "Wiederherstellen",
     "ui.draft.restored_version": "Früherer Stand wiederhergestellt.",
     "ui.draft.gone": "Dieser Stand ist abgelaufen.",
-    # -- UI: Start (load / create / feasibility) -----------------------------------------
+    # -- UI: Laden, Speichern, Vorprüfung (Seitenleiste und Start) -----------------------
     "ui.load.header": "Team laden",
     "ui.load.upload": "Datei hochladen",
     "ui.load.uploader": "Teamdatei (YAML) hierher ziehen",
@@ -655,7 +694,6 @@ _STRINGS_DE: dict[str, str] = {
     "ui.load.create": "Neues Team",
     "ui.load.create_button": "Leeres Team anlegen",
     "ui.load.n_positions": "Positionen",
-    "ui.save.header": "Speichern",
     "ui.save.download": "Team als YAML herunterladen",
     "ui.save.comment_warning": (
         "Beim Herunterladen gehen Kommentare in der YAML-Datei verloren — PyYAML kann sie "
@@ -674,7 +712,7 @@ _STRINGS_DE: dict[str, str] = {
         "Muss allein in der eigenen Rolle auf der Position sein (keine Doppelbesetzung)."
     ),
     "ui.team.help_coaching": "Darf NICHT allein in der eigenen Rolle auf der Position sein.",
-    "ui.team.apply": "Änderungen übernehmen",
+    "ui.team.apply": "Aufstellung und Regeln übernehmen",
     "ui.team.applied": "{n} Tänzer:innen übernommen.",
     "ui.team.flags_exclusive": (
         "{name}: Startanspruch und Coachingbedarf schließen sich gegenseitig aus."
@@ -698,7 +736,7 @@ _STRINGS_DE: dict[str, str] = {
     "ui.team.coach_none": "Keine Trainervorgaben gesetzt.",
     "ui.team.coach_too_small": "Eine Regel braucht mindestens zwei Tänzer:innen.",
     "ui.team.coach_duplicate": "Diese Regel gibt es schon.",
-    "ui.team.coach_added": "Regel hinzugefügt.",
+    "ui.team.coach_added": "Regel hinzugefügt — zum Behalten übernehmen.",
     "ui.team.coach_orphan": (
         "{n} Trainervorgabe(n) wurden entfernt, weil es eine benannte Tänzer:in nicht mehr gibt."
     ),
@@ -726,7 +764,7 @@ _STRINGS_DE: dict[str, str] = {
     "ui.survey.answered": "beantwortet",
     "ui.survey.unanswered": "offen",
     # -- UI: Lösung ----------------------------------------------------------------------
-    "ui.solve.header": "Zielfunktion und Solver",
+    "ui.solve.header": "Lösung",
     "ui.solve.run": "Verpartnerung berechnen",
     "ui.solve.objective": "Zielfunktion",
     "ui.solve.aggregation": "Wertung",
@@ -740,11 +778,10 @@ _STRINGS_DE: dict[str, str] = {
     "ui.solve.normalize": "Punkte bei Doppelbesetzung halbieren",
     "ui.solve.prefer_coupled": "Vollständige Doppelbesetzungen bevorzugen",
     "ui.solve.advanced": "Weitere Einstellungen",
-    "ui.solve.cards_header": "Positionen",
     "ui.solve.doubled_badge": "Doppelbesetzung",
     "ui.solve.groups_hint": (
         "Gleich nummerierte Tänzer:innen lassen sich frei tauschen — jede Anordnung ist "
-        "gleichwertig. Details auf der Analyse-Seite."
+        "gleichwertig. Details im Reiter »Zufriedenheit«."
     ),
     "ui.solve.fulfilled_badge": "erfüllt",
     "ui.solve.violated_badge": "verletzt",
@@ -762,8 +799,7 @@ _STRINGS_DE: dict[str, str] = {
     "ui.aggregation.sum": "Summe der erfüllten Wünsche",
     "ui.scope.cross_role_only": "nur rollenübergreifend",
     "ui.scope.all": "alle",
-    # -- UI: Analyse ---------------------------------------------------------------------
-    "ui.analysis.header": "Zufriedenheit",
+    # -- UI: Reiter der Lösung (Zufriedenheit, Alternativen, Tänzer:in) ------------------
     "ui.analysis.hint": "Unzufriedenste zuerst — das ist die Zeile, die Sie brauchen.",
     "ui.analysis.col_position": "Position",
     "ui.analysis.col_satisfaction": "Zufriedenheit",
@@ -774,14 +810,57 @@ _STRINGS_DE: dict[str, str] = {
     "ui.analysis.groups_none": (
         "Nichts zu tauschen — keine Umstellung dieser Lösung ist gleichwertig."
     ),
-    "ui.analysis.shortlist_header": "Gleichwertige Lösungen",
-    "ui.analysis.pick": "Lösung",
     "ui.analysis.only_one": "Es gibt nur eine Lösung — hier gibt es nichts zu vergleichen.",
     "ui.analysis.diff_header": "Unterschied zu Lösung {index}",
     "ui.analysis.diff_none": "Kein Unterschied.",
     "ui.analysis.col_from": "von",
     "ui.analysis.col_to": "nach",
-    "ui.analysis.detail_header": "Einzelne Tänzer:in",
+    # -- UI: Seitenleiste, Überblick, nicht übernommene Änderungen, Export ---------------
+    "ui.sidebar.team": "{n_dancers} Tänzer:innen · {n_positions} Positionen",
+    "ui.sidebar.no_team": "Kein Team geladen.",
+    "ui.sidebar.load": "Laden / neu / Beispiel",
+    "ui.sidebar.unsaved": "Ungespeicherte Änderungen — zum Behalten herunterladen.",
+    "ui.pending.sidebar": "{n} nicht übernommene Änderung(en)",
+    "ui.pending.roster": (
+        "Aufstellung, Positionen oder Regeln auf »Team« sind geändert, aber noch nicht übernommen."
+    ),
+    "ui.pending.surveys": "Umfrage-Änderungen für {names} sind noch nicht übernommen.",
+    "ui.home.welcome": (
+        "Teamdatei laden, neues Team anlegen oder das Beispiel ausprobieren. Laden und "
+        "Speichern finden Sie auf jeder Seite auch in der Seitenleiste."
+    ),
+    "ui.home.steps": "Wo Sie stehen",
+    "ui.home.step_team": (
+        "① Team: {n_dancers} Tänzer:innen, {n_positions} Positionen, {n_rules} Trainervorgabe(n)"
+    ),
+    "ui.home.step_survey": "② Umfrage: {n} von {total} beantwortet",
+    "ui.home.step_solution_done": "③ Lösung: für dieses Team berechnet",
+    "ui.home.step_solution_open": "③ Lösung: noch nicht berechnet",
+    "ui.home.created": (
+        "Neues Team mit {n_positions} Positionen. Positionen und Tänzer:innen auf »Team« festlegen."
+    ),
+    "ui.feasibility.assumes": (
+        "Geht aus von harten Vetos: {veto}; gewertete Wünsche: {scope}. Beides wird auf "
+        "»Lösung« eingestellt."
+    ),
+    "ui.feasibility.veto_upto": "bis {label}",
+    "ui.survey.prev": "Zurück",
+    "ui.survey.next": "Weiter",
+    "ui.survey.next_open": "Nächste offene",
+    "ui.survey.pending_here": "Änderungen für {name} sind noch nicht übernommen.",
+    "ui.team.coach_pending": "Regeln werden zusammen mit der Aufstellung übernommen.",
+    "ui.solve.tab_positions": "Positionen",
+    "ui.solve.tab_satisfaction": "Zufriedenheit",
+    "ui.solve.tab_alternatives": "Alternativen",
+    "ui.solve.tab_dancer": "Tänzer:in",
+    "ui.solve.pick": "Lösung",
+    "ui.solve.dancer_pick": "Tänzer:in erklären",
+    "ui.export.json": "Ergebnis herunterladen (JSON)",
+    "ui.export.json_hint": (
+        "Dieselbe Datei, die »dancepartner solve --json« schreibt — »dancepartner explain "
+        "team.yaml result.json --dancer …« liest sie."
+    ),
+    "ui.export.csv": "Lösung {index} herunterladen (CSV)",
     # -- language names (native in both tables, so the toggle is always readable) ---------
     "language.en": "English",
     "language.de": "Deutsch",

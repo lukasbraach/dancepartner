@@ -17,7 +17,7 @@ from streamlit.testing.v1 import AppTest
 
 import persistence
 from dancepartner.i18n import TABLES, Language
-from dancepartner.model import Team
+from dancepartner.model import Objective, SolverConfig, Team
 from dancepartner.storage import dump_team, load_team
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -322,3 +322,86 @@ def test_the_language_is_stamped_into_the_url_beside_the_draft() -> None:
     at.run()
     assert _param(at, persistence.LANG_PARAM) == Language.DE.value
     assert TABLES[Language.DE]["ui.title"] in [element.value for element in at.title]
+
+
+# -- the solver settings beside the draft -------------------------------------------------------
+
+
+def test_the_browser_remembers_the_solver_settings_beside_the_draft(wasm: Path, tiny: Team) -> None:
+    """A reload restores the team; it must not silently reset every setting to its default."""
+    persistence.save_draft(tiny)
+    persistence.save_config(SolverConfig(objective=Objective.WEIGHTED_SUM))
+    assert list(wasm.glob("*.config.json"))
+
+    st.session_state.clear()  # what a reload leaves behind
+    restored = persistence.load_config()
+    assert restored is not None
+    assert restored.objective is Objective.WEIGHTED_SUM
+    # A sidecar is not a version: the history counts drafts only.
+    assert persistence.history() == []
+
+
+def test_settings_without_a_draft_are_not_stored(wasm: Path) -> None:
+    # No token left over from an earlier test -- in the session or in the bare run's URL.
+    st.session_state.clear()
+    st.query_params.clear()
+    persistence.save_config(SolverConfig())
+    assert not list(wasm.glob("*.config.json"))
+    assert persistence.load_config() is None
+
+
+def test_unreadable_solver_settings_fall_back_to_the_defaults(wasm: Path, tiny: Team) -> None:
+    persistence.save_draft(tiny)
+    token = st.session_state[persistence._TOKEN_KEY]
+    (wasm / f"{token}.config.json").write_text('{"objective": "nonsense"}', encoding="utf-8")
+    assert persistence.load_config() is None
+
+
+def test_restoring_a_version_brings_its_settings_back(wasm: Path, tiny: Team, small: Team) -> None:
+    persistence.mint_new()
+    persistence.save_draft(tiny)
+    persistence.save_config(SolverConfig(objective=Objective.WEIGHTED_SUM))
+    persistence.mint_new()
+    persistence.save_draft(small)
+    persistence.save_config(SolverConfig(objective=Objective.LEXIMIN))
+
+    earlier = persistence.history()[0].token
+    assert persistence.restore(earlier) is not None
+    restored = persistence.load_config(earlier)
+    assert restored is not None
+    assert restored.objective is Objective.WEIGHTED_SUM
+
+
+def test_pruning_and_discarding_take_the_sidecars_along(wasm: Path, tiny: Team) -> None:
+    for _ in range(persistence.MAX_HISTORY + 4):
+        persistence.mint_new()
+        persistence.save_draft(tiny)
+        persistence.save_config(SolverConfig())
+    drafts = {p.name.removesuffix(".draft.yaml") for p in wasm.glob("*.draft.yaml")}
+    sidecars = {p.name.removesuffix(".config.json") for p in wasm.glob("*.config.json")}
+    assert sidecars == drafts, "no orphaned settings on the mount"
+
+    persistence.clear_draft()
+    assert not list(wasm.glob("*.config.json"))
+
+
+def test_a_refresh_restores_the_solver_settings_from_the_token() -> None:
+    """The server side, through the pages: choose a setting, reload, find it chosen."""
+    first = AppTest.from_file(HOME, default_timeout=60).run()
+    _click(first, "ui.load.example_button")
+    token = _token(first)
+
+    solving = AppTest.from_file(
+        str(REPO_ROOT / "app" / "pages" / "solution.py"), default_timeout=60
+    )
+    solving.query_params[persistence.DRAFT_PARAM] = token
+    solving.session_state["team"] = first.session_state["team"]
+    solving.run()
+    solving.selectbox[0].set_value(Objective.WEIGHTED_SUM).run()
+    assert solving.session_state["config"].objective is Objective.WEIGHTED_SUM
+
+    second = AppTest.from_file(HOME, default_timeout=60)
+    second.query_params[persistence.DRAFT_PARAM] = token
+    second.run()
+    assert not second.exception
+    assert second.session_state["config"].objective is Objective.WEIGHTED_SUM

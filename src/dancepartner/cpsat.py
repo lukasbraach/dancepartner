@@ -419,14 +419,15 @@ def _build_scores(
     """One integer score variable per dancer, on ``config.score_scale``.
 
     ``score[d] = sum_e weight(d, e) * together[d, e]``, with the cross-role part halved when
-    the dancer's position holds two dancers of the opposite role. Under
-    ``ScoreAggregation.BEST`` the positive weights leave that sum and enter as
-    ``max_e weight(d, e) * scale * together[d, e]`` instead — never halved, because a maximum
-    cannot double-collect (see ``SolverConfig.aggregation``); the negative weights keep the
-    summed, halved semantics.
+    the dancer's position holds two dancers of the opposite role. The halving is written per
+    weight term as ``scale * w * together - (scale - 1) * w * (together AND partner_doubled)``:
+    an exact reified AND per term, no switch variable. Under ``ScoreAggregation.BEST`` the
+    positive weights leave that sum and enter as ``max_e weight(d, e) * scale * together[d, e]``
+    instead — never halved, because a maximum cannot double-collect (see
+    ``SolverConfig.aggregation``); the negative weights keep the summed, halved semantics.
 
-    Returns the score variables and the absolute bound their domain was given, which the
-    maximin stage reuses for ``lo``.
+    Returns the score variables and the absolute bound their domain was given -- the largest
+    per-dancer weight sum on the score scale -- which the maximin and leximin stages reuse.
     """
     weights = build_weights(team, config)
     by_id = team.dancers_by_id
@@ -440,7 +441,14 @@ def _build_scores(
         bucket = cross_terms if by_id[source].role is not by_id[target].role else same_terms
         bucket[source].append((weight, variable))
 
-    bound = sum(abs(weight) for weight in weights.values()) * scale + 1
+    # |score_d| <= scale * sum of |w| over d's own entries in every branch below, so the largest
+    # per-dancer sum bounds every score and every floor built on them. The instance-wide sum
+    # would do too, but a 13-30x looser domain on a real roster; see ``highs._build_scores``.
+    bound = (
+        max(sum(abs(w) for w, _ in (*cross_terms[d.id], *same_terms[d.id])) for d in team.dancers)
+        * scale
+        + 1
+    )
     score: dict[str, cp_model.IntVar] = {}
     for dancer in team.dancers:
         cross = cross_terms[dancer.id]
@@ -467,14 +475,26 @@ def _build_scores(
             score[dancer.id] = total
             continue
 
+        # The cross part is raw_cross when the opposite role is doubled here, scale * raw_cross
+        # otherwise: per term, scale * w * together - (scale - 1) * w * halved with
+        # halved = together AND partner_doubled, the same reification ``_leximin_stages`` uses.
+        # This replaced a switch variable with two enforced equalities; the two are equivalent,
+        # but the AND per term relaxes far better -- 12 s against 1.2 s for weighted-sum under
+        # ``--aggregation sum`` on the large example, and thirtyfold for the HiGHS mirror.
         partner_doubled = _partner_doubled(model, x, doubled, team, dancer.id)
-        scaled_cross = model.new_int_var(-bound, bound, f"scaled_cross[{dancer.id}]")
-        # A binary factor, so two enforced linear equalities express the product exactly and
-        # stay linear -- CP-SAT propagates that far better than AddMultiplicationEquality.
-        model.add(scaled_cross == scale * raw_cross).only_enforce_if(partner_doubled.negated())
-        model.add(scaled_cross == raw_cross).only_enforce_if(partner_doubled)
+        halved: list[cp_model.LinearExpr] = []
+        for index, (weight, variable) in enumerate(cross):
+            flag = model.new_bool_var(f"halved[{dancer.id},{index}]")
+            model.add_bool_and([variable, partner_doubled]).only_enforce_if(flag)
+            model.add_bool_or([variable.negated(), partner_doubled.negated()]).only_enforce_if(
+                flag.negated()
+            )
+            halved.append(weight * flag)
         total = model.new_int_var(-bound, bound, f"score[{dancer.id}]")
-        model.add(total == best_fulfilled + scaled_cross + scale * raw_same)
+        model.add(
+            total
+            == best_fulfilled + scale * raw_cross - (scale - 1) * sum(halved) + scale * raw_same
+        )
         score[dancer.id] = total
     return score, bound
 

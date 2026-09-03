@@ -28,6 +28,12 @@ the URL and reruns the script, but ``st.query_params`` still reports the *newest
 Python cannot see which draft the URL points at. ``st.context.url`` is no way out either -- it
 carries no query string at all. Verified on 1.62; the browser build's 1.57 is older still.
 
+The solver settings ride beside the draft as a small JSON sidecar -- one per version, written
+by ``save_config`` whenever the coach changes a setting and read back with the draft. They never
+go *into* the team YAML: that file's shape is SPEC.md 9's contract and describes a team, not a
+run. Losing the sidecar costs the coach a few clicks, so an unreadable one falls back to the
+defaults rather than to an error.
+
 Both backends are best effort. Every entry point swallows its own failures: a draft that cannot
 be written must never break the page the coach is standing on. A private window with IndexedDB
 disabled simply degrades to "a reload loses the team", which is where this project started.
@@ -45,7 +51,7 @@ from typing import Final
 
 import streamlit as st
 
-from dancepartner.model import Team
+from dancepartner.model import SolverConfig, Team
 from dancepartner.storage import StorageError, dump_team, parse_team
 
 logger = logging.getLogger(__name__)
@@ -83,6 +89,9 @@ _HISTORY_KEY: Final = "draft_history"
 # with an ErrnoError before Streamlit ever renders.
 MOUNTPOINT: Final = Path("/mnt")
 _SUFFIX: Final = ".draft.yaml"
+_CONFIG_SUFFIX: Final = ".config.json"
+"""The solver settings that go with one draft. A sibling of the draft, not a part of it: the
+draft glob below matches ``*.draft.yaml`` only, so the history never counts a sidecar."""
 _LANGUAGE_FILE: Final = "language"
 
 MAX_HISTORY: Final = 10
@@ -114,21 +123,29 @@ def _path(token: str) -> Path:
     return MOUNTPOINT / f"{token}{_SUFFIX}"
 
 
-def _wasm_read(token: str) -> str | None:
+def _config_path(token: str) -> Path:
+    return MOUNTPOINT / f"{token}{_CONFIG_SUFFIX}"
+
+
+def _token_of(draft: Path) -> str:
+    return draft.name.removesuffix(_SUFFIX)
+
+
+def _wasm_read(path: Path) -> str | None:
     try:
-        return _path(token).read_text(encoding="utf-8")
-    except OSError:  # never mounted, never written, quota exhausted -- all mean "no draft"
+        return path.read_text(encoding="utf-8")
+    except OSError:  # never mounted, never written, quota exhausted -- all mean "nothing here"
         return None
 
 
-def _wasm_write(token: str, text: str) -> None:
+def _wasm_write(path: Path, text: str) -> bool:
     try:
         MOUNTPOINT.mkdir(parents=True, exist_ok=True)
-        _path(token).write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
     except OSError:
-        logger.debug("could not write the browser draft", exc_info=True)
-        return
-    _wasm_prune()
+        logger.debug("could not write to the browser mount", exc_info=True)
+        return False
+    return True
 
 
 def _wasm_files() -> list[Path]:
@@ -140,13 +157,22 @@ def _wasm_files() -> list[Path]:
     return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
+def _wasm_sidecars() -> list[Path]:
+    """Every stored settings sidecar, orphaned or not."""
+    try:
+        return [p for p in MOUNTPOINT.glob(f"*{_CONFIG_SUFFIX}") if p.is_file()]
+    except OSError:
+        return []
+
+
 def _wasm_prune() -> None:
-    """Drop everything past :data:`MAX_HISTORY`, oldest first."""
+    """Drop everything past :data:`MAX_HISTORY`, oldest first, each draft with its sidecar."""
     for stale in _wasm_files()[MAX_HISTORY:]:
-        try:
-            stale.unlink(missing_ok=True)
-        except OSError:  # pragma: no cover -- unlink on a listed file
-            logger.debug("could not prune a browser draft", exc_info=True)
+        for path in (stale, _config_path(_token_of(stale))):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:  # pragma: no cover -- unlink on a listed file
+                logger.debug("could not prune a browser draft", exc_info=True)
 
 
 # -- the language preference --------------------------------------------------------------------
@@ -275,10 +301,8 @@ def load_draft(token: str | None = None) -> Team | None:
         token = _token()
     if IS_WASM:
         if token is None:
-            recent = _wasm_files()
-            text = recent[0].read_text(encoding="utf-8") if recent else None
-        else:
-            text = _wasm_read(token)
+            token = _most_recent_token()
+        text = _wasm_read(_path(token)) if token else None
     else:
         text = _slot(token).get("yaml") if token else None
     if not text:
@@ -291,6 +315,12 @@ def load_draft(token: str | None = None) -> Team | None:
         return None
 
 
+def _most_recent_token() -> str | None:
+    """The token of the newest draft on the mount, for a reload whose URL lost its token."""
+    recent = _wasm_files()
+    return _token_of(recent[0]) if recent else None
+
+
 def save_draft(team: Team) -> None:
     """Record ``team`` as the current version. Never raises."""
     try:
@@ -300,9 +330,49 @@ def save_draft(team: Team) -> None:
         return
     token = _mint()
     if IS_WASM:
-        _wasm_write(token, text)
+        if _wasm_write(_path(token), text):
+            _wasm_prune()
     else:
         _slot(token).update(yaml=text, saved_at=str(time.time()))
+
+
+def save_config(config: SolverConfig) -> None:
+    """Record the solver settings that go with the current draft. Never raises.
+
+    Nothing to attach them to -- no token yet -- means nothing to do: settings are only worth
+    keeping alongside the team they were chosen for.
+    """
+    token = _token()
+    if token is None:
+        return
+    text = config.model_dump_json()
+    if IS_WASM:
+        _wasm_write(_config_path(token), text)
+    else:
+        _slot(token)["config"] = text
+
+
+def load_config(token: str | None = None) -> SolverConfig | None:
+    """The settings stored beside a draft, defaulting to the current one. ``None`` if none.
+
+    Same fallback as :func:`load_draft`: on the browser build a missing token means the most
+    recent draft, so the settings come back with the same team a stripped URL restores.
+    """
+    if token is None:
+        token = _token()
+    if IS_WASM:
+        if token is None:
+            token = _most_recent_token()
+        text = _wasm_read(_config_path(token)) if token else None
+    else:
+        text = _slot(token).get("config") if token else None
+    if not text:
+        return None
+    try:
+        return SolverConfig.model_validate_json(text)
+    except ValueError:  # pydantic's ValidationError included: a sidecar from an older model
+        logger.debug("discarding unreadable solver settings", exc_info=True)
+        return None
 
 
 def history() -> list[DraftEntry]:
@@ -315,7 +385,7 @@ def history() -> list[DraftEntry]:
     entries: list[DraftEntry] = []
     if IS_WASM:
         for path in _wasm_files():
-            token = path.name.removesuffix(_SUFFIX)
+            token = _token_of(path)
             if token != current:
                 entries.append(_entry(token, path.stat().st_mtime, path.read_text("utf-8")))
     else:
@@ -347,7 +417,7 @@ def restore(token: str) -> Team | None:
 def clear_draft() -> None:
     """Forget every draft this browser holds, and stop a shared URL from resolving one."""
     if IS_WASM:
-        for path in _wasm_files():
+        for path in (*_wasm_files(), *_wasm_sidecars()):
             try:
                 path.unlink(missing_ok=True)
             except OSError:

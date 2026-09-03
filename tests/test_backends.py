@@ -16,6 +16,8 @@ from dancepartner.model import Objective, ScoreAggregation, SolverConfig, Team
 from dancepartner.results import SolveResult
 from dancepartner.storage import load_team
 
+from .builders import desired, not_desired, team, tier
+
 
 @pytest.fixture
 def no_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,15 +103,33 @@ def _stage_vector(result: SolveResult) -> list[tuple[str, int]]:
 
 @pytest.mark.parametrize("objective", list(Objective))
 @pytest.mark.parametrize("aggregation", list(ScoreAggregation))
+@pytest.mark.parametrize("normalize", [True, False])
 def test_both_backends_reach_the_same_stage_values(
-    objective: Objective, aggregation: ScoreAggregation, small: Team
+    objective: Objective, aggregation: ScoreAggregation, normalize: bool
 ) -> None:
+    """Every score-bearing construct has to fire, or the comparison proves nothing.
+
+    Four couples on three positions, so exactly one position is doubled. ``led0`` wants either
+    of two followers, ``led1`` dislikes one of them below the veto tier: the doubled position
+    can carry a granted wish and a halved violation at once, which is what exercises the
+    normalisation encoding in both backends. The all-zero ``small`` instance would pass with
+    the halving mis-modelled.
+    """
     pytest.importorskip("ortools")
     pytest.importorskip("highspy")
-    config = SolverConfig(objective=objective, aggregation=aggregation, max_solutions=1)
+    instance = team(
+        4, 4, 3, desired("led0", tier(1, "fol0", "fol1")), not_desired("led1", tier(1, "fol1"))
+    )
+    config = SolverConfig(
+        objective=objective,
+        aggregation=aggregation,
+        normalize_double=normalize,
+        veto_tier=None,
+        max_solutions=1,
+    )
 
-    cpsat = solver.solve(small, config, backend="cpsat")
-    highs = solver.solve(small, config, backend="highs")
+    cpsat = solver.solve(instance, config, backend="cpsat")
+    highs = solver.solve(instance, config, backend="highs")
 
     assert _stage_vector(highs) == _stage_vector(cpsat)
     assert highs.best.total_score == cpsat.best.total_score

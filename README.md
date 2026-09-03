@@ -1,5 +1,12 @@
 # dancepartner
 
+[![CI](https://github.com/lukasbraach/dancepartner/actions/workflows/ci.yml/badge.svg)](https://github.com/lukasbraach/dancepartner/actions/workflows/ci.yml)
+[![Pages](https://github.com/lukasbraach/dancepartner/actions/workflows/pages.yml/badge.svg)](https://github.com/lukasbraach/dancepartner/actions/workflows/pages.yml)
+[![Docker](https://github.com/lukasbraach/dancepartner/actions/workflows/docker.yml/badge.svg)](https://github.com/lukasbraach/dancepartner/actions/workflows/docker.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Open the app](https://img.shields.io/badge/open%20the%20app-in%20your%20browser-FF4B4B?logo=streamlit&logoColor=white)](https://lukasbraach.github.io/dancepartner/)
+
 > Deutsche Version: [README.de.md](README.de.md)
 
 Partnering a Latin formation team as an exact optimization problem.
@@ -10,6 +17,12 @@ solver from OR-Tools.
 
 The tool decides nothing. It makes visible what the numbers allow: who stays unsatisfied, why, and whether there is an
 alternative. The line-up is made by the coach.
+
+> **Try it — nothing to install.** [lukasbraach.github.io/dancepartner](https://lukasbraach.github.io/dancepartner/) runs the whole app in your browser,
+> solver included. Load the example team, press "Compute partner assignment", and look around. Your survey data never
+> leaves your device: there is no server behind the page. The first visit downloads about 30 MB; after that it works
+> offline and can be installed like an app. The same interface also runs locally (`make ui`) or on your own server
+> ([Deployment](#deployment)).
 
 ## What the program models
 
@@ -193,7 +206,7 @@ Günther on position G.
 
 On top of the shortlist, the program marks **exchange groups**: sets of dancers who can be permuted freely over their
 positions — every arrangement keeps every hard constraint and the score vector, so a swap within a group costs nothing
-at all. Their dancers carry the group's number (1️⃣, 2️⃣, …) right on the solution cards and in the analysis table. This
+at all. Their dancers carry the group's number (1️⃣, 2️⃣, …) right on the solution cards and in the Satisfaction tab. This
 example team has none — Leah Dorn's move resizes two positions rather than swapping two dancers, which is exactly what
 the solution browser is for.
 
@@ -224,8 +237,8 @@ nothing.
 
 ## Performance
 
-Measured on an Apple Silicon laptop (arm64, macOS), Python 3.11.9, OR-Tools 9.15,
-`num_workers = 1` for reproducibility, best of three runs. The times are reported by
+Measured on an Apple Silicon laptop (arm64, macOS), Python 3.12.6, OR-Tools 9.15, HiGHS 1.11.0,
+`num_workers = 1` for reproducibility, `--top 1`, best of three runs. The times are reported by
 `SolveResult.wall_time`, i.e. the sum over all solver stages. Both instances live in the repository:
 `data/team.example.yaml` (20 dancers, wishes down to rank 2) and
 `data/team.large.example.yaml` (24 dancers, down to rank 3).
@@ -234,22 +247,22 @@ With the default best-wish aggregation, every objective is fast on both instance
 
 | Objective             | 20 dancers | Branches | 24 dancers | Branches |
 |-----------------------|-----------:|---------:|-----------:|---------:|
-| `weighted-sum`        |     0.01 s |      826 |     0.03 s |    3,037 |
-| `maximin-then-sum`    |     0.01 s |    1,108 |     0.04 s |    3,751 |
-| `leximin`             |     0.03 s |      929 |     0.05 s |    3,710 |
-| `lexicographic-tiers` |     0.01 s |      814 |     0.04 s |    2,452 |
+| `weighted-sum`        |     0.01 s |      832 |     0.03 s |    3,037 |
+| `maximin-then-sum`    |     0.01 s |    1,114 |     0.04 s |    3,751 |
+| `leximin`             |     0.03 s |      929 |     0.06 s |    3,710 |
+| `lexicographic-tiers` |     0.02 s |      814 |     0.04 s |    2,452 |
 
 The hard case is the summed aggregation (`--aggregation sum`) on the large instance:
 
 | Objective, `--aggregation sum` | 24 dancers |  Branches |
 |--------------------------------|-----------:|----------:|
-| `weighted-sum`                 | **11.8 s** | 1,007,227 |
-| `maximin-then-sum`             | **11.9 s** | 1,011,225 |
-| `leximin`                      |     0.16 s |    15,380 |
-| `lexicographic-tiers`          |     0.05 s |     4,306 |
+| `weighted-sum`                 |  **1.1 s** |   108,983 |
+| `maximin-then-sum`             |  **1.6 s** |    93,445 |
+| `leximin`                      |     0.18 s |    16,774 |
+| `lexicographic-tiers`          |     0.05 s |     3,723 |
 
 All four find the same summed total there (101), but need very different amounts of time to do so. And contrary to the
-obvious guess: `leximin` runs two stages per round and looks expensive, yet is roughly 70 times faster here than the
+obvious guess: `leximin` runs two stages per round and looks expensive, yet is roughly six times faster here than the
 plain sum.
 
 The reason is the burden of proof. Under `sum`, `weighted-sum` has to show that no line-up with 102 points exists, and a
@@ -262,10 +275,10 @@ In practice:
 
 * With the default aggregation every objective finishes in well under a tenth of a second on both instances. **Decide by
   content, not by speed.**
-* Under `--aggregation sum`, if `maximin-then-sum` takes too long, `leximin` delivers the same total on this data in a
-  fraction of the time — and is even the stronger statement.
-* Enumeration costs almost nothing: `--top 50` instead of `--top 1` adds less than 0.2 s, because the second pass works
-  on a model whose optima are already fixed.
+* Under `--aggregation sum`, `leximin` delivers the same total on this data in a fraction of `maximin-then-sum`'s time —
+  and is even the stronger statement.
+* Enumeration costs almost nothing: `--top 50` instead of `--top 1` adds a few milliseconds, because the second pass
+  works on a model whose optima are already fixed.
 * `--time-limit` is the emergency brake, not the normal case. If the solver runs into it, it reports `FEASIBLE` instead
   of `OPTIMAL`: the result is valid but not proven best. If it had no solution yet, none comes back (exit code 3).
 
@@ -276,31 +289,31 @@ because OR-Tools has no WebAssembly wheel. Same instances, same method, `--backe
 
 | Objective, default aggregation | cpsat 20 | highs 20 | cpsat 24 | highs 24 |
 |--------------------------------|---------:|---------:|---------:|---------:|
-| `leximin`                      |   0.03 s |   0.08 s |   0.06 s |   0.53 s |
-| `weighted-sum`                 |   0.01 s |   0.05 s |   0.03 s |   0.68 s |
-| `maximin-then-sum`             |   0.02 s |   0.06 s |   0.05 s |   0.47 s |
-| `lexicographic-tiers`          |   0.02 s |   0.06 s |   0.04 s |   1.24 s |
+| `leximin`                      |   0.03 s |   0.05 s |   0.06 s |   0.58 s |
+| `weighted-sum`                 |   0.01 s |   0.02 s |   0.03 s |   0.17 s |
+| `maximin-then-sum`             |   0.01 s |   0.03 s |   0.04 s |   0.18 s |
+| `lexicographic-tiers`          |   0.02 s |   0.04 s |   0.04 s |   0.56 s |
 
 | Objective, `--aggregation sum` | cpsat 20 | highs 20 | cpsat 24 | highs 24 |
 |--------------------------------|---------:|---------:|---------:|---------:|
-| `leximin`                      |   0.05 s |   0.18 s |   0.18 s |   4.09 s |
-| `weighted-sum`                 |   0.05 s |   1.36 s | 13.1 s \* |  140 s \* |
-| `maximin-then-sum`             |   0.06 s |   1.91 s | 12.4 s \* |  146 s \* |
-| `lexicographic-tiers`          |   0.03 s |   0.09 s |   0.06 s |   2.82 s |
+| `leximin`                      |   0.05 s |   0.07 s |   0.18 s |    1.8 s |
+| `weighted-sum`                 |   0.03 s |   0.06 s |    1.1 s |    9.3 s |
+| `maximin-then-sum`             |   0.05 s |   0.06 s |    1.6 s |   10.2 s |
+| `lexicographic-tiers`          |   0.02 s |   0.06 s |   0.05 s |    2.4 s |
 
-\* Single runs of one measurement, not best of three, and the HiGHS side needs `--time-limit` raised above its
-30 s default. Both columns of a starred row come from the same run, so the comparison within it is fair.
+Both solvers reach the same answer everywhere in both tables. HiGHS is a factor of two to ten slower in most cells,
+forty-five in the worst one (`lexicographic-tiers` under `sum` on 24 dancers), and at the default aggregation that is
+the difference between instant and still instant. Enumeration holds up better than expected: `--top 50` on the
+20-dancer instance costs 0.06 s against CP-SAT's 0.03 s, even though HiGHS has no solution pool and has to re-solve
+with a no-good cut per assignment — the model is so tightly pinned by then that each re-solve is nearly free.
 
-Both solvers reach the same answer everywhere in both tables. HiGHS is a factor of three to thirty slower, and at the
-default aggregation that is the difference between instant and still instant. Enumeration holds up better than
-expected: `--top 50` on the 20-dancer instance costs 0.11 s against CP-SAT's 0.04 s, even though HiGHS has no solution
-pool and has to re-solve with a no-good cut per assignment — the model is so tightly pinned by then that each re-solve
-is nearly free.
-
-The two starred cells are the honest part. They are the same combinations the notes above already single out as
-pathological, and the gap widens there from a factor of thirty to a factor of eleven on top of an already slow solve.
-Under `--aggregation sum` on the larger instance, use `leximin` — which is the stronger statement anyway, and the
-default.
+The two `sum` cells for `weighted-sum` and `maximin-then-sum` on 24 dancers used to be the honest part of this table:
+140 s and 146 s on HiGHS, single runs above the 30 s default time limit, and 12 s on CP-SAT. What changed is the model,
+not the solvers. The halving of a doubled dancer's cross-role score was a switch variable — four big-M rows in the MILP,
+two enforced equalities in CP-SAT — and its LP relaxation was weak enough to be the whole cost of those cells. Written
+as an exact AND per weight term instead (SPEC.md §8, *Normalisation*), the same optimum arrives in a tenth of the time
+on both backends, and every cell now finishes inside the default time limit. Under `--aggregation sum` on the larger
+instance, `leximin` is still the fastest choice — and the stronger statement anyway, and the default.
 
 To verify:
 
@@ -310,16 +323,26 @@ make cli TEAM=data/team.large.example.yaml DANCER=carolin-r
 
 ## The interface
 
-`make ui` starts a home page and four working pages:
+`make ui` starts a home page and three working pages, in the order of the work: Team → Survey → Solution.
 
-* **Home**: upload or create a team, or load the example; pre-check; download the team as YAML.
-* **Team**: the dancers as a table with name, role, pole position, coaching need — and below it the coach rules,
-  which name dancers from that table.
-* **Survey**: any number of ranks per person and direction; conflicts are reported immediately.
-* **Solution**: configure the objective, solve, the eight positions as cards — dancers who can be swapped freely at zero
-  cost are numbered 1️⃣, 2️⃣, …
-* **Analysis**: satisfaction sorted ascending, the exchange groups of the selected solution, plus the comparison of the
-  equally good solutions.
+* **The sidebar**, on every page: the language, what is loaded, whether it is saved, the download that saves it, a
+  compact "Load / new / example" control, the earlier versions with a button back to each, and the page menu. The last
+  step of the evening is a download, and it never requires walking back to the first page.
+* **Home**: an overview. While nothing is loaded, the three ways in. Once something is, one card per step — how many
+  dancers and rules, how many surveys are in, whether a solution has been computed — each linking to its page, and the
+  pre-check, which says which veto tier and wish scope it assumes.
+* **Team**: the dancers as a table with name, role, pole position, coaching need; the number of positions; and below
+  them the coach rules, which name dancers from that table. One **Apply** for all of it.
+* **Survey**: any number of ranks per person and direction; conflicts are reported immediately. A progress bar and
+  Previous / Next / Next unanswered buttons, and the picker stays on the dancer you just applied.
+* **Solution**: the settings with the pre-check right beside them, the solve, then one solution picker and four tabs —
+  the eight positions as cards (dancers who can be swapped freely at zero cost are numbered 1️⃣, 2️⃣, …), satisfaction
+  sorted ascending, the alternatives with a diff against the selected solution, and one dancer explained. The result
+  can be downloaded as JSON (the same file `dancepartner solve --json` writes, so `explain` reads it) or as a CSV of the
+  selected solution, one row per dancer.
+
+Nothing you type reaches the team before you press Apply, and nothing you typed is lost before that: unapplied edits
+survive opening another page, and the sidebar counts them until they are applied.
 
 Saving happens only at the press of a button, and takes the form of a download — the app has no writable path of its own
 once it is served to a browser. PyYAML cannot preserve comments; an autosave would silently strip them from a
@@ -328,11 +351,11 @@ hand-maintained team file.
 What the app *does* keep by itself is a **draft**: the team as it stands right now, so that a reload does not cost you
 an evening of survey entry. A draft is not a save — it never clears the unsaved-changes warning, and it is never written
 to the file the team came from. In the browser version it lives in that browser's IndexedDB; on a server it lives in
-memory, keyed by the
-`?draft=` token in the URL. Neither one reaches a disk.
+memory, keyed by the `?draft=` token in the URL. Neither one reaches a disk. The solver settings travel with the draft,
+so a reload brings back the objective you had chosen along with the team.
 
 Loading a team keeps the previous one, so trying the example does not throw away what you had. Editing overwrites the
-current version rather than piling up another; the last ten are listed under "Earlier versions" on the start page, with
+current version rather than piling up another; the last ten are listed under "Earlier versions" in the sidebar, with
 a button back to each. That list is there rather than the browser's back button because Streamlit cannot see which
 version a back press points at ([streamlit#13963](https://github.com/streamlit/streamlit/issues/13963)).
 
@@ -351,7 +374,7 @@ the same answer; the [specification](SPEC.md) explains how that is enforced.
 | Edit the roster and the survey           | ✅                   | ✅                              | ✅                            |
 | Feasibility pre-check                    | ✅                   | ✅                              | ✅                            |
 | **Compute an assignment**                | ✅ CP-SAT            | ✅ HiGHS                        | ✅ CP-SAT                     |
-| **Analysis, exchange groups, shortlist** | ✅                   | ✅                              | ✅                            |
+| **Satisfaction, exchange groups, shortlist** | ✅                   | ✅                              | ✅                            |
 | The CLI                                  | ✅                   | ❌                              | ✅ via `docker exec`          |
 | Works offline                            | ✅                   | ✅ after the first visit        | ❌ needs the server           |
 | The language setting sticks              | ✅ in the URL        | ✅ across fresh visits          | ✅ in the URL                 |
